@@ -166,7 +166,8 @@ def window_score(board, r, c, color):
     return total
 
 
-def ai_move(board):
+def ai_move(board, level="normal"):
+    """level: easy(자주 놓침) / normal / hard(공격·수비 모두 꼼꼼히)"""
     color = board.turn
     opp = other(color)
     cands = set()
@@ -184,11 +185,26 @@ def ai_move(board):
     for p in legal:  # 이기는 수
         if board.five_at(p[0], p[1], color):
             return p
-    for p in legal:  # 상대가 이기는 자리 막기
-        if board.five_at(p[0], p[1], opp):
+    for p in legal:  # 상대가 이기는 자리 막기 (쉬움은 가끔 놓침)
+        if board.five_at(p[0], p[1], opp) and (level != "easy" or random.random() < 0.6):
             return p
-    return max(legal, key=lambda p: window_score(board, p[0], p[1], color) * 1.12 +
-               window_score(board, p[0], p[1], opp) + random.random())
+    noise = {"easy": 900.0, "normal": 60.0}.get(level, 1.0)
+    ranked = sorted(legal, key=lambda p: window_score(board, p[0], p[1], color) * 1.12 +
+                    window_score(board, p[0], p[1], opp) + random.random() * noise, reverse=True)
+    if level == "easy" and random.random() < 0.35:
+        return random.choice(ranked[:6])
+    return ranked[0]
+
+
+try:  # 효과음 (없으면 조용히)
+    import sound
+except ImportError:
+    sound = None
+
+
+def sfx(name):
+    if sound is not None:
+        sound.play(name)
 
 
 # ---------------------------------------------------------------- 네트워크 도우미
@@ -344,6 +360,7 @@ class OmokApp:
         self.color_var = tk.StringVar(value=preset.get("color", "b"))
         self.mode_var = tk.StringVar(value=preset.get("mode", "ai"))
         self.rule_var = tk.StringVar(value=preset.get("rule", "33"))
+        self.level = preset.get("level", "normal")
         self.mode = self.mode_var.get()
         self.player = BLACK
         self.board = Board()
@@ -505,6 +522,7 @@ class OmokApp:
         if self.mode == "net" and not remote:
             self.send({"type": "move", "r": r, "c": c})
         b.place(r, c)
+        sfx("place")
         self.drop = {"rc": (r, c), "t0": time.monotonic()}
         self.hover = None
         if wins:
@@ -542,7 +560,7 @@ class OmokApp:
             return
         self.thinking = False
         if self.is_ai_turn():
-            self.play(*ai_move(self.board))
+            self.play(*ai_move(self.board, getattr(self, "level", "normal")))
 
     def undo(self):
         if self.thinking or not self.board.moves or self.spectating:
@@ -597,6 +615,44 @@ class OmokApp:
         else:
             self.note("상대가 이미 둬서 무를 수 없어요")
             self.refresh()
+
+    def resume_from(self, data):
+        """참가자: 다시 접속했을 때 방장이 보내 준 판으로 이어서."""
+        self.reconnect_until = 0
+        self.spectating, self.net_ready = False, True
+        self.player = WHITE if data.get("color") == WHITE else BLACK
+        self.opp_name = str(data.get("name", ""))[:12] or None
+        self.opp_avatar = avatars.valid(data.get("avatar")) if avatars else None
+        rule = data.get("rule") if data.get("rule") in RULES else "33"
+        self.rule_var.set(rule)
+        self.reset_board(rule)
+        for m in data.get("moves", []):
+            if isinstance(m, list) and len(m) == 2 and self.board.legal(*m):
+                self.board.place(*m)
+        undos = data.get("undos") or {}
+        for color in (BLACK, WHITE):
+            try:
+                self.undos_left[color] = int(undos.get(str(color), UNDO_LIMIT))
+            except (TypeError, ValueError):
+                pass
+        self.note("다시 연결됐어요! 이어서 해요")
+        sfx("join")
+        self.refresh()
+
+    # ---- 연결이 끊겼을 때 다시 접속 (참가자)
+    def start_reconnect(self):
+        self.reconnect_until = time.monotonic() + 30
+        self.note("연결이 끊겼어요 · 30초 동안 다시 접속해 볼게요")
+        self.root.after(1500, self.try_reconnect)
+
+    def try_reconnect(self):
+        if not self.alive or not getattr(self, "reconnect_until", 0) or self.conn is not None:
+            return
+        if time.monotonic() > self.reconnect_until:
+            self.reconnect_until = 0
+            messagebox.showwarning("네트워크", "방장과 다시 연결하지 못했어요.")
+            return
+        threading.Thread(target=self._connect, args=(self.join_ip,), daemon=True).start()
 
     def _after_undo(self):
         self.over, self.winner, self.win_cells, self.result, self.resigned = False, None, [], None, None
@@ -950,6 +1006,13 @@ class OmokApp:
             winners = [] if self.winner is None else [me if self.winner == self.player else opp]
             tally = self.on_result("omok", [me, opp], winners)
             self.result["tally"] = "누적 우승   " + "  ·  ".join(f"{x} {tally.get(x, 0)}회" for x in (me, opp))
+        self.result["question"] = party.question_for(self.player_name(BLACK), self.player_name(WHITE),
+                                                     len(self.board.moves))
+        if self.winner and not self.spectating:
+            sfx("win" if self.winner == viewer else "lose")
+            if self.chat_panel and self.mode == "net":
+                self.chat_panel.add("", f"💬 질문 카드  {self.player_name(other(self.winner))}님: "
+                                        f"{self.result['question']}", system=True)
         self.fx_bubbles, self.teabag = {}, None
         self.hover = None
         self.draw()
@@ -984,6 +1047,7 @@ class OmokApp:
             return
         if teabag:
             self.teabag = {"actor": color, "target": other(color), "t0": now}
+            party.teabag_sounds(self.root)
             self.fx_bubbles[color] = ("티배깅!", now + 1.2)
         elif text:
             self.fx_bubbles[color] = (str(text)[:24], now + 3.5)
@@ -1065,6 +1129,7 @@ class OmokApp:
             return
         self.close_net()
         self.want_spectate = spectate
+        self.join_ip, self.reconnect_until = ip, 0
         self.net_text = f"{ip} 에 접속하는 중..."
         self.refresh()
         threading.Thread(target=self._connect, args=(ip,), daemon=True).start()
@@ -1152,6 +1217,9 @@ class OmokApp:
         while not self.net_queue.empty():
             kind, conn, data = self.net_queue.get()
             if kind == "error":
+                if getattr(self, "reconnect_until", 0):  # 다시 접속 중: 조용히 다음 시도
+                    self.root.after(2000, self.try_reconnect)
+                    continue
                 self.net_text = data
                 self.refresh()
                 messagebox.showerror("네트워크", data)
@@ -1163,6 +1231,7 @@ class OmokApp:
                 threading.Thread(target=self._reader, args=(conn,), daemon=True).start()
             elif kind == "connected":  # 참가자/관전자: 방장에게 연결됨
                 self.conn = conn
+                self.reconnect_until = 0
                 self.mode = "net"
                 self.net_ready = False
                 threading.Thread(target=self._reader, args=(conn,), daemon=True).start()
@@ -1178,6 +1247,20 @@ class OmokApp:
                 continue
             elif kind == "closed":
                 self.conn = None
+                in_game = self.net_ready and not self.over and not self.spectating
+                if in_game and self.server is None:  # 참가자: 다시 접속해서 이어 하기
+                    self.net_text = "연결이 끊겼어요 · 다시 접속하는 중..."
+                    self.net_ready = False
+                    self.refresh()
+                    self.start_reconnect()
+                    continue
+                if in_game and self.server is not None:  # 방장: 같은 사람이 돌아오길 기다림
+                    self.waiting_back = self.opp_name
+                    self.net_ready = False
+                    self.net_text = "상대 연결이 끊겼어요 · 다시 들어오길 기다리는 중..."
+                    self.note(f"{self.opp_name or '상대'}님 연결이 끊겼어요 (다시 들어오면 이어서 해요)")
+                    self.refresh()
+                    continue
                 self.net_ready = False
                 self.net_text = "상대와 연결이 끊어졌습니다"
                 self.refresh()
@@ -1195,6 +1278,9 @@ class OmokApp:
             self.spec_count = int(data.get("n", 0))
             self.spec_names = ui_kit.clean_names(data.get("names"))
             self.refresh()
+            return
+        if t == "resume":
+            self.resume_from(data)
             return
         if t == "start":
             self.spectating = False
@@ -1243,6 +1329,17 @@ class OmokApp:
             return
         name = str(data.get("name", "손님"))[:12]
         av = avatars.valid(data.get("avatar")) if avatars else None
+        if data.get("role") == "player" and self.conn is None and getattr(self, "waiting_back", None) == name \
+                and not self.over:  # 끊겼던 상대가 돌아옴: 지금까지의 판을 그대로 보내 줌
+            self.conn, self.net_ready, self.waiting_back = conn, True, None
+            self.opp_avatar = av or self.opp_avatar
+            self.send({"type": "resume", "color": other(self.player), "rule": self.board.rule, "name": self.nick,
+                       "avatar": self.my_avatar, "moves": [list(m) for m in self.board.moves],
+                       "undos": {str(k): v for k, v in self.undos_left.items()}})
+            self.note(f"{name}님이 다시 들어왔어요!")
+            sfx("join")
+            self.refresh()
+            return
         if data.get("role") == "player" and self.conn is None:
             self.conn = conn
             self.net_ready = True

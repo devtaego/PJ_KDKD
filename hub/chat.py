@@ -9,6 +9,11 @@ import tkinter as tk
 
 import ui_kit
 
+try:
+    import sound
+except ImportError:
+    sound = None
+
 try:  # 스티커를 매끈하게 (크게 그려서 줄임)
     from PIL import Image, ImageDraw, ImageTk
 except ImportError:
@@ -357,5 +362,7 @@ class ChatPanel(tk.Frame):
                 log.tag_configure(tag, foreground=color, font=(self.font, 10, self.bold))
             log.insert("end", f"{name}  ", tag or ())
             log.insert("end", f"{text}\n")
+            if sound:
+                sound.play("pop")
         log.config(state="disabled")
         log.see("end")

@@ -38,6 +38,8 @@ with zipfile.ZipFile(out, "w") as zf:
         add(zf, "omok_game.py", f.read(), 0o644)
     with open(os.path.join(os.path.dirname(here), "hub", "ui_kit.py"), "rb") as f:  # 둥근 카드/버튼, 배경
         add(zf, "ui_kit.py", f.read(), 0o644)
+    with open(os.path.join(os.path.dirname(here), "hub", "sound.py"), "rb") as f:  # 효과음
+        add(zf, "sound.py", f.read(), 0o644)
     proj = os.path.dirname(here)
     for fname in ("Jua-Regular.ttf", "Jua-OFL.txt"):  # 앱 글씨체 (주아체, SIL OFL)
         with open(os.path.join(proj, "fonts", fname), "rb") as f:

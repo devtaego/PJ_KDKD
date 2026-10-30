@@ -19,6 +19,7 @@ STOPS = ("#1A1446", "#2B1A5E", "#3E1D5C")  # 위 -> 가운데 -> 아래
 # 빛 번짐: (가로 비율, 세로 비율, 반지름(창 긴 변 비율), 색, 세기)
 BLOBS = ((0.04, 0.08, 0.30, "#7C5CFF", 0.20), (0.97, 0.95, 0.34, "#FF5C8A", 0.17),
          (0.93, 0.04, 0.20, "#3DDC97", 0.09), (0.45, 0.62, 0.42, "#5B3DF5", 0.07))
+INTROS = {}  # 닉네임 -> 한 줄 소개 (게임룸이 같은 와이파이 친구들 소식으로 채움)
 PANEL = "#221E3D"
 CARD = "#2F2A52"
 TEXT = "#F3F1FF"
@@ -315,7 +316,8 @@ class PeopleCard(Card):
     def update_people(self, players, specs):
         """players: [(avatar spec, 이름, 표시 글자, 강조 여부)], specs: [관전자 이름]"""
         self.last = (players, specs)
-        key = (repr(players), tuple(specs), self.mode)
+        key = (repr(players), tuple(specs), self.mode, tuple(INTROS.get(p[1].replace("  (나)", "").strip(), "")
+                                                              for p in players))
         if key == self.key:
             return
         self.key = key
@@ -342,7 +344,12 @@ class PeopleCard(Card):
                 img = avatars.avatar_image(spec or avatars.default_avatar(), 24)
                 self.imgs.append(img)
                 tk.Label(row, image=img, bg=f).pack(side="left", padx=(2, 6))
-            tk.Label(row, text=name, bg=f, fg=TEXT, font=(self.ui_font, 10, self.bold), anchor="w").pack(side="left")
+            col = tk.Frame(row, bg=f)
+            col.pack(side="left", fill="x", expand=True)
+            tk.Label(col, text=name, bg=f, fg=TEXT, font=(self.ui_font, 10, self.bold), anchor="w").pack(fill="x")
+            intro = INTROS.get(name.replace("  (나)", "").strip())
+            if intro:  # 한 줄 소개
+                tk.Label(col, text=intro, bg=f, fg=MUTED, font=(self.ui_font, 8), anchor="w").pack(fill="x")
             if badge:
                 tk.Label(row, text=badge, bg=f, fg=PINK if hot else MUTED,
                          font=(self.ui_font, 9, self.bold)).pack(side="right", padx=4)

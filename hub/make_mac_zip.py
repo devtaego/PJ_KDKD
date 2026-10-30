@@ -43,7 +43,7 @@ with zipfile.ZipFile(out, "w") as zf:
     for fname in ("Jua-Regular.ttf", "Jua-OFL.txt"):  # 앱 글씨체 (주아체, SIL OFL)
         with open(os.path.join(proj, "fonts", fname), "rb") as f:
             add(zf, "fonts/" + fname, f.read(), 0o644)
-    for fname in ("avatars.py", "party.py", "chat.py", "ui_kit.py"):  # 프로필 그림, 결과 화면 멘트/티배깅, 채팅/스티커
+    for fname in ("avatars.py", "party.py", "chat.py", "ui_kit.py", "lan.py", "sound.py"):  # 프로필 그림, 결과 화면 멘트/티배깅, 채팅/스티커
         with open(os.path.join(here, fname), "rb") as f:
             add(zf, fname, f.read(), 0o644)
     add(zf, "KI득KI득 실행.command", LAUNCHER.encode("utf-8"), 0o755)

@@ -205,7 +205,7 @@ AI_BASE = {"ones": 2, "twos": 5, "threes": 8, "fours": 11, "fives": 14, "sixes":
            "four": 9, "full": 12, "sstraight": 10, "lstraight": 8, "yacht": 4}
 
 
-def ai_pick_category(game):
+def ai_pick_category(game, level="normal"):
     p = game.players[game.current]
     open_cats = [c for c in CATEGORIES if c not in p["scores"]]
 
@@ -216,7 +216,12 @@ def ai_pick_category(game):
             u += (game.dice.count(face) - 3) * face * 0.5  # 보너스 진행에 도움되면 가산
         return u
 
-    return max(open_cats, key=utility)
+    ranked = sorted(open_cats, key=utility, reverse=True)
+    if level == "easy" and len(ranked) > 1 and random.random() < 0.45:
+        return random.choice(ranked[1:4])  # 쉬움: 가끔 아깝게 기록
+    if level == "normal" and len(ranked) > 1 and random.random() < 0.12:
+        return ranked[1]
+    return ranked[0]
 
 
 def ai_should_stop(game):
@@ -245,6 +250,17 @@ def ai_holds(game):
     if counts[best] == 1:
         return [v >= 5 for v in d] if "choice" not in p else [False] * 5
     return [v == best for v in d]
+
+
+try:  # 효과음 (없으면 조용히)
+    import sound
+except ImportError:
+    sound = None
+
+
+def sfx(name):
+    if sound is not None:
+        sound.play(name)
 
 
 # ---------------------------------------------------------------- 네트워크 도우미
@@ -667,6 +683,7 @@ class YachtApp:
             root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.mode_var = tk.StringVar(value="local")
+        self.level = (preset or {}).get("level", "normal")  # 컴퓨터 난이도
         self.count_var = tk.StringVar(value="2")
         self.name_var = tk.StringVar(value="플레이어")
 
@@ -923,6 +940,8 @@ class YachtApp:
             self.do_action(g.current, "roll")
         elif g.rolls_left > 0 and not ai_should_stop(g):
             holds = ai_holds(g)
+            if self.level == "easy" and random.random() < 0.4:  # 쉬움: 고정을 대충
+                holds = [random.random() < 0.3 for _ in range(5)]
             if holds != g.held:
                 g.held = holds  # 고정을 먼저 보여 주고 다음 단계에서 굴림
                 self.after_change()
@@ -930,7 +949,7 @@ class YachtApp:
                 self.throw_power = random.uniform(0.9, 1.15)
                 self.do_action(g.current, "roll")
         else:
-            self.do_action(g.current, "score", cat=ai_pick_category(g))
+            self.do_action(g.current, "score", cat=ai_pick_category(g, self.level))
 
     # ---- 입력: 컵을 꾹 눌러 흔들고 놓으면 던짐, 주사위를 누르면 고정
     def on_press(self, event):
@@ -1071,6 +1090,7 @@ class YachtApp:
     def start_throw(self, rolling):
         geo = self.geo
         now = time.monotonic()
+        sfx("roll")
         for k, i in enumerate(rolling):
             d = self.dice[i]
             d.update(visible=True, rolling=True, final=self.game.dice[i], spawn=now + k * 0.05,
@@ -1297,6 +1317,9 @@ class YachtApp:
         mx, my = mx + jx, my + jy
         W = geo["W"]
         x1 = W + 20
+        if shake_t is not None and int(shake_t * 5) != getattr(self, "_shake_tick", -1):
+            self._shake_tick = int(shake_t * 5)  # 흔드는 동안 달그락
+            sfx("shake")
         if Image is not None:  # 매끈한 가죽 컵 이미지
             img, ox, oy = cup_image(W + 30 - geo["cup"][0], h)
             cv.create_image(mx - ox, my - h / 2 - oy, anchor="nw", image=img, tags="dyn")
@@ -1632,6 +1655,13 @@ class YachtApp:
             comments.append(f"{g.players[r[0]]['name']} 우승!")
         self.result_comment = comments[:2]
         self.tally_text = ""
+        me = self.viewer_seat()
+        sfx("win" if me is not None and me >= 0 and me == r[0] else "lose" if me is not None and me >= 0 else "win")
+        if len(r) > 1 and self.chat_panel:  # 꼴찌에게 질문 카드 (모두 같은 질문이 나오게)
+            last = g.players[r[-1]]["name"]
+            q = party.question_for(*[p["name"] for p in g.players], g.total(g.players[r[0]]))
+            self.chat_panel.add("", f"💬 질문 카드  {last}님: {q}", system=True)
+            self.result_comment = (comments[:1] + [f"💬 {last}님: {q}"])
         record = self.on_result and not self.spectating and (self.role or any(p["ai"] for p in g.players))
         if record:
             names = [p["name"] for p in g.players]
@@ -1678,6 +1708,7 @@ class YachtApp:
             target = r[-1]
             if seat == r[0] and target != seat:
                 self.teabag = {"actor": seat, "target": target, "t0": now}
+                party.teabag_sounds(self.root)
                 self.fx_bubbles[seat] = ("티배깅!", now + 1.2)
         elif text:
             self.fx_bubbles[seat] = (str(text)[:24], now + 3.5)
@@ -2134,6 +2165,7 @@ class YachtApp:
         self.lobby_list = []
         self.role = "guest"
         self.started = False
+        self.join_ip, self.reconnect_until = ip, 0
         self.lobby_text = f"{ip} 에 접속하는 중..."
         self.update_labels()
         threading.Thread(target=self._connect, args=(ip,), daemon=True).start()
@@ -2204,6 +2236,9 @@ class YachtApp:
         while not self.net_queue.empty():
             kind, conn, data = self.net_queue.get()
             if kind == "error":
+                if getattr(self, "reconnect_until", 0):  # 다시 접속 중: 조용히 다음 시도
+                    self.root.after(2000, self.try_reconnect)
+                    continue
                 self.role = None
                 self.lobby_text = data
                 messagebox.showerror("네트워크", data)
@@ -2215,6 +2250,9 @@ class YachtApp:
                 threading.Thread(target=self._reader, args=(conn,), daemon=True).start()
             elif kind == "connected":  # 참가자: 방장에 연결됨
                 self.conn = conn
+                if getattr(self, "reconnect_until", 0):
+                    self.reconnect_until = 0
+                    self.toast("다시 연결됐어요! 이어서 해요")
                 threading.Thread(target=self._reader, args=(conn,), daemon=True).start()
                 send_json(conn, {"type": "hello", "name": self.name_var.get().strip() or "참가자",
                                  "avatar": self.my_avatar, "spectate": self.spectating})
@@ -2234,6 +2272,21 @@ class YachtApp:
     def on_host_msg(self, conn, data):
         guest = next((g for g in self.guests if g["conn"] is conn), None)
         spec = next((x for x in self.specs if x["conn"] is conn), None)
+        if data.get("type") == "hello" and guest is None and spec is None and self.started and self.game and \
+                not self.game.over and not data.get("spectate"):
+            name = str(data.get("name", ""))[:12]
+            seat = next((i for i, p in enumerate(self.game.players) if p.get("left") and
+                         (p["name"] == name or p["name"].startswith(name))), None)
+            if seat is not None:  # 끊겼던 사람이 돌아옴: 컴퓨터가 대신 두던 자리를 돌려줌
+                p = self.game.players[seat]
+                p["left"], p["ai"] = False, False
+                av = avatars.valid(data.get("avatar")) if avatars else None
+                self.guests.append({"conn": conn, "name": p["name"], "seat": seat, "avatar": av})
+                send_json(conn, {"type": "avatars", "list": self.avatars})
+                self.toast(f"{p['name']}님이 다시 들어왔어요!")
+                sfx("join")
+                self.after_change()
+                return
         if data.get("type") == "hello" and guest is None and spec is None and \
                 (data.get("spectate") or self.started or len(self.guests) + 1 >= MAX_PLAYERS):
             name = str(data.get("name", "관전자"))[:12]
@@ -2348,6 +2401,11 @@ class YachtApp:
     def on_disconnect(self, conn):
         if self.role == "guest" and conn is self.conn:
             self.conn = None
+            if self.started and self.game and not self.game.over and not self.spectating:
+                self.reconnect_until = time.monotonic() + 30  # 30초 동안 다시 접속해 봄
+                self.toast("연결이 끊겼어요 · 다시 접속하는 중...")
+                self.root.after(1500, self.try_reconnect)
+                return
             self.role = None
             self.started = False
             messagebox.showwarning("네트워크", "방장과 연결이 끊어졌습니다.")
@@ -2371,6 +2429,16 @@ class YachtApp:
         else:
             self.broadcast_lobby()
             self.draw_dice()
+
+    def try_reconnect(self):
+        if not self.alive or not getattr(self, "reconnect_until", 0) or self.conn is not None:
+            return
+        if time.monotonic() > self.reconnect_until:
+            self.reconnect_until = 0
+            self.role, self.started = None, False
+            messagebox.showwarning("네트워크", "방장과 다시 연결하지 못했어요.")
+            return
+        threading.Thread(target=self._connect, args=(self.join_ip,), daemon=True).start()
 
     def close_net(self):
         for s in [self.conn, self.server] + [g["conn"] for g in self.guests] + [x["conn"] for x in self.specs]:

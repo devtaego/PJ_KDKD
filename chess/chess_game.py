@@ -517,8 +517,15 @@ def negamax(pos, depth, alpha, beta, ply):
     return alpha
 
 
-def best_move(pos, depth=3):
+def best_move(pos, depth=3, level="normal"):
+    """level: easy(가끔 실수) / normal(2수 앞) / hard(3수 앞)"""
     moves = pos.legal_moves()
+    if level == "easy":
+        depth = 1
+        if random.random() < 0.3:
+            return random.choice(moves)
+    elif level == "normal":
+        depth = 2
     random.shuffle(moves)
     moves.sort(key=lambda m: order_key(pos, m), reverse=True)
     best, alpha = moves[0], -10 ** 9
@@ -527,6 +534,17 @@ def best_move(pos, depth=3):
         if score > alpha:
             alpha, best = score, m
     return best
+
+
+try:  # 효과음 (없으면 조용히)
+    import sound
+except ImportError:
+    sound = None
+
+
+def sfx(name):
+    if sound is not None:
+        sound.play(name)
 
 
 # ---------------------------------------------------------------- 기보 표기
@@ -775,6 +793,7 @@ class ChessApp:
             self.new_game()
 
     def apply_preset(self, preset):
+        self.level = preset.get("level", "normal")
         self.color_var.set(preset.get("color", "w"))
         self.time_var.set(preset.get("time", "unlimited"))
         self.op_var.set(bool(preset.get("op")))
@@ -898,6 +917,7 @@ class ChessApp:
         if self.mode == "net" and remote_clock is None:
             self.send({"type": "move", "move": list(move), "clock": self.clock[mover]})
         self.start_anim(self.pos, move)
+        sfx("place" if self.pos.board[move[2]][move[3]] else "move")
         self.sans.append(move_san(self.pos, move))
         self.history.append(self.pos.make(move))
         self.last_moves.append(move)
@@ -926,7 +946,7 @@ class ChessApp:
     def ai_move(self, gid):
         if not self.alive or gid != self.game_id or not self.is_ai_turn():
             return
-        move = best_move(self.pos)
+        move = best_move(self.pos, level=getattr(self, "level", "normal"))
         self.thinking = False
         if gid == self.game_id and not self.game_over:
             self.push(move)
@@ -1007,6 +1027,52 @@ class ChessApp:
         self.flipped = not self.flipped
         self.selected, self.targets = None, {}
         self.draw()
+
+    def resume_from(self, data):
+        """참가자: 다시 접속했을 때 방장이 보내 준 판으로 이어서."""
+        self.reconnect_until = 0
+        self.spectating, self.net_ready = False, True
+        self.player = data.get("color", "b")
+        self.super_color = data.get("super")
+        self.opp_name = str(data.get("name", ""))[:12] or None
+        self.opp_avatar = avatars.valid(data.get("avatar")) if avatars else None
+        self.time_var.set(data.get("time", "unlimited"))
+        self.reset_board()
+        for m in data.get("moves", []):
+            m = tuple(m)
+            if m not in self.pos.legal_moves():
+                break
+            self.sans.append(move_san(self.pos, m))
+            self.history.append(self.pos.make(m))
+            self.last_moves.append(m)
+            self.clock_hist.append(dict(self.clock))
+        clock = data.get("clock") or {}
+        for c in "wb":
+            if isinstance(clock.get(c), (int, float)):
+                self.clock[c] = float(clock[c])
+        self.clock_hist[-1] = dict(self.clock)
+        self.turn_started = time.monotonic() if len(self.history) > 1 else None
+        undos = data.get("undos") or {}
+        self.undos_left = {c: int(undos.get(c, self.UNDO_LIMIT)) for c in "wb"}
+        self.anim = None
+        self.note("다시 연결됐어요! 이어서 해요")
+        sfx("join")
+        self.refresh()
+
+    # ---- 연결이 끊겼을 때 다시 접속 (참가자)
+    def start_reconnect(self):
+        self.reconnect_until = time.monotonic() + 30
+        self.note("연결이 끊겼어요 · 30초 동안 다시 접속해 볼게요")
+        self.root.after(1500, self.try_reconnect)
+
+    def try_reconnect(self):
+        if not self.alive or not getattr(self, "reconnect_until", 0) or self.conn is not None:
+            return
+        if time.monotonic() > self.reconnect_until:
+            self.reconnect_until = 0
+            messagebox.showwarning("네트워크", "방장과 다시 연결하지 못했어요.")
+            return
+        threading.Thread(target=self._connect, args=(self.join_ip,), daemon=True).start()
 
     def _pop(self):
         for lst in (self.history, self.last_moves, self.sans, self.clock_hist):
@@ -1309,6 +1375,7 @@ class ChessApp:
             return
         self.close_net()
         self.want_spectate = spectate
+        self.join_ip, self.reconnect_until = ip, 0
         self.status.config(text=f"{ip} 에 접속하는 중...", fg=TEXT)
         threading.Thread(target=self._connect, args=(ip,), daemon=True).start()
 
@@ -1406,6 +1473,9 @@ class ChessApp:
         while not self.net_queue.empty():
             kind, conn, data = self.net_queue.get()
             if kind == "error":
+                if getattr(self, "reconnect_until", 0):  # 다시 접속 중: 조용히 다음 시도
+                    self.root.after(2000, self.try_reconnect)
+                    continue
                 self.status.config(text=data, fg=DANGER)
                 messagebox.showerror("네트워크", data)
             elif kind == "incoming":  # 방장: 새 연결 -> 'join'으로 플레이어/관전을 밝힐 때까지 대기
@@ -1416,6 +1486,7 @@ class ChessApp:
                 threading.Thread(target=self._reader, args=(conn,), daemon=True).start()
             elif kind == "connected":  # 참가자/관전자: 방장에게 연결됨
                 self.conn = conn
+                self.reconnect_until = 0
                 self.mode = "net"
                 self.net_ready = False
                 threading.Thread(target=self._reader, args=(conn,), daemon=True).start()
@@ -1430,6 +1501,16 @@ class ChessApp:
                 continue  # 이전 연결에서 온 메시지
             elif kind == "closed":
                 self.conn = None
+                in_game = self.net_ready and not self.game_over and not self.spectating
+                if in_game and self.server is None:  # 참가자: 다시 접속해서 이어 하기
+                    self.status.config(text="연결이 끊겼어요 · 다시 접속하는 중...", fg=DANGER)
+                    self.start_reconnect()
+                    continue
+                if in_game and self.server is not None:  # 방장: 같은 사람이 돌아오길 기다림
+                    self.waiting_back = self.opp_name
+                    self.status.config(text="상대 연결이 끊겼어요 · 다시 들어오길 기다리는 중...", fg=DANGER)
+                    self.note(f"{self.opp_name or '상대'}님 연결이 끊겼어요 (다시 들어오면 이어서 해요)")
+                    continue
                 self.status.config(text="상대와 연결이 끊어졌습니다", fg=DANGER)
                 messagebox.showwarning("네트워크", "상대와 연결이 끊어졌습니다.")
             elif data.get("type") == "snapshot":
@@ -1438,6 +1519,8 @@ class ChessApp:
                 self.spec_count = int(data.get("n", 0))
                 self.spec_names = ui_kit.clean_names(data.get("names"))
                 self.refresh()
+            elif data.get("type") == "resume":
+                self.resume_from(data)
             elif data.get("type") == "start":
                 self.spectating = False
                 self.opp_name = data.get("name")
@@ -1493,6 +1576,18 @@ class ChessApp:
             return
         name = str(data.get("name", "손님"))[:12]
         av = avatars.valid(data.get("avatar")) if avatars else None
+        if data.get("role") == "player" and self.conn is None and getattr(self, "waiting_back", None) == name \
+                and not self.game_over:  # 끊겼던 상대가 돌아옴: 지금까지의 판을 그대로 보내 줌
+            self.conn, self.net_ready, self.waiting_back = conn, True, None
+            self.opp_avatar = av or self.opp_avatar
+            self.send({"type": "resume", "color": opponent(self.player), "time": self.time_var.get(),
+                       "super": self.super_color, "name": self.nick, "avatar": self.my_avatar,
+                       "moves": [list(m) for m in self.last_moves[1:]],
+                       "clock": {c: self.remaining(c) for c in "wb"}, "undos": self.undos_left})
+            self.note(f"{name}님이 다시 들어왔어요!")
+            sfx("join")
+            self.refresh()
+            return
         if data.get("role") == "player" and self.conn is None:
             self.conn = conn
             self.net_ready = True
@@ -1751,6 +1846,13 @@ class ChessApp:
             winners = [] if winner is None else [me if winner == self.player else opp]
             tally = self.on_result("chess", names, winners)
             self.result["tally"] = "누적 우승   " + "  ·  ".join(f"{n} {tally.get(n, 0)}회" for n in names)
+        names = sorted([self.player_name(c).split(" · ")[0] for c in "wb"])
+        self.result["question"] = party.question_for(*names, len(self.sans))
+        if winner and not self.spectating:
+            sfx("win" if winner == viewer else "lose")
+            if self.chat_panel and self.mode == "net":
+                self.chat_panel.add("", f"💬 질문 카드  {self.player_name(opponent(winner)).split(' · ')[0]}님: "
+                                        f"{self.result['question']}", system=True)
         self.fx_bubbles, self.teabag = {}, None
         self.draw()
 
@@ -1785,6 +1887,7 @@ class ChessApp:
             return
         if teabag:
             self.teabag = {"actor": color, "target": opponent(color), "t0": now}
+            party.teabag_sounds(self.root)
             self.fx_bubbles[color] = ("티배깅!", now + 1.2)
         elif text:
             self.fx_bubbles[color] = (str(text)[:24], now + 3.5)

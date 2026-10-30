@@ -18,10 +18,40 @@ LOSE_LINES = ["운빨이잖아!!", "한 판 더 해!", "인정... 잘했다 ㅠ"
               "GG... 분하다", "방금 건 연습 경기", "복수한다 기다려라"]
 DRAW_LINES = ["무승부 ㅋㅋ 다시!", "막상막하네", "이건 인정이지", "한 판 더 해서 끝장 보자"]
 TAUNTS = ["ㅋㅋㅋㅋㅋ", "킹받쥬?", "약오르지~", "-100 자존심", "ㅎㅎ 앉았다 일어났다"]
+QUESTIONS = [  # 진 사람이 답하는 가벼운 질문 (아이스브레이킹)
+    "요즘 제일 빠져 있는 것은?", "최애 점심 메뉴는?", "MBTI가 뭐예요?", "주말에 주로 뭐 해요?",
+    "인생 영화 / 드라마 하나만!", "요즘 자주 듣는 노래는?", "가장 가 보고 싶은 여행지는?", "어릴 때 꿈은?",
+    "나만의 스트레스 해소법은?", "아침형 인간? 저녁형 인간?", "부먹? 찍먹?", "민초파? 반민초파?",
+    "최근에 산 것 중 제일 만족한 것은?", "자신 있는 요리 하나는?", "제일 좋아하는 계절과 이유는?",
+    "수업 끝나고 제일 하고 싶은 것은?", "개발자가 된다면 만들고 싶은 서비스는?", "숨겨진 특기가 있다면?",
+    "커피파? 차파? 음료파?", "고양이파? 강아지파?", "요즘 배우고 싶은 것은?", "최근에 웃겼던 일 하나!",
+    "가장 좋아하는 간식은?", "로또 1등 되면 제일 먼저 할 일은?", "올해 꼭 이루고 싶은 것 하나는?",
+    "나를 동물로 표현하면?", "추천하고 싶은 유튜브 채널은?", "여기 오기 전에 뭐 했어요?",
+]
 TEABAG_TIME = 3.4  # 티배깅 이모트 길이(초)
 TB_GO = 0.35  # 날아가는 시간
 TB_BOUNCE = 9  # 앉았다 일어나는 속도
 CONFETTI = ["#FFC94D", "#FF5C8A", "#3DDC97", "#7C5CFF", "#4DABF7", "#FF8A4C"]
+
+
+def question_for(*keys):
+    """두 PC에서 똑같이 나오도록 같은 재료(이름들, 수 개수)로 질문을 고름."""
+    import zlib
+    seed = zlib.crc32("|".join(sorted(str(k) for k in keys)).encode("utf-8"))
+    return QUESTIONS[seed % len(QUESTIONS)]
+
+
+def teabag_sounds(widget):
+    """티배깅: 머리에 닿을 때마다 쿵 소리."""
+    try:
+        import sound
+    except ImportError:
+        return
+    widget.after(10, lambda: sound.play("pop"))
+    t = TB_GO
+    while t < TEABAG_TIME - TB_GO:
+        widget.after(int(t * 1000), lambda: sound.play("thud"))
+        t += math.pi / TB_BOUNCE
 
 
 def pick_lines(kind, n=4):
@@ -358,6 +388,13 @@ def draw_duel_result(cv, area, res, left, other, name_of, draw_av, teabag, bubbl
                                fill=gold if color == winner else danger, font=F(12, num), tags=tags)
         if res["tally"]:
             cv.create_text(cx, y1 - 70 * k, text=res["tally"], fill=muted, font=F(9), tags=tags, width=cw - 40)
+        if res.get("question") and winner:  # 진 사람 질문 카드
+            qy = (ay + big / 2 + 52 * k + y1 - 80 * k) / 2
+            qt = cv.create_text(cx, qy, text=f"💬 {name_of(right).split(' · ')[0]}님 질문:  {res['question']}",
+                                fill="#2A1840", font=F(10), tags=tags, width=cw - 70, justify="center")
+            bx0, by0, bx1, by1 = cv.bbox(qt)
+            _rr(cv, bx0 - 14, by0 - 5, bx1 + 14, by1 + 5, (by1 - by0 + 10) / 2, "#FFE08A", tags=tags)
+            cv.tag_raise(qt)
 
     # 멘트 버튼 (+ 이긴 사람만 티배깅) - 카드 폭을 넘지 않게
     labels = [("emote", t) for t in res["opts"]] + ([("teabag", "티배깅!")] if can_teabag else [])

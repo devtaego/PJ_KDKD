@@ -7,6 +7,7 @@ import json
 import math
 import os
 import sys
+import threading
 import time
 import tkinter as tk
 import tkinter.font as tkfont
@@ -17,6 +18,9 @@ for sub in (".", "..", os.path.join("..", "chess"), os.path.join("..", "yacht"),
     sys.path.insert(0, os.path.normpath(os.path.join(HERE, sub)))
 
 import avatars  # noqa: E402
+import lan  # noqa: E402  (같은 와이파이 방 목록 / 우리 반 랭킹)
+import sound  # noqa: E402
+import ui_kit  # noqa: E402
 import chess_game  # noqa: E402
 import omok_game  # noqa: E402
 import yacht_game  # noqa: E402
@@ -37,6 +41,26 @@ blend = yacht_game.blend
 
 SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".mini_game_room.json")
 APP_NAME = "KI득KI득"
+APP_VERSION = "1.1.0"
+UPDATE_URL = "https://raw.githubusercontent.com/devtaego/PJ_KDKD/main/VERSION"  # 새 버전 알림용
+DOWNLOAD_URL = "https://github.com/devtaego/PJ_KDKD/tree/main/release"
+LEVELS = [("easy", "쉬움"), ("normal", "보통"), ("hard", "어려움")]
+RULES_TEXT = {
+    "chess": ["두 사람이 백과 흑을 나눠 갖고 백부터 번갈아 한 수씩 둬요.",
+              "기물을 누르면 갈 수 있는 칸이 표시돼요. 상대 킹을 피할 수 없게 공격(체크메이트)하면 승리!",
+              "킹: 사방 한 칸 · 퀸: 직선/대각선 끝까지 · 룩: 직선 · 비숍: 대각선 · 나이트: L자로 점프 · 폰: 앞으로 한 칸 (처음엔 두 칸), 잡을 땐 대각선",
+              "캐슬링, 앙파상, 승진(끝 줄에 닿은 폰은 퀸 등으로)도 지원해요.",
+              "시간 모드에서는 내 시계가 0이 되면 져요. 무르기는 컴퓨터 대전만 무제한, 사람끼리는 한 판에 2번."],
+    "yacht": ["주사위 5개로 족보를 만들어 점수표 12칸을 채우고, 총점이 가장 높은 사람이 이겨요.",
+              "내 차례에 최대 3번 던질 수 있어요. 오른쪽 컵을 꾹 눌러 흔들다 놓으면 던져요.",
+              "남기고 싶은 주사위를 누르면 위 칸에 고정돼요. 다시 던지면 나머지만 굴러가요.",
+              "점수표의 회색 숫자를 누르면 그 칸에 기록하고 차례가 넘어가요. 0점이라도 한 칸은 꼭 채워야 해요.",
+              "에이스~식스 합이 63점 이상이면 보너스 +35점! 항목 이름에 마우스를 올리면 설명이 나와요."],
+    "omok": ["흑부터 번갈아 돌을 놓고, 가로·세로·대각선으로 정확히 5개를 먼저 이으면 승리!",
+             "6개 이상 이어진 장목은 승리로 치지 않아요.",
+             "쌍삼 금지 룰: 한 수로 열린 3이 두 개 생기는 자리에는 둘 수 없어요 (자유룰은 제한 없음).",
+             "마지막에 놓은 돌에는 빨간 점이 찍혀요. 무르기는 컴퓨터 대전만 무제한, 사람끼리는 한 판에 2번."],
+}
 APP_SUB = "같은 기수, 키득키득"
 DEVELOPER = "KDA 5기 송재혁"
 ROOM_ADJ = ["용감한", "졸린", "신나는", "수줍은", "배고픈", "반짝이는", "느긋한", "씩씩한", "엉뚱한", "다정한"]
@@ -70,6 +94,8 @@ DEFAULTS = {
     "yacht": {"mode": "ai", "count": 2, "net": "host"},
     "omok": {"mode": "ai", "color": "b", "rule": "33", "net": "host"},
 }
+for _d in DEFAULTS.values():
+    _d["level"] = "normal"
 
 
 def load_settings():
@@ -148,6 +174,98 @@ class GameRoom:
                                    insertbackground=TEXT, justify="center")
         self.room_entry.bind("<Return>", lambda e: self.start())
         self.k = 1.0
+        self.intro_var = tk.StringVar(value=self.settings.get("intro", ""))
+        self.intro_var.trace_add("write", self._intro_changed)
+        self.intro_entry = tk.Entry(self.cv, textvariable=self.intro_var, relief="flat", bd=0, bg=CARD, fg=TEXT,
+                                    insertbackground=TEXT, justify="center")
+        self.rank_scope = "pc"  # 랭킹: 이 PC / 우리 반
+        self.room_beacon = None
+        self.new_version = None
+        self.lan_sig = None
+        sound.enabled = self.settings.get("sound", True)
+        lan.start()
+        self.me_beacon = lan.Beacon(self.who_msg, every=2.0)
+        threading.Thread(target=self.check_update, daemon=True).start()
+        self.root.after(1500, self.lan_tick)
+
+    # ---- 같은 와이파이: 내 소식 알리기 / 방 목록 새로고침
+    def who_msg(self):
+        nick = self.settings.get("nick", "")
+        if not nick:
+            return None
+        recs = {g: r for g, rs in self.settings.get("records", {}).items() for n, r in rs.items() if n == nick}
+        return {"kind": "who", "name": nick, "intro": self.settings.get("intro", ""), "records": recs}
+
+    def room_msg(self):
+        """내가 방장인 방을 같은 와이파이에 알림 (게임마다 상태를 읽어서)."""
+        app, game = self.app, self.game
+        if app is None or not getattr(app, "alive", False):
+            return None
+        if game in ("chess", "omok"):
+            if getattr(app, "server", None) is None:
+                return None
+            info = {"players": 2 if app.conn else 1, "max": 2, "specs": len(app.specs),
+                    "playing": bool(app.conn and app.net_ready)}
+        else:
+            if getattr(app, "role", None) != "host":
+                return None
+            info = {"players": len(app.guests) + 1, "max": yacht_game.MAX_PLAYERS, "specs": len(app.specs),
+                    "playing": bool(app.started)}
+        return {"kind": "room", "game": game, "host": self.nick_var.get().strip() or "방장", **info}
+
+    def lan_tick(self):
+        """1.5초마다: 친구들 한 줄 소개 반영, 방 목록이 바뀌었으면 다시 그림."""
+        try:
+            people = lan.people()
+            ui_kit.INTROS.clear()
+            ui_kit.INTROS.update({n: p["intro"] for n, p in people.items() if p.get("intro")})
+            if self.nick_var.get().strip() and self.intro_var.get().strip():
+                ui_kit.INTROS[self.nick_var.get().strip()] = self.intro_var.get().strip()
+            if self.app is None:
+                sig = None
+                if self.screen == "menu" and self.settings[self.game]["mode"] == "net" and \
+                        self.settings[self.game]["net"] in ("join", "watch"):
+                    sig = repr([(r["ip"], r["host"], r["players"], r["playing"]) for r in lan.rooms(self.game)])
+                elif self.screen == "rank" and self.rank_scope == "class":
+                    sig = repr(sorted((n, repr(p["records"])) for n, p in people.items()))
+                elif self.screen == "home":
+                    sig = self.new_version
+                if sig != self.lan_sig:
+                    self.lan_sig = sig
+                    self.redraw()
+        finally:
+            self.root.after(1500, self.lan_tick)
+
+    def check_update(self):
+        """GitHub의 VERSION 파일과 비교해서 새 버전이 있으면 첫 화면에 알림 (실패하면 조용히)."""
+        try:
+            import urllib.request
+            with urllib.request.urlopen(UPDATE_URL, timeout=4) as r:
+                latest = r.read(32).decode("utf-8").strip()
+            parse = lambda v: tuple(int(x) for x in v.split("."))  # noqa: E731
+            if parse(latest) > parse(APP_VERSION):
+                self.new_version = latest
+        except Exception:
+            pass
+
+    def open_download(self):
+        import webbrowser
+        webbrowser.open(DOWNLOAD_URL)
+
+    def toggle_sound(self):
+        sound.enabled = not sound.enabled
+        self.settings["sound"] = sound.enabled
+        self.save()
+        sound.play("click")
+        self.redraw()
+
+    def _intro_changed(self, *_):
+        v = self.intro_var.get()
+        if len(v) > 20:
+            self.intro_var.set(v[:20])
+            return
+        self.settings["intro"] = v.strip()
+        self.save()
 
     # ---- 설정 저장
     def _nick_changed(self, *_):
@@ -186,6 +304,8 @@ class GameRoom:
             self.draw_rank(w, h)
         elif self.screen == "info":
             self.draw_info(w, h)
+        elif self.screen == "rules":
+            self.draw_rules(w, h)
         else:
             self.draw_menu(w, h)
 
@@ -279,6 +399,7 @@ class GameRoom:
         h = self.hit_at(e.x, e.y)
         pressed, self.pressed = self.pressed, None
         if h is not None and h is pressed:
+            sound.play("click")
             h["cmd"]()
 
     # ---- 화면 크기 적응: 기준(1240x820) 대비 비율 k를 글자·버튼·간격에 곱함
@@ -368,14 +489,19 @@ class GameRoom:
 
         # 닉네임
         ny = top + S(178)
-        cv.create_text(cx, ny, text="닉네임", fill=MUTED, font=self.F(10))
+        nx, ix = cx - S(150), cx + S(150)  # 왼쪽 닉네임, 오른쪽 한 줄 소개
         bad = self.message and not self.nick_var.get().strip()
-        round_rect(cv, cx - S(170), ny + S(16), cx + S(170), ny + S(66), S(25), fill=CARD,
+        cv.create_text(nx, ny, text=self.message if bad else "닉네임", fill=DANGER if bad else MUTED,
+                       font=self.F(10))
+        round_rect(cv, nx - S(140), ny + S(16), nx + S(140), ny + S(66), S(25), fill=CARD,
                    outline=DANGER if bad else blend(CARD, "#FFFFFF", 0.15), width=2)
         self.nick_entry.config(font=self.F(15))
-        cv.create_window(cx, ny + S(41), window=self.nick_entry, width=S(290), height=S(34))
-        if self.message:
-            cv.create_text(cx + S(190), ny + S(41), anchor="w", text=self.message, fill=DANGER, font=self.F(10))
+        cv.create_window(nx, ny + S(41), window=self.nick_entry, width=S(230), height=S(34))
+        cv.create_text(ix, ny, text="한 줄 소개 (선택 · MBTI, 관심사...)", fill=MUTED, font=self.F(10))
+        round_rect(cv, ix - S(140), ny + S(16), ix + S(140), ny + S(66), S(25), fill=CARD,
+                   outline=blend(CARD, "#FFFFFF", 0.15), width=2)
+        self.intro_entry.config(font=self.F(12))
+        cv.create_window(ix, ny + S(41), window=self.intro_entry, width=S(240), height=S(30))
 
         self.draw_avatar_picker(cx, ny + S(124))
 
@@ -390,6 +516,12 @@ class GameRoom:
             self.draw_card(game, x0, ctop, cw, ch)
 
         self.pill(w - S(144), S(22), w - S(24), S(60), "★  랭킹", self.open_rank, bg=CARD, size=11)
+        self.pill(w - S(254), S(22), w - S(154), S(60), "소리 켬" if sound.enabled else "소리 끔", self.toggle_sound,
+                  bg=CARD if sound.enabled else blend(CARD, "#000000", 0.3), fg=TEXT if sound.enabled else MUTED,
+                  size=10)
+        if self.new_version:  # 새 버전 알림
+            self.pill(S(24), S(22), S(234), S(60), f"새 버전 {self.new_version} 받기 ▶", self.open_download, bg=MINT,
+                      fg=BG, size=10)
         cv.create_text(S(24), h - S(26), anchor="w",
                        text=f"내 IP  {chess_game.local_ip()}   ·   네트워크 대전은 같은 와이파이(또는 핫스팟)에서",
                        fill=MUTED, font=self.F(9, bold=False))
@@ -512,6 +644,8 @@ class GameRoom:
         if game == "omok" and not joining:
             rows.append(("내 돌", "color", [("b", "흑 (선공)"), ("w", "백")]))
             rows.append(("룰", "rule", [(k, v[0]) for k, v in omok_game.RULES.items()]))
+        if sel["mode"] == "ai":
+            rows.append(("컴퓨터 난이도", "level", LEVELS))
         return rows, net, joining
 
     def draw_menu(self, w, h):
@@ -521,12 +655,14 @@ class GameRoom:
         sel = self.settings[game]
         rows, net, joining = self.menu_rows(game, sel)
         favs = self.settings.get("fav_ips", [])
+        found = lan.rooms(game)[:6]
         # 내용 높이(기준 단위)를 먼저 재서, 세로로 넘치면 이 화면만 더 작게
         body = 30 + len(rows) * 74 + 90
         if net:
             body += 70
             if joining:
                 body += 66 + (30 + ((len(favs) + 1) // 2) * 44 if favs else 0)
+                body += 30 + max((len(found) + 1) // 2, 1) * 44
             elif game == "chess" and chess_game.SHOW_OP:
                 body += 54
         self.k = min(self.k, max((h - 20) / (160 + body + 40), 0.55))
@@ -536,6 +672,7 @@ class GameRoom:
         round_rect(cv, w - S(244), S(22), w - S(24), S(60), S(19), fill=CARD, outline="")
         avatars.draw_avatar(cv, w - S(224), S(41), S(30), self.settings["avatar"])
         cv.create_text(w - S(202), S(41), text=self.nick_var.get().strip(), anchor="w", fill=TEXT, font=self.F(11))
+        self.pill(S(134), S(22), S(244), S(60), "규칙 보기", self.open_rules, bg=CARD, size=10)
 
         self.draw_icon(game, cx - S(150), S(86), S(90))
         cv.create_text(cx - S(80), S(76), text=info["title"], anchor="w", fill="white", font=self.F(28))
@@ -560,6 +697,7 @@ class GameRoom:
 
         if net:
             if joining:
+                y = self.draw_found_rooms(x0, y, pw, found)
                 self.draw_join_fields(x0, y, pw, favs)
                 y += S(70) + S(66) + (S(30) + ((len(favs) + 1) // 2) * S(44) if favs else 0)
             else:
@@ -613,6 +751,35 @@ class GameRoom:
             self.pill(bx + cw - S(30), by + S(4), bx + cw, by + S(32), "✕", lambda f=fav: self.del_fav(f),
                       bg=blend(CARD, DANGER, 0.25), size=9)
 
+    def draw_found_rooms(self, x0, y, pw, found):
+        """같은 와이파이에 열린 방: 누르면 IP가 채워짐 (IP를 몰라도 됨)."""
+        cv, S = self.cv, self.S
+        cv.create_text(x0 + S(30), y + S(10), text="지금 열린 방 (같은 와이파이)", anchor="w", fill=MINT,
+                       font=self.F(10))
+        y += S(26)
+        if not found:
+            cv.create_text(x0 + pw / 2, y + S(18), text="찾는 중... 방장이 방을 만들면 여기에 나타나요", fill=MUTED,
+                           font=self.F(9, bold=False))
+            return y + S(44)
+        cw = (pw - S(60) - S(10)) / 2
+        cur_ip = self.ip_var.get().strip()
+        for i, r in enumerate(found):
+            row, col = divmod(i, 2)
+            bx = x0 + S(30) + col * (cw + S(10))
+            by = y + row * S(44)
+            state = "대전 중 · 관전 가능" if r["playing"] else f"{r['players']}/{r['max']}명 · 참가 가능"
+            self.pill(bx, by, bx + cw, by + S(36), f"{r['host']}의 방  ·  {state}", lambda r=r: self.pick_room(r),
+                      bg=blend(CARD, MINT, 0.25) if r["ip"] == cur_ip else blend(CARD, MINT, 0.08), size=9)
+        return y + ((len(found) + 1) // 2) * S(44)
+
+    def pick_room(self, room):
+        self.ip_var.set(room["ip"])
+        self.room_var.set(f"{room['host']}의 방")
+        if room["playing"] and self.settings[self.game]["net"] == "join":
+            self.settings[self.game]["net"] = "watch"  # 이미 대전 중이면 관전으로
+        self.message = ""
+        self.redraw()
+
     def pick_fav(self, fav):
         self.ip_var.set(fav["ip"])
         self.room_var.set(fav["name"])
@@ -657,6 +824,17 @@ class GameRoom:
         self.save()
         return {n: rec[n]["wins"] for n in names}
 
+    def class_records(self):
+        """우리 반 랭킹: 각자 자기 PC에 있는 '내 기록'만 모음 (같은 판이 두 번 세지지 않게)."""
+        out = {}
+        nick = self.nick_var.get().strip()
+        mine = {g: rs[nick] for g, rs in self.settings.get("records", {}).items() if nick in rs}
+        for name, recs in [(nick, mine)] + [(n, p["records"]) for n, p in lan.people().items() if n != nick]:
+            for game, r in recs.items():
+                if game in GAMES and r.get("games"):
+                    out.setdefault(game, {})[name] = {"wins": r["wins"], "games": r["games"]}
+        return out
+
     def open_rank(self):
         self.screen, self.message = "rank", ""
         self.redraw()
@@ -666,8 +844,18 @@ class GameRoom:
         cx = w / 2
         self.pill(S(24), S(22), S(124), S(60), "←  홈", self.go_home, bg=CARD, size=10)
         cv.create_text(cx, S(56), text="랭킹", fill="white", font=self.F(30, num=True))
-        cv.create_text(cx, S(92), text="이 PC에서 한 판들의 누적 기록이에요 (우승 많은 순)", fill=MUTED, font=self.F(10))
-        records = self.settings.get("records", {})
+        for i, (scope, label) in enumerate((("pc", "이 PC"), ("class", "우리 반"))):
+            bx = w - S(264) + i * S(122)
+            self.pill(bx, S(22), bx + S(112), S(60), label,
+                      lambda sc=scope: (setattr(self, "rank_scope", sc), self.redraw()),
+                      selected=self.rank_scope == scope, size=10)
+        if self.rank_scope == "class":
+            records = self.class_records()
+            sub = "같은 와이파이에서 KI득KI득을 켠 친구들의 기록이에요 (각자 자기 PC 기록)"
+        else:
+            records = self.settings.get("records", {})
+            sub = "이 PC에서 한 판들의 누적 기록이에요 (우승 많은 순)"
+        cv.create_text(cx, S(92), text=sub, fill=MUTED, font=self.F(10))
         n = len(GAMES)
         gap = S(24)
         cw = min(S(400), (w - S(80) - gap * (n - 1)) / n)
@@ -706,6 +894,32 @@ class GameRoom:
                 rate = round(r["wins"] * 100 / r["games"]) if r["games"] else 0
                 cv.create_text(x0 + cw - S(20), y + S(14), text=f"{r['wins']}승/{r['games']}판 ({rate}%)", anchor="e",
                                fill=TEXT, font=self.F(11, num=True))
+
+    def open_rules(self):
+        self.screen = "rules"
+        self.redraw()
+
+    def draw_rules(self, w, h):
+        cv = self.cv
+        lines = RULES_TEXT[self.game]
+        self.k = min(self.k, max((h - 20) / (140 + len(lines) * 74 + 40), 0.55))
+        S = self.S
+        cx = w / 2
+        self.pill(S(24), S(22), S(144), S(60), "←  돌아가기", lambda: (setattr(self, "screen", "menu"), self.redraw()),
+                  bg=CARD, size=10)
+        self.draw_icon(self.game, cx - S(150), S(70), S(80))
+        cv.create_text(cx - S(90), S(70), text=f"{GAMES[self.game]['title']} 규칙", anchor="w", fill="white",
+                       font=self.F(26))
+        pw = min(S(720), w - S(80))
+        x0, y = cx - pw / 2, S(130)
+        round_rect(cv, x0, y, x0 + pw, y + S(30 + len(lines) * 74), S(28), fill=PANEL, outline="")
+        y += S(24)
+        for i, text in enumerate(lines):
+            cv.create_oval(x0 + S(26), y + S(4), x0 + S(54), y + S(32), fill=GAMES[self.game]["color"], outline="")
+            cv.create_text(x0 + S(40), y + S(18), text=str(i + 1), fill="white", font=self.F(11, num=True))
+            cv.create_text(x0 + S(70), y + S(18), text=text, anchor="w", fill=TEXT, font=self.F(11, bold=False),
+                           width=pw - S(100))
+            y += S(74)
 
     def open_info(self):
         self.screen, self.message = "info", ""
@@ -757,6 +971,8 @@ class GameRoom:
             self.remember_ip(ip)
         self.save()
         preset = {**sel, "name": nick, "ip": ip, "avatar": self.settings["avatar"], "on_result": self.record_result}
+        if sel["mode"] == "net" and sel["net"] == "host":
+            self.room_beacon = lan.Beacon(self.room_msg, every=1.0)
         self.cv.pack_forget()
         self.game_frame = tk.Frame(self.root, bg=BG)
         self.game_frame.pack(fill="both", expand=True)
@@ -764,6 +980,9 @@ class GameRoom:
         self.app = cls(self.root, parent=self.game_frame, preset=preset, on_back=self.back_to_menu)
 
     def back_to_menu(self):
+        if self.room_beacon:
+            self.room_beacon.stop()
+            self.room_beacon = None
         if self.app:
             self.app.shutdown()
         if self.game_frame:

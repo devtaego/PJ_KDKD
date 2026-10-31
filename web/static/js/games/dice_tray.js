@@ -47,6 +47,8 @@ export class DiceTray {
     this.onSettled = null;
     this.ro = new ResizeObserver(() => this.layout());
     this.ro.observe(this.el);
+    this.onWinResize = () => this.layout(); // 화면 높이가 바뀌어도 트레이 크기를 다시 맞춤
+    window.addEventListener("resize", this.onWinResize);
     this.canvas.addEventListener("pointerdown", (e) => this.down(e));
     for (const t of ["pointerup", "pointercancel", "pointerleave"]) this.canvas.addEventListener(t, () => this.up());
     this.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -54,12 +56,17 @@ export class DiceTray {
 
   // ------------------------------------------------------------ 크기 · 배치
   layout() {
-    const W = this.el.clientWidth;
-    if (W < 50) return;
-    const H = Math.round(W * (W < 520 ? 0.8 : 0.62));
+    const full = this.el.clientWidth;
+    if (full < 50) return;
+    const ratio = full < 520 ? 0.78 : 0.6;
+    // 점수표와 버튼이 같이 보이도록, 트레이는 화면 높이의 일부만 씀 (폰은 조금 더 작게)
+    const maxH = Math.max(200, window.innerHeight * (full < 520 ? 0.4 : 0.44));
+    const W = Math.round(Math.min(full, maxH / ratio));
+    const H = Math.round(W * ratio);
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.canvas.width = W * dpr;
     this.canvas.height = H * dpr;
+    this.canvas.style.width = `${W}px`;
     this.canvas.style.height = `${H}px`;
     this.dpr = dpr;
     const rim = Math.max(W * 0.04, 12);
@@ -436,18 +443,42 @@ export class DiceTray {
     }
     const force = (now - this.anim.t0) / 1000 > MAX_ROLL_S;
     for (const d of rolling) {
-      if (force || (Math.hypot(d.vx, d.vy) < 30 && Math.abs(d.va) < 0.6)) {
+      const slow = Math.hypot(d.vx, d.vy) < 30 && Math.abs(d.va) < 0.6;
+      if (force || slow) {
         d.rolling = false;
         d.face = d.final;
         d.x = Math.min(d.x, ax1 - r);
         d.u = (d.x - ax0) / (ax1 - ax0);
         d.v = (d.y - ay0) / (ay1 - ay0);
+        if (!slow || this.overlaps(d)) this.freeSpot(d); // 억지로 멈춘 주사위는 겹치지 않게 펼쳐 놓음
       }
     }
     if (!this.dice.some((d) => d.rolling)) {
       this.anim = null;
       this.onSettled?.();
     }
+  }
+
+  overlaps(d) {
+    const s = this.geo.s;
+    return this.dice.some((o, i) => o !== d && o.visible && !o.rolling && !(this.held[i] && this.rolled) &&
+      (o.x - d.x) ** 2 + (o.y - d.y) ** 2 < (s * 1.05) ** 2);
+  }
+
+  /** 다른 주사위와 겹치지 않는 자리(u, v)를 골라 줌. 주사위는 그 자리로 미끄러져 감 */
+  freeSpot(d) {
+    const [ax0, ay0, ax1, ay1] = this.geo.area;
+    const s = this.geo.s;
+    let best = null, bestGap = -1;
+    for (let k = 0; k < 40; k++) {
+      const u = rand(0.08, 0.92), v = rand(0.12, 0.88);
+      const x = ax0 + u * (ax1 - ax0), y = ay0 + v * (ay1 - ay0);
+      const gap = Math.min(...this.dice.filter((o, i) => o !== d && o.visible && !(this.held[i] && this.rolled))
+        .map((o) => Math.hypot(ax0 + o.u * (ax1 - ax0) - x, ay0 + o.v * (ay1 - ay0) - y)), 1e9);
+      if (gap > bestGap) { best = [u, v]; bestGap = gap; }
+      if (gap > s * 1.3) break;
+    }
+    [d.u, d.v] = best;
   }
 
   /** 고정한 주사위는 위 칸으로, 푼 주사위는 원래 자리로 부드럽게. 아직 움직이면 true */
@@ -544,6 +575,7 @@ export class DiceTray {
 
   destroy() {
     clearTimeout(this.forceTimer);
+    window.removeEventListener("resize", this.onWinResize);
     this.ro.disconnect();
     if (this.raf !== null) cancelAnimationFrame(this.raf);
   }

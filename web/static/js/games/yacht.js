@@ -1,7 +1,6 @@
 // 야추 다이스 화면: 최대 6명, 컵을 꾹 눌러 흔들다 놓으면 주사위가 쏟아져 나옴
-import { YachtGame, UPPER, LOWER, CATEGORIES, CAT_NAMES, CAT_HELP, BONUS_NEED, BONUS, score, rollDie, aiPickCategory, aiShouldStop, aiHolds } from "../engine/yacht.js";
+import { YachtGame, UPPER, LOWER, CATEGORIES, CAT_NAMES, CAT_HELP, BONUS_NEED, BONUS, AI_BASE, score, rollDie, aiPickCategory, aiShouldStop, aiHolds } from "../engine/yacht.js";
 import { avatarHtml, esc } from "../art.js";
-import { seatCard } from "../match.js";
 import { el, toast, confirmBox } from "../ui.js";
 import { DiceTray } from "./dice_tray.js";
 
@@ -15,23 +14,41 @@ export function create(m) {
   let shakeStart = null; // 내가 흔들기 시작한 시각
   let tapTimer = null;
   let remoteShake = null; // 다른 사람이 흔드는 중이면 안전장치 타이머
+  let lastRec = null; // 방금 기록한 칸 (반짝 효과)
 
+  m.root.classList.add("yacht-screen"); // 트레이 옆에 점수표가 오는 배치
   const root = el(`<div class="board-wrap" style="width:100%">
-    <div class="seat-strip" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))"></div>
-    <div class="status-line"></div>
     <div class="yacht-table">
+      <div class="yacht-head">
+        <div class="turn"></div>
+        <div class="rolls" aria-label="남은 던지기"></div>
+      </div>
       <div class="tray-slot"></div>
+      <div class="yacht-actions"><button class="btn big pink cup-btn"></button><div class="quick" aria-label="추천 기록"></div></div>
       <div class="held-label"></div>
-      <div class="row" style="justify-content:center"><button class="btn big pink cup-btn">컵 흔들기</button></div>
-    </div>
-    <div class="score-wrap"></div>
-    <div class="controls"></div></div>`);
-  const strip = root.querySelector(".seat-strip");
-  const status = root.querySelector(".status-line");
+    </div></div>`);
+  const side = el(`<div class="card score-card"><div class="row" style="justify-content:space-between;margin-bottom:8px"><h3 style="margin:0">점수표</h3><span class="muted round" style="font-size:14px"></span></div><div class="score-wrap"></div></div>`);
+  const turnEl = root.querySelector(".turn");
+  const rollsEl = root.querySelector(".rolls");
   const heldLabel = root.querySelector(".held-label");
   const cup = root.querySelector(".cup-btn");
-  const scoreWrap = root.querySelector(".score-wrap");
-  const controls = root.querySelector(".controls");
+  const quick = root.querySelector(".quick");
+  const scoreWrap = side.querySelector(".score-wrap");
+  const roundEl = side.querySelector(".round");
+
+  // 항복은 오른쪽 위(상단바), 채팅은 트레이 아래 왼쪽으로 옮겨서 한 화면에 깔끔하게
+  const giveUp = el(`<button class="btn ghost small topbar-resign">항복</button>`);
+  const topbar = m.root.querySelector(".topbar");
+  topbar.insertBefore(giveUp, topbar.querySelector('[data-k="rules"]'));
+  const mySeatsLeft = () => m.mySeats.filter((i) => !game.players[i].resigned && !m.seats[i].ai);
+  giveUp.onclick = async () => {
+    const mine = mySeatsLeft();
+    if (!mine.length) return;
+    const seat = m.mode === "local" ? (mine.includes(game.current) ? game.current : mine[0]) : mine[0];
+    if (await confirmBox("항복", `${m.seats[seat].name} 님, 정말 항복할까요?`, "항복", "계속")) m.submit({ type: "resign" }, seat);
+  };
+  m.chat.root.classList.add("yacht-chat");
+  m.root.querySelector(".game-layout").appendChild(m.chat.root);
 
   const myTurn = () => !game.over && !m.result && m.controls(game.current);
   const canRoll = () => myTurn() && game.rollsLeft > 0 && !tray.isRolling();
@@ -99,13 +116,15 @@ export function create(m) {
     m.submit({ type: "roll", dice: [0, 1, 2, 3, 4].map(rollDie), power: Math.round(power * 100) / 100 }, game.current);
   }
 
-  scoreWrap.addEventListener("click", (ev) => {
+  const pickCat = (ev) => {
     const help = ev.target.closest("[data-help]");
     if (help) { toast(`${CAT_NAMES[help.dataset.help]}: ${CAT_HELP[help.dataset.help]}`, 3200); return; }
-    const cell = ev.target.closest("td.pick");
+    const cell = ev.target.closest("[data-pick]");
     if (!cell || !myTurn() || tray.isRolling()) return;
-    m.submit({ type: "record", cat: cell.dataset.cat }, game.current);
-  });
+    m.submit({ type: "record", cat: cell.dataset.pick }, game.current);
+  };
+  scoreWrap.addEventListener("click", pickCat);
+  quick.addEventListener("click", pickCat);
 
   /** 다른 사람이 컵을 흔드는 모습 (온라인) */
   function onFx(msg) {
@@ -160,6 +179,7 @@ export function create(m) {
     } else if (a.type === "record") {
       const scored = typeof a.cat === "string" && game.players[seat].scores[a.cat] === undefined ? score(a.cat, game.dice) : null;
       if (!game.record(a.cat)) return;
+      lastRec = { seat, cat: a.cat };
       m.sfx(scored > 0 ? "pop" : "place");
       if (!m.replaying && scored !== null) m.popSeat(seat, { text: `${CAT_NAMES[a.cat]} ${scored}점` });
       if (game.over) end("모든 칸을 채웠어요");
@@ -183,63 +203,106 @@ export function create(m) {
   }
 
   // ------------------------------------------------------------ 화면
+  /**
+   * 지금 주사위로 기록하기 좋은 칸 3개.
+   * 점수가 나는 칸을 평소 기대 점수보다 얼마나 더 받는지(보너스 진행 포함)로 먼저 고르고,
+   * 모자라면 0점으로 버려도 덜 아까운 칸(기대 점수가 낮은 칸)을 채움.
+   */
+  function suggestions() {
+    const p = game.players[game.current];
+    const open = CATEGORIES.filter((c) => p.scores[c] === undefined);
+    const upper = YachtGame.upperSum(p);
+    const gain = (c) => {
+      let g = score(c, game.dice) - AI_BASE[c];
+      if (UPPER.includes(c) && upper < BONUS_NEED) {
+        const face = UPPER.indexOf(c) + 1;
+        g += (game.dice.filter((d) => d === face).length - 3) * face * 0.5;
+      }
+      return g;
+    };
+    const scoring = open.filter((c) => score(c, game.dice) > 0).sort((a, b) => gain(b) - gain(a));
+    const scrap = open.filter((c) => score(c, game.dice) === 0).sort((a, b) => AI_BASE[a] - AI_BASE[b]);
+    return scoring.concat(scrap).slice(0, 3);
+  }
+
   function drawScores() {
     const cur = game.current;
-    const settled = game.rolled && !tray.isRolling();
+    const settled = game.rolled && !tray.isRolling() && !game.over;
     const canPick = myTurn() && settled;
-    const head = game.players.map((p, i) => `<th class="${i === cur && !game.over ? "cur" : ""}"><div class="th-av">${avatarHtml(m.seats[i].avatar, 26)}<span class="nm">${esc(p.name)}</span></div></th>`).join("");
+    const best = canPick ? suggestions()[0] : null;
+    const curCls = (i) => (i === cur && !game.over ? " cur" : "");
+    const head = game.players.map((p, i) => {
+      const tot = p.resigned ? "항복" : m.offline.has(i) ? "끊김" : `${game.total(p)}점`;
+      const me = m.controls(i) && m.mode !== "local" ? " (나)" : "";
+      return `<th class="${curCls(i)}${p.resigned ? " out" : ""}${m.offline.has(i) ? " off" : ""}" data-seat="${i}"><div class="th-av">${avatarHtml(m.seats[i].avatar, 28)}<span class="nm">${esc(p.name + me)}</span><span class="tot">${tot}</span></div></th>`;
+    }).join("");
     const row = (cat) => {
       const cells = game.players.map((p, i) => {
         const v = p.scores[cat];
-        const curCls = i === cur && !game.over ? " cur" : "";
-        if (v !== undefined) return `<td class="${curCls}">${v}</td>`;
-        if (i === cur && settled && !game.over && !p.resigned) {
-          const pv = score(cat, game.dice);
-          return `<td class="pv${canPick ? " pick" : ""}${curCls}" data-cat="${cat}">${pv}</td>`;
+        if (v !== undefined) {
+          const flash = lastRec && lastRec.seat === i && lastRec.cat === cat ? " flash" : "";
+          return `<td class="${curCls(i)}${v === 0 ? " zero" : ""}${flash}">${v}</td>`;
         }
-        return `<td class="${curCls}">${p.resigned ? "-" : ""}</td>`;
+        if (i === cur && settled && !p.resigned) {
+          const pv = score(cat, game.dice);
+          if (!canPick) return `<td class="pv${curCls(i)}">${pv}</td>`;
+          return `<td class="${curCls(i)}"><button class="pick${pv === 0 ? " nil" : ""}${cat === best ? " best" : ""}" data-pick="${cat}" aria-label="${CAT_NAMES[cat]}에 ${pv}점 기록">${pv}</button></td>`;
+        }
+        return `<td class="${curCls(i)}">${p.resigned ? "-" : ""}</td>`;
       }).join("");
-      return `<tr><td class="cat"><button data-help="${cat}">${CAT_NAMES[cat]}</button></td>${cells}</tr>`;
+      return `<tr><td class="cat"><button data-help="${cat}" title="${esc(CAT_HELP[cat])}">${CAT_NAMES[cat]}</button></td>${cells}</tr>`;
     };
-    const sumRow = (label, fn, cls = "sum") => `<tr class="${cls}"><td class="cat">${label}</td>${game.players.map((p, i) => `<td class="${i === cur && !game.over ? "cur" : ""}">${fn(p)}</td>`).join("")}</tr>`;
-    scoreWrap.innerHTML = `<table class="score"><thead><tr><th>항목</th>${head}</tr></thead><tbody>
+    const bonusCell = (p, i) => {
+      const sum = YachtGame.upperSum(p);
+      const pct = Math.min(100, Math.round((sum / BONUS_NEED) * 100));
+      return `<td class="${curCls(i)}"><div class="bonus-bar${sum >= BONUS_NEED ? " done" : ""}"><i style="width:${pct}%"></i></div><span class="bonus-num">${sum >= BONUS_NEED ? `+${BONUS}` : `${sum}/${BONUS_NEED}`}</span></td>`;
+    };
+    scoreWrap.innerHTML = `<table class="score"><thead><tr><th class="cat-h">항목</th>${head}</tr></thead><tbody>
       ${UPPER.map(row).join("")}
-      ${sumRow("소계", (p) => `${YachtGame.upperSum(p)}/${BONUS_NEED}`)}
-      ${sumRow(`보너스 +${BONUS}`, (p) => (game.bonus(p) ? `+${BONUS}` : ""))}
+      <tr class="sum"><td class="cat">보너스 <span class="hint">63↑ +35</span></td>${game.players.map(bonusCell).join("")}</tr>
       ${LOWER.map(row).join("")}
-      ${sumRow("총점", (p) => game.total(p), "total")}</tbody></table>`;
+      <tr class="total"><td class="cat">총점</td>${game.players.map((p, i) => `<td class="${curCls(i)}">${game.total(p)}</td>`).join("")}</tr></tbody></table>`;
+    lastRec = null; // 반짝임은 한 번만
   }
 
   function render() {
-    strip.innerHTML = game.players.map((p, i) => seatCard(m, i, { sub: p.resigned ? "항복" : `${game.total(p)}점`, turn: !game.over && i === game.current })).join("");
     const p = game.players[game.current];
-    if (game.over || m.result) status.textContent = m.result ? m.result.title : "";
-    else {
-      const who = myTurn() ? "내 차례" : `${p.name} 님 차례${m.seats[game.current].ai ? " · 생각 중..." : ""}`;
-      status.textContent = `${who} · ${game.round}/12 라운드 · 남은 던지기 ${game.rollsLeft}번`;
+    const rolling = tray.isRolling();
+    const ai = m.seats[game.current].ai;
+    roundEl.textContent = game.over ? "끝" : `${game.round} / 12 라운드`;
+    if (game.over || m.result) {
+      turnEl.innerHTML = `<span class="who">${esc(m.result ? m.result.title : "게임 끝")}</span>`;
+      turnEl.classList.remove("mine");
+    } else {
+      const who = myTurn() ? (m.mode === "local" ? `${p.name} 차례` : "내 차례!") : `${p.name} 님 차례${ai ? " · 컴퓨터" : ""}`;
+      turnEl.innerHTML = `${avatarHtml(m.seats[game.current].avatar, 30)}<span class="who">${esc(who)}</span>`;
+      turnEl.classList.toggle("mine", myTurn());
     }
+    rollsEl.innerHTML = `<span>던지기</span>${[0, 1, 2].map((k) => `<i class="${k < game.rollsLeft ? "on" : ""}"></i>`).join("")}`;
     tray.sync(game.dice, game.held, game.rolled);
     if (m.replaying) tray.settleInstant(game.dice);
-    const rolling = tray.isRolling();
-    heldLabel.textContent = rolling ? "데구르르..." : !game.rolled ? (myTurn() ? "컵(오른쪽)이나 버튼, 스페이스바를 꾹 눌러 흔들다 놓아 보세요" : "") : game.rollsLeft === 0 ? "점수표에서 기록할 칸을 골라요" : myTurn() ? "남길 주사위를 눌러 위 칸에 고정해요" : "";
+
+    // 컵 버튼 + 추천 기록
     cup.disabled = !myTurn() || game.rollsLeft === 0 || rolling;
-    if (shakeStart === null) cup.textContent = game.rollsLeft === 3 ? "컵 흔들기" : `다시 던지기 (${game.rollsLeft}번 남음)`;
-    drawScores();
-    controls.innerHTML = "";
-    const mine = m.mySeats.filter((i) => !game.players[i].resigned && !m.seats[i].ai);
-    if (mine.length && !game.over && !m.result) {
-      const give = el(`<button class="btn ghost">항복</button>`);
-      give.onclick = async () => {
-        const seat = m.mode === "local" ? (mine.includes(game.current) ? game.current : mine[0]) : mine[0];
-        if (await confirmBox("항복", `${m.seats[seat].name} 님, 정말 항복할까요?`, "항복", "계속")) m.submit({ type: "resign" }, seat);
-      };
-      controls.append(give);
+    if (shakeStart === null) {
+      cup.innerHTML = !myTurn() ? `${esc(p.name)} 님 차례` : game.rollsLeft === 0 ? "점수를 골라요" : `${game.rollsLeft === 3 ? "컵 흔들기" : "다시 던지기"} <kbd>Space</kbd>`;
     }
+    const canPick = myTurn() && game.rolled && !rolling && !game.over;
+    quick.innerHTML = canPick ? suggestions().map((c, k) => {
+      const v = score(c, game.dice);
+      return `<button class="chip${k === 0 ? " best" : ""}${v === 0 ? " nil" : ""}" data-pick="${c}">${CAT_NAMES[c]} <b>${v}</b></button>`;
+    }).join("") : "";
+    quick.hidden = !canPick;
+
+    heldLabel.textContent = rolling ? "데구르르..." : game.over ? "" : !game.rolled ? (myTurn() ? "컵이나 버튼을 꾹 누르면 흔들고, 놓으면 던져요" : "") :
+      myTurn() ? (game.rollsLeft === 0 ? "기록할 칸을 골라요 · 점수표에서 다른 칸도 고를 수 있어요" : "남길 주사위를 누르면 위 칸에 고정돼요 · 바로 기록해도 돼요") : "";
+    drawScores();
+    giveUp.hidden = !mySeatsLeft().length || game.over || !!m.result;
     maybeAi();
   }
 
   return {
-    el: root, apply, resign, render, onFx,
+    el: root, sideEl: side, apply, resign, render, onFx,
     destroy: () => {
       clearTimeout(tapTimer);
       clearTimeout(remoteShake);

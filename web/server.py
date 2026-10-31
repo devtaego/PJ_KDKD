@@ -350,8 +350,17 @@ async def health(request):
     return web.json_response({"ok": True, "rooms": len(hub.rooms)})
 
 
+@web.middleware
+async def no_stale_files(request, handler):
+    """새로 배포하면 바로 새 화면이 보이도록, 브라우저가 매번 바뀌었는지 확인하게 함."""
+    resp = await handler(request)
+    if request.path.endswith((".js", ".css", ".html", ".webmanifest", "/")):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 def make_app():
-    app = web.Application()
+    app = web.Application(middlewares=[no_stale_files])
     app.router.add_get("/", index)
     app.router.add_get("/ws", ws_handler)
     app.router.add_get("/healthz", health)

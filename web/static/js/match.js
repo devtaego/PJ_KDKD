@@ -26,7 +26,10 @@ export class Match {
     this.buildScreen();
     this.g = module.create(this);
     this.boardWrap.appendChild(this.g.el);
-    if (this.g.sideEl) this.side.insertBefore(this.g.sideEl, this.chat.root);
+    if (this.g.sideEl) { // 게임이 채팅을 다른 곳으로 옮겼으면 그냥 뒤에 붙임
+      if (this.chat.root.parentNode === this.side) this.side.insertBefore(this.g.sideEl, this.chat.root);
+      else this.side.appendChild(this.g.sideEl);
+    }
     this.g.render();
   }
 

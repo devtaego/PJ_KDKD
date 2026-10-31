@@ -118,7 +118,7 @@ export class YachtGame {
   }
 }
 
-const AI_BASE = { ones: 2, twos: 5, threes: 8, fours: 11, fives: 14, sixes: 17, choice: 21, four: 9, full: 12, sstraight: 10, lstraight: 8, yacht: 4 };
+export const AI_BASE = { ones: 2, twos: 5, threes: 8, fours: 11, fives: 14, sixes: 17, choice: 21, four: 9, full: 12, sstraight: 10, lstraight: 8, yacht: 4 };
 
 export function aiPickCategory(game, level = "normal") {
   const p = game.players[game.current];

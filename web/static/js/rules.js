@@ -1,5 +1,5 @@
 // 게임 이름과 규칙 설명 (hub/game_room.py 의 RULES_TEXT, 웹 조작에 맞게 표현만 바꿈)
-export const GAME_NAMES = { chess: "체스", yacht: "야추 다이스", omok: "오목", yut: "특수능력 윷놀이" };
+export const GAME_NAMES = { chess: "체스", yacht: "야추 다이스", omok: "오목", yut: "윷놀이" };
 export const GAME_DESC = {
   chess: "컴퓨터 · 한 기기 2인 · 온라인 대전, 시간 모드",
   yacht: "최대 6명! 컵을 흔들어 던지는 주사위 족보 게임",

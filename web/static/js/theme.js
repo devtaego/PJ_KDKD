@@ -14,6 +14,7 @@ export function applyTheme(id) {
   document.documentElement.dataset.theme = t.id;
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", t.bar);
   store.set("theme", t.id);
+  window.dispatchEvent(new Event("themechange"));
 }
 
 applyTheme(store.get("theme", "night"));

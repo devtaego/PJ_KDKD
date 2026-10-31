@@ -1,8 +1,8 @@
 // KI득KI득 웹판: 첫 화면 · 프로필 · 게임 고르기 · 온라인 방 목록 · 대기실 · 랭킹
 import * as net from "./net.js";
 import { ANIMALS, avatarHtml, photoToSpec, GAME_ICONS, esc, setPhoto } from "./art.js";
-import { el, toast, modal, confirmBox, segment, option, store, ChatPanel, personHtml } from "./ui.js";
-import { play, soundOn, setSound } from "./sound.js";
+import { el, toast, modal, confirmBox, segment, option, store, ChatPanel, personHtml, soundButton } from "./ui.js";
+import { play } from "./sound.js";
 import { Match, showRules } from "./match.js";
 import { GAME_NAMES, GAME_DESC } from "./rules.js";
 import { THEMES, applyTheme, currentTheme } from "./theme.js";
@@ -28,10 +28,31 @@ let match = null;
 const online = { room: null, status: "closed", chat: null, lobby: null, wait: null };
 let pendingCode = new URLSearchParams(location.search).get("room");
 
+// ---------------------------------------------------------------- 배경: 타이틀과 같은 픽셀 장면을 모든 화면 뒤에 은은하게
+const backdrop = (() => {
+  const box = document.querySelector(".backdrop");
+  let scene = null;
+  return {
+    show(on) {
+      if (on && !scene) {
+        const cv = el(`<canvas class="bg-scene"></canvas>`);
+        box.replaceChildren(cv, el(`<div class="bg-veil"></div>`));
+        box.classList.add("scene");
+        scene = new TitleScene(cv, currentTheme(), { fps: 6 });
+      } else if (!on && scene) { scene.destroy(); scene = null; }
+    },
+    theme() { scene?.setTheme(currentTheme()); },
+  };
+})();
+window.addEventListener("themechange", () => backdrop.theme());
+
 // ---------------------------------------------------------------- 화면 바꾸기
 function show(screen, { push = true } = {}) {
   if (current && current !== screen) current.destroy?.();
   if (match && screen.root !== match.root) { match.destroy(); match = null; }
+  const bar = screen.root.querySelector(".topbar");
+  if (bar && !bar.querySelector(".sound-btn")) bar.appendChild(soundButton()); // 어느 화면이든 오른쪽 위에 스피커
+  backdrop.show(!screen.root.classList.contains("title-screen"));
   app.replaceChildren(screen.root);
   current = screen;
   window.scrollTo(0, 0);
@@ -67,7 +88,9 @@ function titleScreen() {
       <div class="title-sub">${esc(APP_SUB)}</div>
       <nav class="title-menu" aria-label="메뉴"></nav>
       <div class="title-hint">↑ ↓ 고르기 · Enter 결정 · ◀ ▶ 테마</div>
+      <div class="title-credit">제작자 · ${esc(DEVELOPER)}</div>
     </div></section>`);
+  root.querySelector(".title-ui").appendChild(soundButton("title-sound"));
   const scene = new TitleScene(root.querySelector(".title-scene"), currentTheme());
   const menu = root.querySelector(".title-menu");
   const themeName = () => THEMES.find((t) => t.id === currentTheme()).name;
@@ -122,8 +145,9 @@ function homeScreen(focusName = false) {
   const root = el(`<section class="screen home">
     <header class="home-head">
       <button class="icon-btn home-back" aria-label="타이틀 화면으로">←</button>
+      <span class="home-sound"></span>
       <h1 class="logo" aria-label="KI득KI득"><span>K</span><span>I</span><b>득</b><span>K</span><span>I</span><em>득</em></h1>
-      <div class="tagline"><span class="tag-pill">${esc(APP_SUB)}</span><span class="muted">체스 · 야추 · 오목 아이스브레이킹 게임룸</span></div>
+      <div class="tagline"><span class="tag-pill">${esc(APP_SUB)}</span><span class="muted">체스 · 야추 · 오목 · 윷놀이 아이스브레이킹 게임룸</span></div>
     </header>
     <div class="home-grid">
       <aside class="card player-card">
@@ -134,7 +158,7 @@ function homeScreen(focusName = false) {
         <label class="field"><span>한 줄 소개 (MBTI, 관심사...)</span><input id="intro" type="text" maxlength="30" placeholder="예: ENFP · 떡볶이 좋아해요"></label>
         <div class="field-label">테마</div>
         <div class="theme-pick" role="group" aria-label="화면 테마"></div>
-        <div class="row pc-bottom"><button class="btn small ghost" data-k="sound"></button><span class="grow"></span><button class="btn small ghost" data-k="about">정보</button></div>
+        <div class="row pc-bottom"><span class="grow"></span><button class="btn small ghost" data-k="about">정보</button></div>
       </aside>
       <div class="home-main">
         <div class="section-title">게임 고르기 <span class="muted">눌러서 바로 시작!</span></div>
@@ -197,15 +221,12 @@ function homeScreen(focusName = false) {
   const games = root.querySelector(".games");
   for (const g of ["chess", "yacht", "omok", "yut"]) {
     const meta = GAME_META[g];
-    const card = el(`<button class="game-card g-${g}"><span class="gband"></span><div class="gicon">${GAME_ICONS[g]}</div><div class="gbody"><div class="gname">${GAME_NAMES[g]}</div><div class="gdesc">${GAME_DESC[g]}</div><div class="gmeta"><span>${meta.people}</span><span>${meta.modes}</span></div></div><span class="gplay">▶ 플레이</span></button>`);
+    const card = el(`<button class="game-card g-${g}"><span class="gband"></span><div class="gart"><div class="gicon">${GAME_ICONS[g]}</div></div><div class="gbody"><div class="gname">${GAME_NAMES[g]}</div><div class="gdesc">${GAME_DESC[g]}</div><div class="gmeta"><span>${meta.people}</span><span>${meta.modes}</span></div></div><span class="gplay">▶ 플레이</span></button>`);
     card.onclick = () => { if (!needName()) { play("click"); chooseMode(g); } };
     games.appendChild(card);
   }
 
-  const soundBtn = root.querySelector('[data-k="sound"]');
-  const paint = () => { soundBtn.textContent = soundOn() ? "효과음 켜짐" : "효과음 꺼짐"; };
-  paint();
-  soundBtn.onclick = () => { setSound(!soundOn()); paint(); play("click"); };
+  root.querySelector(".home-sound").replaceWith(soundButton("home-sound"));
   root.querySelector('[data-k="about"]').onclick = about;
   root.querySelector('[data-k="rules"]').onclick = () => rulesPicker();
   root.querySelector('[data-k="rank"]').onclick = rankingModal;

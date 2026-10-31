@@ -12,7 +12,8 @@ function mulberry(seed) {
 }
 
 export class TitleScene {
-  constructor(canvas, theme) {
+  /** fps: 초당 몇 장 그릴지 (타이틀 20, 다른 화면 뒤 배경은 은은하게 6) */
+  constructor(canvas, theme, { fps = 20 } = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.theme = theme;
@@ -22,7 +23,7 @@ export class TitleScene {
     window.addEventListener("resize", this.resize);
     this.fit();
     const loop = (t) => {
-      if (t - this.last > 50) { // 초당 20장이면 충분 (배터리 아끼기)
+      if (t - this.last > 1000 / fps) { // 초당 20장이면 충분 (배터리 아끼기)
         this.last = t;
         this.draw(t / 1000);
       }

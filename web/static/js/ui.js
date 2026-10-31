@@ -1,7 +1,25 @@
 // 화면 공통 부품: 요소 만들기, 알림, 창, 선택 버튼, 저장, 채팅, 결과 화면과 티배깅
 import { avatarHtml, stickerSvg, STICKERS, CROWN_SVG, esc } from "./art.js";
-import { play } from "./sound.js";
+import { play, soundOn, setSound } from "./sound.js";
 import { pickLines, TAUNTS, randomOf } from "./party.js";
+
+const SPEAKER = `<path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>`;
+const WAVES = `<path d="M16 9.2a4 4 0 0 1 0 5.6M18.6 6.6a7.6 7.6 0 0 1 0 10.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`;
+const MUTE = `<path d="M16.5 9.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`;
+
+/** 오른쪽 위 스피커 버튼: 누르면 효과음 켜기 / 끄기 */
+export function soundButton(cls = "") {
+  const b = el(`<button class="icon-btn sound-btn ${cls}" type="button"></button>`);
+  const paint = () => {
+    b.innerHTML = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">${SPEAKER}${soundOn() ? WAVES : MUTE}</svg>`;
+    b.setAttribute("aria-label", soundOn() ? "효과음 끄기" : "효과음 켜기");
+    b.title = soundOn() ? "효과음 켜짐" : "효과음 꺼짐";
+    b.classList.toggle("off", !soundOn());
+  };
+  paint();
+  b.onclick = (e) => { e.stopPropagation(); setSound(!soundOn()); paint(); play("click"); };
+  return b;
+}
 
 /** html 문자열로 요소 하나 만들기 */
 export function el(html) {

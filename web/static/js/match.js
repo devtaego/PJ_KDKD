@@ -2,9 +2,9 @@
 // 모든 행동(수 두기, 주사위 굴리기, 항복...)은 submit -> apply 순서로 흘러감.
 // 온라인에서는 서버가 순서와 시각을 붙여 모두에게 똑같이 돌려주므로, 모든 기기가 같은 판을 계산함.
 import * as net from "./net.js";
-import { el, ChatPanel, popAt, showResult, addLocalRecord, confirmBox, toast, modal } from "./ui.js";
+import { el, ChatPanel, popAt, showResult, addLocalRecord, confirmBox, toast, modal, soundButton } from "./ui.js";
 import { avatarHtml, esc } from "./art.js";
-import { play, soundOn, setSound } from "./sound.js";
+import { play } from "./sound.js";
 import { questionFor, replyLine, CHAT_AI_TEXTS, randomOf } from "./party.js";
 import { RULES_TEXT, GAME_NAMES } from "./rules.js";
 
@@ -37,15 +37,12 @@ export class Match {
   buildScreen() {
     this.root = el(`<section class="screen game-screen">
       <div class="topbar"><button class="icon-btn" aria-label="나가기">←</button><h1>${esc(GAME_NAMES[this.game])}<span class="muted" style="font-size:16px"> · ${esc(this.modeLabel())}</span></h1>
-      <span class="net-dot" hidden></span><span class="top-actions"></span><button class="icon-btn" data-k="rules" aria-label="규칙 보기">?</button><button class="icon-btn" data-k="sound" aria-label="소리 켜기/끄기"></button></div>
+      <span class="net-dot" hidden></span><span class="top-actions"></span><button class="icon-btn" data-k="rules" aria-label="규칙 보기">?</button></div>
       <div class="game-layout"><div class="board-wrap"></div><div class="side"></div></div></section>`);
     this.boardWrap = this.root.querySelector(".board-wrap");
     this.side = this.root.querySelector(".side");
     this.root.querySelector(".topbar .icon-btn").onclick = () => this.exit();
-    const sb = this.root.querySelector('[data-k="sound"]');
-    const paintSound = () => { sb.textContent = soundOn() ? "♪" : "×"; };
-    paintSound();
-    sb.onclick = () => { setSound(!soundOn()); paintSound(); };
+    this.root.querySelector(".topbar").appendChild(soundButton());
     this.root.querySelector('[data-k="rules"]').onclick = () => showRules(this.game);
     this.chat = new ChatPanel((m) => this.sendChat(m));
     this.side.appendChild(this.chat.root);

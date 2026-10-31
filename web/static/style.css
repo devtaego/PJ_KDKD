@@ -777,7 +777,7 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
   .title-logo, .title-logo > *, .title-item.on::before { animation: none !important; }
 }
 
-/* ================================================================ 특수능력 윷놀이 */
+/* ================================================================ 윷놀이 */
 .yut-screen .game-layout { grid-template-columns: minmax(0, 1fr) 330px; }
 .yut-seats { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
 .yut-seats .person { box-shadow: inset 4px 0 0 var(--pc, var(--accent)), inset 0 0 0 1px var(--edge); }
@@ -877,3 +877,101 @@ table.odds td { vertical-align: middle; }
 .yut-shout small { font-size: 15px; -webkit-text-stroke: 0; background: #1A1446; color: #fff; padding: 2px 12px; border-radius: 999px; text-shadow: none; }
 .yut-shout.tier-legend small { background: linear-gradient(90deg, #FF5C8A, #FFB547); }
 .yut-shout.tier-rare small { background: #2F8FE0; }
+
+/* ================================================================ 타이틀 화면과 같은 느낌으로 (모든 화면)
+   - 뒤에는 타이틀의 픽셀 장면을 은은하게 (색 막을 덮어 글씨가 잘 보이게)
+   - 판 · 창은 타이틀 이름표처럼 굵은 테두리 + 아래로 떨어지는 그림자
+   - 화면 위 글씨는 타이틀 메뉴처럼 테두리 글씨 */
+:root {
+  --veil: linear-gradient(180deg, rgba(18, 12, 52, 0.5), rgba(18, 12, 52, 0.78));
+  --frame: rgba(255, 255, 255, 0.5);
+  --ink: #1A1446;
+  --drop: 0 6px 0 rgba(8, 5, 28, 0.45), 0 14px 30px rgba(8, 5, 28, 0.35);
+  --chip: rgba(0, 0, 0, 0.42);
+  --chip-edge: rgba(255, 255, 255, 0.75);
+  --chip-text: #FFFFFF;
+}
+[data-theme="pastel"] {
+  --veil: linear-gradient(180deg, rgba(255, 251, 245, 0.38), rgba(255, 243, 247, 0.66));
+  --frame: #6B3E26;
+  --ink: #6B3E26;
+  --drop: 0 6px 0 rgba(107, 62, 38, 0.28), 0 14px 26px rgba(107, 62, 38, 0.16);
+  --chip: rgba(107, 62, 38, 0.55);
+  --chip-edge: #FFF8E7;
+  --chip-text: #FFF8E7;
+}
+[data-theme="arcade"] {
+  --veil: linear-gradient(180deg, rgba(7, 7, 26, 0.45), rgba(7, 7, 26, 0.8));
+  --frame: rgba(0, 229, 255, 0.7);
+  --ink: #07071A;
+  --drop: 0 0 18px rgba(0, 229, 255, 0.28), 0 6px 0 rgba(0, 0, 0, 0.55);
+  --chip: rgba(7, 7, 26, 0.72);
+  --chip-edge: #00E5FF;
+  --chip-text: #7CF7FF;
+}
+.backdrop.scene { background: #000; }
+.backdrop .bg-scene { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; }
+.backdrop .bg-veil { position: absolute; inset: 0; background: var(--veil); }
+
+html[data-theme] .card, html[data-theme] .modal, html[data-theme] .result-card { border: 2px solid var(--frame); box-shadow: var(--drop); }
+html[data-theme] .game-card { border: 3px solid var(--frame); box-shadow: var(--drop); }
+html[data-theme] .game-card:hover { box-shadow: 0 0 0 3px var(--tile), var(--drop); }
+.card, .game-card { backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+
+/* 타이틀 메뉴 같은 테두리 글씨 */
+html[data-theme] .section-title, html[data-theme] .topbar h1, html[data-theme] .game-card .gname {
+  color: #FFFFFF;
+  text-shadow: 2px 0 0 var(--ink), -2px 0 0 var(--ink), 0 2px 0 var(--ink), 0 -2px 0 var(--ink), 2px 2px 0 var(--ink), -2px -2px 0 var(--ink), 2px -2px 0 var(--ink), -2px 2px 0 var(--ink), 0 4px 0 rgba(0, 0, 0, 0.3);
+}
+html[data-theme] .section-title .muted, html[data-theme] .topbar h1 .muted { color: #FFFFFF; opacity: 0.85; text-shadow: 1px 1px 0 var(--ink), -1px -1px 0 var(--ink), 1px -1px 0 var(--ink), -1px 1px 0 var(--ink); }
+html[data-theme="pastel"] .section-title, html[data-theme="pastel"] .topbar h1, html[data-theme="pastel"] .game-card .gname { color: #FFF8E7; }
+html[data-theme="arcade"] .section-title, html[data-theme="arcade"] .topbar h1, html[data-theme="arcade"] .game-card .gname { color: #7CF7FF; }
+
+/* 위쪽 로고: 타이틀 로고를 작게 */
+html[data-theme] .logo {
+  color: #FFFFFF; filter: none; -webkit-text-stroke: 5px #1A1446; paint-order: stroke fill;
+  text-shadow: 0 4px 0 #FF5C8A, 0 8px 0 #7C5CFF, 0 12px 18px rgba(0, 0, 0, 0.45);
+}
+html[data-theme] .logo b { color: var(--gold); }
+html[data-theme] .logo em { color: var(--pink); }
+html[data-theme="pastel"] .logo { color: #FFD34D; -webkit-text-stroke-color: #6B3E26; text-shadow: 0 4px 0 #E58A3A, 0 8px 0 #B5652A, 0 12px 16px rgba(107, 62, 38, 0.3); }
+html[data-theme="pastel"] .logo b { color: #FF9EC0; }
+html[data-theme="pastel"] .logo em { color: #7FD0FF; }
+html[data-theme="arcade"] .logo { color: #EFFFFF; -webkit-text-stroke-color: #07071A; text-shadow: 0 0 10px #00E5FF, 0 0 24px #00E5FF, 0 5px 0 #FF2BD6; }
+html[data-theme="arcade"] .logo b { color: #FFE600; }
+html[data-theme="arcade"] .logo em { color: #FF2BD6; }
+
+/* 이름표 · 동그란 버튼: 타이틀의 PLAYER 이름표와 같은 모양 */
+html[data-theme] .tag-pill { background: var(--chip); color: var(--chip-text); border: 2px solid var(--chip-edge); box-shadow: none; }
+html[data-theme] .home-head .muted { color: var(--chip-text); text-shadow: 1px 1px 0 var(--ink), -1px -1px 0 var(--ink), 1px -1px 0 var(--ink), -1px 1px 0 var(--ink); }
+html[data-theme] .topbar .icon-btn, html[data-theme] .home-head .icon-btn, .title-sound {
+  background: var(--chip); color: var(--chip-text); box-shadow: inset 0 0 0 2px var(--chip-edge), 0 4px 0 rgba(0, 0, 0, 0.25);
+}
+.sound-btn svg { display: block; }
+.sound-btn.off { opacity: 0.7; }
+.home-head { position: relative; }
+.home-head .home-back { position: absolute; left: 0; top: 4px; }
+.home-head .home-sound { position: absolute; right: 0; top: 4px; }
+.title-sound { position: absolute; top: 14px; right: 14px; z-index: 2; }
+[data-theme="arcade"] .title-sound { box-shadow: inset 0 0 0 2px #00E5FF, 0 0 14px rgba(0, 229, 255, 0.5); }
+.title-credit {
+  position: absolute; bottom: calc(10px + var(--safe-b)); right: 14px; font-size: 12px; letter-spacing: 1px;
+  color: var(--chip-text); background: var(--chip); border: 1px solid var(--chip-edge); padding: 2px 10px; border-radius: 999px; opacity: 0.85;
+}
+
+/* 게임 고르기: 그림 칸을 상자로 묶음 */
+.game-card .gart {
+  align-self: stretch; margin: 2px 0 4px; aspect-ratio: 16 / 11; border-radius: 16px; display: grid; place-items: center; position: relative; overflow: hidden;
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.12) 1.2px, transparent 1.6px) 0 0 / 14px 14px,
+    radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--tile) 34%, transparent), color-mix(in srgb, var(--tile) 12%, transparent) 70%);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--tile) 75%, transparent), inset 0 -6px 0 color-mix(in srgb, var(--tile) 22%, transparent);
+}
+.game-card .gart .gicon { margin: 0; }
+[data-theme="pastel"] .game-card .gart { background: radial-gradient(circle, rgba(255, 255, 255, 0.7) 1.4px, transparent 1.8px) 0 0 / 14px 14px, color-mix(in srgb, var(--tile) 22%, #FFFFFF); }
+@media (max-width: 640px) {
+  .game-card .gart { align-self: center; width: 72px; height: 72px; aspect-ratio: auto; margin: 0; flex: none; border-radius: 14px; }
+  .game-card .gart .gicon { width: 54px; height: 54px; }
+  .title-credit { right: 50%; transform: translateX(50%); white-space: nowrap; }
+}
+html[data-theme] .yut-hint { color: var(--chip-text); text-shadow: 1px 1px 0 var(--ink), -1px -1px 0 var(--ink), 1px -1px 0 var(--ink), -1px 1px 0 var(--ink), 0 2px 0 var(--ink); }

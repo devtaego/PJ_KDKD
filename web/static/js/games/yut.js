@@ -1,4 +1,4 @@
-// 특수능력 윷놀이 화면: 2~4명, 한 기기 또는 온라인 (컴퓨터 대전 없음)
+// 윷놀이 화면: 2~4명, 한 기기 또는 온라인 (컴퓨터 대전 없음)
 import { YutGame, START, HOME, CENTER, RESULT_NAMES, pathFrom } from "../engine/yut.js";
 import { ABILITY_BY_ID, TIERS, ABILITY_TILES, abilityOdds, THROW_ODDS } from "../data/yut_abilities.js";
 import { seatCard } from "../match.js";

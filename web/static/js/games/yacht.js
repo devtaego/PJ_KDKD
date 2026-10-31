@@ -7,6 +7,7 @@ import { DiceTray } from "./dice_tray.js";
 const AI_STEP_MS = 750;
 const AI_SHAKE_MS = 650; // 컴퓨터도 잠깐 흔든 뒤 던짐
 const TAP_SHAKE_MS = 420; // 버튼을 톡 누르면 이만큼 흔든 뒤 자동으로 던짐
+const TAKEOVER_MS = 6000; // 차례인 사람의 연결이 이만큼 끊겨 있으면 컴퓨터가 대신 둠
 
 export function create(m) {
   const game = new YachtGame(m.seats.map((s) => s.name), m.seats.map((s, i) => (s.ai ? i : -1)).filter((i) => i >= 0));
@@ -37,11 +38,8 @@ export function create(m) {
   const roundEl = side.querySelector(".round");
 
   // 항복은 오른쪽 위(상단바), 채팅은 트레이 아래 왼쪽으로 옮겨서 한 화면에 깔끔하게
-  const giveUp = el(`<button class="btn ghost small topbar-resign">항복</button>`);
-  const topbar = m.root.querySelector(".topbar");
-  topbar.insertBefore(giveUp, topbar.querySelector('[data-k="rules"]'));
   const mySeatsLeft = () => m.mySeats.filter((i) => !game.players[i].resigned && !m.seats[i].ai);
-  giveUp.onclick = async () => {
+  const resignMine = async () => {
     const mine = mySeatsLeft();
     if (!mine.length) return;
     const seat = m.mode === "local" ? (mine.includes(game.current) ? game.current : mine[0]) : mine[0];
@@ -138,27 +136,46 @@ export function create(m) {
   }
 
   // ------------------------------------------------------------ 컴퓨터
+  /**
+   * 온라인에서 차례인 사람의 연결이 끊긴 지 TAKEOVER_MS가 지나면 방장 기기의 컴퓨터가 대신 둠
+   * (데스크톱판과 같은 방식. 다시 들어오면 바로 자기 차례를 돌려받음)
+   */
+  const offlineSince = new Map();
+  function takeover(seat) {
+    if (!m.online || !m.isHost || !m.offline.has(seat) || m.controls(seat)) return false;
+    const left = TAKEOVER_MS - (Date.now() - offlineSince.get(seat));
+    if (left > 0) {
+      if (!aiTimer) aiTimer = m.later(() => { aiTimer = null; render(); }, left + 50);
+      return false;
+    }
+    return true;
+  }
+  const actFor = (seat, a) => (m.seats[seat].ai ? m.submit(a, seat) : m.submitAs(a, seat));
+
   function maybeAi() {
-    if (game.over || m.result || !m.seats[game.current].ai || aiTimer || tray.isRolling()) return;
+    if (game.over || m.result || aiTimer || tray.isRolling()) return;
     const seat = game.current;
+    if (!m.seats[seat].ai && !takeover(seat)) return;
+    const stillMine = () => !game.over && game.current === seat && (m.seats[seat].ai || m.offline.has(seat));
     const throwLater = () => {
       tray.setShaking(true, `${m.seats[seat].name} `);
       aiTimer = m.later(() => {
         aiTimer = null;
-        if (game.over || game.current !== seat) return;
-        m.submit({ type: "roll", dice: [0, 1, 2, 3, 4].map(rollDie), power: 0.9 + Math.random() * 0.4 }, seat);
+        tray.setShaking(false);
+        if (!stillMine()) return;
+        actFor(seat, { type: "roll", dice: [0, 1, 2, 3, 4].map(rollDie), power: 0.9 + Math.random() * 0.4 });
       }, AI_SHAKE_MS);
     };
     aiTimer = m.later(() => {
       aiTimer = null;
-      if (game.over || game.current !== seat) return;
+      if (!stillMine()) return;
       if (!game.rolled) throwLater();
       else if (game.rollsLeft > 0 && !aiShouldStop(game)) {
         const want = aiHolds(game);
-        want.forEach((h, i) => { if (h !== game.held[i]) m.submit({ type: "hold", i }, seat); });
+        want.forEach((h, i) => { if (h !== game.held[i]) actFor(seat, { type: "hold", i }); });
         aiTimer = m.later(() => { aiTimer = null; throwLater(); }, 450); // 고정한 주사위가 칸으로 올라가는 걸 보여 줌
       } else {
-        m.submit({ type: "record", cat: aiPickCategory(game, m.level) }, seat);
+        actFor(seat, { type: "record", cat: aiPickCategory(game, m.level) });
       }
     }, AI_STEP_MS + (game.rolled ? 300 : 0));
   }
@@ -232,8 +249,10 @@ export function create(m) {
     const best = canPick ? suggestions()[0] : null;
     const curCls = (i) => (i === cur && !game.over ? " cur" : "");
     const head = game.players.map((p, i) => {
-      const tot = p.resigned ? "항복" : m.offline.has(i) ? "끊김" : `${game.total(p)}점`;
+      const baseTot = p.resigned ? "항복" : m.offline.has(i) ? "끊김" : `${game.total(p)}점`;
       const me = m.controls(i) && m.mode !== "local" ? " (나)" : "";
+      const streak = m.streaks?.get(m.seats[i].cid) || 0;
+      const tot = streak >= 2 && !p.resigned && !m.offline.has(i) ? `${game.total(p)}점 · ${streak}연승` : baseTot;
       return `<th class="${curCls(i)}${p.resigned ? " out" : ""}${m.offline.has(i) ? " off" : ""}" data-seat="${i}"><div class="th-av">${avatarHtml(m.seats[i].avatar, 28)}<span class="nm">${esc(p.name + me)}</span><span class="tot">${tot}</span></div></th>`;
     }).join("");
     const row = (cat) => {
@@ -266,15 +285,17 @@ export function create(m) {
   }
 
   function render() {
+    for (const i of m.offline) if (!offlineSince.has(i)) offlineSince.set(i, Date.now());
+    for (const i of [...offlineSince.keys()]) if (!m.offline.has(i)) offlineSince.delete(i);
     const p = game.players[game.current];
     const rolling = tray.isRolling();
-    const ai = m.seats[game.current].ai;
+    const ai = m.seats[game.current].ai || m.offline.has(game.current);
     roundEl.textContent = game.over ? "끝" : `${game.round} / 12 라운드`;
     if (game.over || m.result) {
       turnEl.innerHTML = `<span class="who">${esc(m.result ? m.result.title : "게임 끝")}</span>`;
       turnEl.classList.remove("mine");
     } else {
-      const who = myTurn() ? (m.mode === "local" ? `${p.name} 차례` : "내 차례!") : `${p.name} 님 차례${ai ? " · 컴퓨터" : ""}`;
+      const who = myTurn() ? (m.mode === "local" ? `${p.name} 차례` : "내 차례!") : `${p.name} 님 차례${m.offline.has(game.current) ? " · 연결 끊김 (컴퓨터가 대신)" : ai ? " · 컴퓨터" : ""}`;
       turnEl.innerHTML = `${avatarHtml(m.seats[game.current].avatar, 30)}<span class="who">${esc(who)}</span>`;
       turnEl.classList.toggle("mine", myTurn());
     }
@@ -297,7 +318,7 @@ export function create(m) {
     heldLabel.textContent = rolling ? "데구르르..." : game.over ? "" : !game.rolled ? (myTurn() ? "컵이나 버튼을 꾹 누르면 흔들고, 놓으면 던져요" : "") :
       myTurn() ? (game.rollsLeft === 0 ? "기록할 칸을 골라요 · 점수표에서 다른 칸도 고를 수 있어요" : "남길 주사위를 누르면 위 칸에 고정돼요 · 바로 기록해도 돼요") : "";
     drawScores();
-    giveUp.hidden = !mySeatsLeft().length || game.over || !!m.result;
+    m.setTopActions(mySeatsLeft().length && !game.over && !m.result ? [{ label: "항복", onClick: resignMine }] : []);
     maybeAi();
   }
 

@@ -14,6 +14,8 @@ import time
 
 from aiohttp import WSMsgType, web
 
+from ranking_store import make_store
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
 FONTS = os.path.join(os.path.dirname(HERE), "fonts")
@@ -25,6 +27,8 @@ MAX_PHOTO = 60_000
 MAX_TEXT = 100
 MAX_LOG = 5000
 GRACE = 30  # 연결이 끊긴 사람의 자리를 지켜 주는 시간(초)
+RATE_WINDOW = 5  # 도배 막기: 이 시간(초) 동안
+RATE_ALL, RATE_CHAT = 60, 8  # 메시지 전체 / 채팅 · 효과 최대 개수
 ROOM_ADJ = ["용감한", "졸린", "신나는", "수줍은", "배고픈", "반짝이는", "느긋한", "씩씩한", "엉뚱한", "다정한"]
 ROOM_ANIMAL = ["판다", "여우", "토끼", "곰돌이", "병아리", "개구리", "고양이", "돼지", "펭귄", "다람쥐"]
 ANIMALS = {"cat", "bear", "rabbit", "frog", "chick", "pig", "panda", "fox"}
@@ -63,6 +67,15 @@ class Client:
         self.profile = None
         self.room = None
         self.gone_at = None  # 연결이 끊긴 시각 (다시 들어오면 None)
+        self.sent = {"all": [], "chat": []}  # 최근 보낸 메시지 시각 (도배 막기)
+
+    def allow(self, kind, limit):
+        now = time.time()
+        times = self.sent[kind] = [x for x in self.sent[kind] if now - x < RATE_WINDOW]
+        if len(times) >= limit:
+            return False
+        times.append(now)
+        return True
 
     async def send(self, obj):
         if self.ws is not None and not self.ws.closed:
@@ -83,9 +96,23 @@ class Room:
         self.status = "waiting"  # waiting / playing / done
         self.log = []  # 이번 판의 수 (늦게 들어온 사람과 재접속한 사람이 다시 계산하는 재료)
         self.seq = 0
+        self.seat_names = []  # 판을 시작할 때 앉아 있던 사람들 (랭킹은 이 이름만 받음)
+        self.seat_cids = []
+        self.queue = []  # 다음 판을 기다리는 줄 (cid, 먼저 선 순서)
+        self.streak = {}  # cid -> 이 방에서 이어 온 연승 수
+        self.losers = []  # 지난 판에 진 사람 (한 판 더 할 때 줄 맨 뒤로)
+
+    @property
+    def private(self):
+        return self.settings.get("private") == "1"
 
     def players(self):
         return [cid for cid, role in self.members if role == "player"]
+
+    def set_role(self, cid, role):
+        for m in self.members:
+            if m[0] == cid:
+                m[1] = role
 
     def role_of(self, cid):
         for c, role in self.members:
@@ -98,32 +125,7 @@ class Hub:
     def __init__(self):
         self.clients = {}
         self.rooms = {}
-        self.ranking = self.load_ranking()
-
-    # ------------------------------------------------------------ 랭킹
-    @staticmethod
-    def load_ranking():
-        try:
-            with open(RANKING_FILE, encoding="utf-8") as f:
-                data = json.load(f)
-            return data if isinstance(data, dict) else {}
-        except (OSError, ValueError):
-            return {}
-
-    def save_ranking(self):
-        try:
-            with open(RANKING_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.ranking, f, ensure_ascii=False)
-        except OSError:
-            pass
-
-    def add_result(self, game, players, winners):
-        for name in players:
-            rec = self.ranking.setdefault(name, {}).setdefault(game, {"wins": 0, "games": 0})
-            rec["games"] += 1
-            if name in winners:
-                rec["wins"] += 1
-        self.save_ranking()
+        self.store = make_store(RANKING_FILE)
 
     # ------------------------------------------------------------ 보내기
     def room_view(self, room):
@@ -132,16 +134,22 @@ class Hub:
             c = self.clients.get(cid)
             if c is None or c.profile is None:
                 continue
-            members.append({"cid": cid, "role": role, "online": c.gone_at is None, **c.profile})
+            members.append({"cid": cid, "role": role, "online": c.gone_at is None,
+                            "streak": room.streak.get(cid, 0), **c.profile})
         return {"id": room.id, "name": room.name, "game": room.game, "settings": room.settings,
-                "host": room.host, "status": room.status, "members": members, "max": GAMES[room.game]}
+                "host": room.host, "status": room.status, "members": members, "max": GAMES[room.game],
+                "queue": list(room.queue)}
 
     def room_summary(self, room):
         host = self.clients.get(room.host)
+        king = max(room.streak.items(), key=lambda kv: kv[1], default=(None, 0))
+        king_client = self.clients.get(king[0])
         return {"id": room.id, "name": room.name, "game": room.game, "status": room.status,
                 "host": host.profile["name"] if host and host.profile else "?",
                 "players": len(room.players()), "max": GAMES[room.game],
-                "spectators": sum(1 for _, r in room.members if r == "spectator")}
+                "spectators": sum(1 for _, r in room.members if r == "spectator"), "queue": len(room.queue),
+                "king": {"name": king_client.profile["name"], "streak": king[1]}
+                if king[1] >= 2 and king_client and king_client.profile else None}
 
     async def send_room(self, room):
         view = self.room_view(room)
@@ -149,8 +157,12 @@ class Hub:
                                for cid, _ in room.members if cid in self.clients))
         await self.send_rooms()
 
+    def public_rooms(self):
+        """방 목록에 보이는 방 (비공개 방은 코드로만 들어옴)"""
+        return [self.room_summary(r) for r in self.rooms.values() if not r.private]
+
     async def send_rooms(self):
-        rooms = [self.room_summary(r) for r in self.rooms.values()]
+        rooms = self.public_rooms()
         await asyncio.gather(*(c.send({"t": "rooms", "rooms": rooms})
                                for c in self.clients.values() if c.room is None and c.profile))
 
@@ -164,12 +176,27 @@ class Hub:
             if code not in self.rooms:
                 return code
 
+    def fill_seats(self, room):
+        """대기실에서 빈자리가 있으면 줄 앞사람부터 앉힘 (연결이 끊긴 사람은 건너뜀)."""
+        if room.status == "playing":
+            return
+        for cid in list(room.queue):
+            if len(room.players()) >= GAMES[room.game]:
+                break
+            c = self.clients.get(cid)
+            if c is not None and c.gone_at is None and room.role_of(cid) == "spectator":
+                room.queue.remove(cid)
+                room.set_role(cid, "player")
+
     async def join(self, client, room, want="player"):
         if client.room is not None:
             await self.leave(client)
         full = len(room.players()) >= GAMES[room.game]
-        role = "player" if want == "player" and room.status == "waiting" and not full else "spectator"
+        role = "player" if want == "player" and room.status == "waiting" and not full and not room.queue else "spectator"
+        if want == "player" and role == "spectator":
+            room.queue.append(client.cid)  # 꽉 찼거나 대전 중이면 줄을 섬
         room.members.append([client.cid, role])
+        self.fill_seats(room)
         client.room = room.id
         await self.send_room(room)
         if room.log:
@@ -183,6 +210,9 @@ class Hub:
             return
         role = room.role_of(client.cid)
         room.members = [m for m in room.members if m[0] != client.cid]
+        if client.cid in room.queue:
+            room.queue.remove(client.cid)
+        room.streak.pop(client.cid, None)
         if not room.members:
             del self.rooms[room.id]
             await self.send_rooms()
@@ -194,6 +224,7 @@ class Hub:
             await self.act(room, client.cid, {"type": "leave"})
         if not silent:
             await self.to_room(room, {"t": "notice", "kind": "leave", "name": client.profile["name"]})
+        self.fill_seats(room)
         await self.send_room(room)
 
     async def act(self, room, cid, a):
@@ -203,6 +234,11 @@ class Hub:
         if a.get("type") == "start":
             room.log = []
             room.status = "playing"
+            room.seat_cids = [c for c in room.players() if c in self.clients]
+            room.seat_names = [self.clients[c].profile["name"] for c in room.seat_cids]
+            room.losers = []
+        elif a.get("type") == "roll" and room.game == "yacht":
+            a["dice"] = [secrets.randbelow(6) + 1 for _ in range(5)]  # 주사위는 서버가 굴림 (조작 방지)
         if len(room.log) < MAX_LOG:
             room.log.append(entry)
         await self.to_room(room, {"t": "act", **entry})
@@ -210,6 +246,8 @@ class Hub:
     # ------------------------------------------------------------ 메시지 처리
     async def handle(self, client, msg):
         t = msg.get("t")
+        if not client.allow("all", RATE_ALL) or (t in ("chat", "fx") and not client.allow("chat", RATE_CHAT)):
+            return  # 너무 빨리 보내면 버림
         if t == "ping":
             await client.send({"t": "pong", "c": msg.get("c"), "s": now_ms()})
             return
@@ -225,9 +263,9 @@ class Hub:
             return
         room = self.rooms.get(client.room)
         if t == "rooms":
-            await client.send({"t": "rooms", "rooms": [self.room_summary(r) for r in self.rooms.values()]})
+            await client.send({"t": "rooms", "rooms": self.public_rooms()})
         elif t == "ranking":
-            await client.send({"t": "ranking", "ranking": self.ranking})
+            await client.send({"t": "ranking", "ranking": await self.store.all(), "store": self.store.kind})
         elif t == "create":
             game = msg.get("game")
             if game not in GAMES:
@@ -246,7 +284,7 @@ class Hub:
                 await self.join(client, target, "spectator" if msg.get("as") == "spectator" else "player")
         elif t == "leave":
             await self.leave(client)
-            await client.send({"t": "rooms", "rooms": [self.room_summary(r) for r in self.rooms.values()]})
+            await client.send({"t": "rooms", "rooms": self.public_rooms()})
         elif room is None:
             return
         elif t == "chat":
@@ -263,33 +301,59 @@ class Hub:
             settings = msg.get("settings") if isinstance(msg.get("settings"), dict) else {}
             room.settings = {k: clean_text(v, 20) for k, v in list(settings.items())[:8]}
             await self.send_room(room)
-        elif t == "seat" and room.status != "playing":  # 플레이어 <-> 관전자 바꾸기
-            for m in room.members:
-                if m[0] == client.cid:
-                    if msg.get("role") == "spectator":
-                        m[1] = "spectator"
-                    elif len(room.players()) < GAMES[room.game]:
-                        m[1] = "player"
+        elif t == "seat":  # 플레이어 <-> 관전자, 꽉 찼으면 줄 서기
+            role = room.role_of(client.cid)
+            if msg.get("role") == "spectator":
+                if client.cid in room.queue:
+                    room.queue.remove(client.cid)  # 줄에서 빠지기
+                elif role == "player" and room.status != "playing":
+                    room.set_role(client.cid, "spectator")
+            elif role == "spectator" and client.cid not in room.queue:
+                room.queue.append(client.cid)
+            self.fill_seats(room)
             await self.send_room(room)
         elif t == "act":
             a = msg.get("a")
-            if not isinstance(a, dict) or room.role_of(client.cid) != "player":
+            if not isinstance(a, dict):
                 return
-            if a.get("type") == "start":
-                if client.cid != room.host or room.status == "playing":
+            who = client.cid
+            if a.get("type") == "start":  # 방장은 줄로 밀려나 관전 중이어도 다음 판을 시작할 수 있음
+                if client.cid != room.host or room.status == "playing" or not room.players():
                     return
+            elif room.role_of(client.cid) != "player":
+                return
             elif room.status != "playing":
                 return
-            await self.act(room, client.cid, a)
+            elif msg.get("as"):  # 방장이 연결이 끊긴 사람 대신 둠 (컴퓨터가 대신)
+                target = self.clients.get(str(msg["as"]))
+                if (client.cid != room.host or target is None or target.gone_at is None
+                        or room.role_of(target.cid) != "player" or a.get("type") in ("resign", "leave")):
+                    return
+                who = target.cid
+            await self.act(room, who, a)
         elif t == "result" and client.cid == room.host and room.status == "playing":
             room.status = "done"
-            players = [clean_text(n, 12) for n in msg.get("players", [])][:6]
-            winners = [clean_text(n, 12) for n in msg.get("winners", [])][:6]
-            self.add_result(room.game, players, winners)
+            players = list(dict.fromkeys(room.seat_names))  # 클라이언트가 보낸 이름 목록은 믿지 않음
+            winners = [n for n in dict.fromkeys(clean_text(n, 12) for n in msg.get("winners", [])) if n in players]
+            losers = [n for n in dict.fromkeys(clean_text(n, 12) for n in msg.get("losers", []))
+                      if n in players and n not in winners]
+            if winners:  # 무승부는 연승을 그대로 둠
+                for cid, name in zip(room.seat_cids, room.seat_names):
+                    room.streak[cid] = room.streak.get(cid, 0) + 1 if name in winners else 0
+            room.losers = [cid for cid, name in zip(room.seat_cids, room.seat_names) if name in losers]
+            if players:
+                await self.store.add(room.game, players, winners)
             await self.send_room(room)
         elif t == "reset" and client.cid == room.host:  # 한 판 더: 대기실로
             room.status = "waiting"
             room.log = []
+            if room.queue:  # 기다리는 사람이 있으면 진 사람은 줄 맨 뒤로, 줄 앞사람이 자리에 앉음
+                for cid in room.losers:
+                    if room.role_of(cid) == "player":
+                        room.set_role(cid, "spectator")
+                        room.queue.append(cid)
+                self.fill_seats(room)
+            room.losers = []
             await self.to_room(room, {"t": "reset"})
             await self.send_room(room)
 
@@ -318,7 +382,7 @@ async def ws_handler(request):
     client.gone_at = None
     room = hub.rooms.get(client.room)
     await client.send({"t": "welcome", "cid": cid, "s": now_ms(), "room": hub.room_view(room) if room else None,
-                       "rooms": [hub.room_summary(r) for r in hub.rooms.values()]})
+                       "rooms": hub.public_rooms()})
     if room:  # 재접속: 지금까지의 수를 다시 보내서 판을 이어 줌
         await client.send({"t": "log", "acts": room.log})
         await hub.send_room(room)
@@ -366,6 +430,10 @@ def make_app():
     app.router.add_get("/healthz", health)
     app.router.add_static("/fonts", FONTS)
     app.router.add_static("/", STATIC)
+
+    async def close_store(_app):
+        await hub.store.close()
+    app.on_cleanup.append(close_store)
     return app
 
 

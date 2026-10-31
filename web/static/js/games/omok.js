@@ -17,14 +17,10 @@ export function create(m) {
   let over = false;
 
   const root = el(`<div class="board-wrap" style="width:100%">
-    <div class="seat-strip"></div>
-    <div class="status-line"></div>
-    <div class="omok-board" role="grid" aria-label="오목판"></div>
-    <div class="controls"></div></div>`);
+    <div class="seat-strip omok-strip"></div>
+    <div class="omok-board" role="grid" aria-label="오목판"></div></div>`);
   const strip = root.querySelector(".seat-strip");
-  const status = root.querySelector(".status-line");
   const boardEl = root.querySelector(".omok-board");
-  const controls = root.querySelector(".controls");
   const side = el(`<div class="card"><h3>오목 · ${RULES[rule][0]}</h3><div class="muted">${RULES[rule][1]}</div><div class="muted info" style="margin-top:6px"></div></div>`);
 
   const seatOf = (color) => (color === BLACK ? 0 : 1);
@@ -199,27 +195,25 @@ export function create(m) {
   }
 
   // ------------------------------------------------------------ 화면
+  async function resignMine() {
+    const seat = m.mode === "local" ? turnSeat() : m.mySeats.find((i) => !m.seats[i].ai);
+    if (await confirmBox("항복", `${m.seats[seat].name} 님, 정말 항복할까요?`, "항복", "계속")) m.submit({ type: "resign" }, seat);
+  }
+
   function render() {
     const ts = turnSeat();
-    strip.innerHTML = [0, 1].map((i) => seatCard(m, i, { sub: `${i === 0 ? "흑" : "백"} · 무르기 ${UNDO_LIMIT - undoUsed[i]}번`, turn: !over && ts === i })).join("");
-    if (m.mode === "ai") strip.querySelectorAll(".intro").forEach((x, i) => { x.textContent = i === 0 ? "흑" : "백"; });
-    if (over || m.result) status.textContent = m.result ? m.result.title : "";
-    else if (myTurn()) status.textContent = `내 차례 · ${COLOR_NAME[board.turn]}`;
-    else status.textContent = `${m.seats[ts].name} 님 차례 (${COLOR_NAME[board.turn]})${m.seats[ts].ai ? " · 생각 중..." : ""}`;
+    strip.innerHTML = [0, 1].map((i) => {
+      const turn = !over && !m.result && ts === i;
+      const bits = [i === 0 ? "흑" : "백"];
+      if (turn && m.seats[i].ai) bits.push("생각 중...");
+      else if (turn && m.controls(i) && m.mode !== "local") bits.push("내 차례");
+      if (m.mode !== "ai") bits.push(`무르기 ${UNDO_LIMIT - undoUsed[i]}번`);
+      return seatCard(m, i, { sub: bits.join(" · "), turn, extra: `<span class="stone ${i === 0 ? "b" : "w"}"></span>` });
+    }).join("");
     side.querySelector(".info").textContent = `${board.moves.length}수째`;
     drawBoard();
-    controls.innerHTML = "";
-    if (m.mySeats.length && !over && !m.result) {
-      const undo = el(`<button class="btn">무르기</button>`);
-      undo.disabled = !canUndo();
-      undo.onclick = askUndo;
-      const give = el(`<button class="btn ghost">항복</button>`);
-      give.onclick = async () => {
-        const seat = m.mode === "local" ? turnSeat() : m.mySeats.find((i) => !m.seats[i].ai);
-        if (await confirmBox("항복", `${m.seats[seat].name} 님, 정말 항복할까요?`, "항복", "계속")) m.submit({ type: "resign" }, seat);
-      };
-      controls.append(undo, give);
-    }
+    m.setTopActions(m.mySeats.length && !over && !m.result
+      ? [{ label: "무르기", onClick: askUndo, disabled: !canUndo() }, { label: "항복", onClick: resignMine }] : []);
     maybeAi();
   }
 

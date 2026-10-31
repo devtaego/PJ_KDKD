@@ -1,0 +1,26 @@
+# push · PR 마다 자동 테스트 (파이썬: 규칙 엔진 + 웹 서버, 자바스크립트: 웹판 규칙 엔진)
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r web/requirements.txt pillow
+      - run: python -m unittest discover -s tests -v
+
+  javascript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: node --test web/tests/engines.test.mjs

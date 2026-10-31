@@ -187,8 +187,18 @@ label.field > span { display: block; color: var(--muted); font-size: 14px; margi
 .chat-toggle { display: none; }
 
 /* 체스 */
+/* 판 크기: 화면 너비(오른쪽 패널 제외)와 높이(상단바 · 자리 카드 제외) 중 작은 쪽에 맞춰 한 화면에 */
+.game-layout {
+  --sq: min(calc((100vw - 400px) / 8), calc((100dvh - 244px) / 8), 82px);
+  --omok: min(calc(100vw - 400px), calc(100dvh - 180px), 680px);
+}
+.seat-strip.top, .seat-strip.bottom { max-width: calc(var(--sq) * 8); }
+.omok-strip { max-width: var(--omok); }
+.top-actions .short { display: none; }
+.stone { width: 20px; height: 20px; border-radius: 50%; flex: none; }
+.stone.b { background: radial-gradient(circle at 35% 30%, #5A5A5E, #121214); }
+.stone.w { background: radial-gradient(circle at 35% 30%, #FFFFFF, #DCD5C8); box-shadow: inset 0 0 0 1px #BDB3A3; }
 .chess-board {
-  --sq: min(calc((100vw - 32px) / 8), calc((100dvh - 250px) / 8), 82px);
   display: grid; grid-template-columns: repeat(8, var(--sq)); grid-template-rows: repeat(8, var(--sq));
   border-radius: 12px; overflow: hidden; box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4); position: relative; touch-action: manipulation; user-select: none;
 }
@@ -212,7 +222,7 @@ label.field > span { display: block; color: var(--muted); font-size: 14px; margi
 .promo button { width: 70px; height: 70px; border: 0; border-radius: 14px; background: #F0D9B5; padding: 6px; }
 
 /* 오목 */
-.omok-board { width: min(calc(100vw - 32px), calc(100dvh - 240px), 680px); aspect-ratio: 1; touch-action: manipulation; user-select: none; filter: drop-shadow(0 12px 30px rgba(0, 0, 0, 0.4)); }
+.omok-board { width: var(--omok); aspect-ratio: 1; touch-action: manipulation; user-select: none; filter: drop-shadow(0 12px 30px rgba(0, 0, 0, 0.4)); }
 .omok-board svg { width: 100%; height: 100%; display: block; }
 
 /* 야추 */
@@ -240,7 +250,9 @@ label.field > span { display: block; color: var(--muted); font-size: 14px; margi
 .yacht-screen .yacht-chat .sticker-bar { flex-wrap: nowrap; gap: 3px; }
 .yacht-screen .yacht-chat .sticker-bar button { padding: 2px; }
 .yacht-screen .yacht-chat .sticker-bar .sticker { width: 24px !important; height: 24px !important; }
-.topbar-resign { flex: none; }
+.streak { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: linear-gradient(90deg, #FF8A4C, #FF5C8A); color: #fff; white-space: nowrap; vertical-align: 1px; margin-left: 4px; }
+.top-actions { display: flex; gap: 6px; flex: none; }
+.top-actions:empty { display: none; }
 .yacht-head { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .yacht-head .turn, .yacht-head .rolls {
   display: flex; align-items: center; gap: 8px; background: rgba(36, 18, 8, 0.72); color: #FFF6EA;
@@ -348,6 +360,10 @@ table.rank td:nth-child(2) { text-align: left; }
 /* ---------------------------------------------------------------- 좁은 화면 (폰) */
 @media (max-width: 900px) {
   .home-grid, .lobby-grid, .wait-grid, .game-layout, .yacht-screen .game-layout { grid-template-columns: 1fr; }
+  .game-layout {
+    --sq: min(calc((100vw - 32px) / 8), calc((100dvh - 244px) / 8), 82px);
+    --omok: min(calc(100vw - 32px), calc(100dvh - 180px), 680px);
+  }
   .yacht-screen .game-layout { grid-template-rows: auto; grid-template-areas: "main" "side" "chat"; } /* 폰: 트레이 → 점수표 → 채팅 */
   .yacht-screen .yacht-chat { grid-template-columns: 1fr; }
   .yacht-screen .yacht-chat .sticker-bar { flex-wrap: wrap; }
@@ -359,8 +375,11 @@ table.rank td:nth-child(2) { text-align: left; }
   .game-card { flex-direction: row; align-items: center; min-height: 0; padding: 14px; gap: 14px; }
   .game-card .gicon { width: 64px; height: 64px; flex: none; }
   .game-card .gname { font-size: 22px; }
-  .chess-board { --sq: min(calc((100vw - 24px) / 8), 82px); }
-  .omok-board { width: calc(100vw - 24px); }
+  .game-layout { --sq: min(calc((100vw - 24px) / 8), 82px); --omok: calc(100vw - 24px); }
+  .top-actions .btn.small { padding: 6px 10px; font-size: 14px; }
+  .top-actions .short { display: inline; }
+  .game-screen .topbar h1 .muted { display: none; } /* 폰: 게임 이름이 잘리지 않게 모드 설명은 숨김 */
+  .top-actions .long.has-short { display: none; }
   .status-line { font-size: 18px; }
   .topbar h1 { font-size: 20px; }
   .chat-log { height: 150px; }

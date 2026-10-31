@@ -29,13 +29,10 @@ export function create(m) {
     <div class="seat-strip top"></div>
     <div class="chess-board" role="grid" aria-label="체스판"></div>
     <div class="seat-strip bottom"></div>
-    <div class="status-line"></div>
-    <div class="controls"></div></div>`);
+  </div>`);
   const boardEl = root.querySelector(".chess-board");
   const topStrip = root.querySelector(".top");
   const bottomStrip = root.querySelector(".bottom");
-  const status = root.querySelector(".status-line");
-  const controls = root.querySelector(".controls");
   const side = el(`<div class="card"><h3>기보 <span class="muted" style="font-size:14px">${TIME_MODES[m.settings.time]?.[0] || "무제한"}</span></h3><div class="movelist"></div></div>`);
   const moveList = side.querySelector(".movelist");
 
@@ -270,40 +267,38 @@ export function create(m) {
   // ------------------------------------------------------------ 화면
   function seatHtml(i) {
     const color = i === 0 ? "w" : "b";
-    const clockHtml = clock ? `<span class="clock ${!over && pos().turn === color && moves.length ? "run" : ""}" data-clock="${color}">${fmt(remaining(color))}</span>` : "";
-    return seatCard(m, i, { sub: `${COLOR_NAME[color]}${m.mode === "ai" ? "" : ` · 무르기 ${UNDO_LIMIT - undoUsed[i]}번`}`, turn: !over && turnSeat() === i, extra: clockHtml });
+    const p = pos();
+    const clockHtml = clock ? `<span class="clock ${!over && p.turn === color && moves.length ? "run" : ""}" data-clock="${color}">${fmt(remaining(color))}</span>` : "";
+    const turn = !over && !m.result && turnSeat() === i;
+    const bits = [COLOR_NAME[color]];
+    if (turn && p.inCheck(color)) bits.push("체크!");
+    if (turn && m.seats[i].ai) bits.push("생각 중...");
+    else if (turn && m.controls(i) && m.mode !== "local") bits.push("내 차례");
+    if (m.mode !== "ai") bits.push(`무르기 ${UNDO_LIMIT - undoUsed[i]}번`);
+    return seatCard(m, i, { sub: bits.join(" · "), turn, extra: clockHtml });
+  }
+
+  async function resignMine() {
+    const seat = m.mode === "local" ? turnSeat() : m.mySeats.find((i) => !m.seats[i].ai);
+    if (await confirmBox("항복", `${m.seats[seat].name} 님, 정말 항복할까요?`, "항복", "계속")) m.submit({ type: "resign" }, seat);
   }
 
   function render() {
     const bottomSeat = flipped ? 1 : 0;
     topStrip.innerHTML = seatHtml(1 - bottomSeat);
     bottomStrip.innerHTML = seatHtml(bottomSeat);
-    const p = pos();
-    if (over || m.result) status.textContent = m.result ? `${m.result.title} · ${m.result.sub}` : "";
-    else {
-      const check = p.inCheck(p.turn) ? " · 체크!" : "";
-      status.textContent = myTurn() ? `내 차례 (${COLOR_NAME[p.turn]})${check}` : `${m.seats[turnSeat()].name} 님 차례${m.seats[turnSeat()].ai ? " · 생각 중..." : ""}${check}`;
-    }
     let ml = "";
     for (let i = 0; i < sans.length; i += 2) ml += `<span class="n">${i / 2 + 1}.</span><span>${sans[i]}</span><span>${sans[i + 1] || ""}</span>`;
     moveList.innerHTML = ml || `<span class="muted" style="grid-column:1/-1">아직 둔 수가 없어요</span>`;
     moveList.scrollTop = moveList.scrollHeight;
     drawBoard();
-    controls.innerHTML = "";
-    const flip = el(`<button class="btn ghost">판 돌리기</button>`);
-    flip.onclick = () => { flipped = !flipped; render(); };
+    const actions = [];
     if (m.mySeats.length && !over && !m.result) {
-      const undo = el(`<button class="btn">무르기</button>`);
-      undo.disabled = !canUndo();
-      undo.onclick = askUndo;
-      const give = el(`<button class="btn ghost">항복</button>`);
-      give.onclick = async () => {
-        const seat = m.mode === "local" ? turnSeat() : m.mySeats.find((i) => !m.seats[i].ai);
-        if (await confirmBox("항복", `${m.seats[seat].name} 님, 정말 항복할까요?`, "항복", "계속")) m.submit({ type: "resign" }, seat);
-      };
-      controls.append(undo, give);
+      actions.push({ label: "무르기", onClick: askUndo, disabled: !canUndo() });
+      actions.push({ label: "항복", onClick: resignMine });
     }
-    controls.append(flip);
+    actions.push({ label: "⇅ 판 돌리기", short: "⇅", title: "판 방향 바꾸기", onClick: () => { flipped = !flipped; render(); } });
+    m.setTopActions(actions);
     maybeAi();
   }
 

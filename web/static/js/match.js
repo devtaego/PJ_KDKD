@@ -37,7 +37,7 @@ export class Match {
   buildScreen() {
     this.root = el(`<section class="screen game-screen">
       <div class="topbar"><button class="icon-btn" aria-label="나가기">←</button><h1>${esc(GAME_NAMES[this.game])}<span class="muted" style="font-size:16px"> · ${esc(this.modeLabel())}</span></h1>
-      <span class="net-dot" hidden></span><button class="icon-btn" data-k="rules" aria-label="규칙 보기">?</button><button class="icon-btn" data-k="sound" aria-label="소리 켜기/끄기"></button></div>
+      <span class="net-dot" hidden></span><span class="top-actions"></span><button class="icon-btn" data-k="rules" aria-label="규칙 보기">?</button><button class="icon-btn" data-k="sound" aria-label="소리 켜기/끄기"></button></div>
       <div class="game-layout"><div class="board-wrap"></div><div class="side"></div></div></section>`);
     this.boardWrap = this.root.querySelector(".board-wrap");
     this.side = this.root.querySelector(".side");
@@ -50,6 +50,24 @@ export class Match {
     this.chat = new ChatPanel((m) => this.sendChat(m));
     this.side.appendChild(this.chat.root);
     if (this.online) this.root.querySelector(".net-dot").hidden = false;
+  }
+
+  /** 오른쪽 위 상단바 버튼들 (무르기 · 항복 · 판 돌리기). list = [{label, short?, onClick, disabled, title}] (short: 폰에서 쓰는 짧은 글자) */
+  setTopActions(list) {
+    const box = this.root.querySelector(".top-actions");
+    box.replaceChildren(...list.map((a) => {
+      const b = el(`<button class="btn ghost small"></button>`);
+      b.append(el(`<span class="long${a.short ? " has-short" : ""}"></span>`));
+      b.firstChild.textContent = a.label;
+      if (a.short) {
+        b.append(el(`<span class="short"></span>`));
+        b.lastChild.textContent = a.short;
+      }
+      if (a.title) b.title = a.title;
+      b.disabled = !!a.disabled;
+      b.onclick = a.onClick;
+      return b;
+    }));
   }
 
   modeLabel() {
@@ -75,6 +93,11 @@ export class Match {
     if (this.result && !["fx"].includes(a.type)) return;
     if (this.online) net.send({ t: "act", a });
     else this.later(() => this.apply({ a, at: Date.now(), seat }), 0);
+  }
+
+  /** 연결이 끊긴 자리를 방장 기기가 대신 둠 (온라인 전용, 서버가 방장인지 · 끊겼는지 확인함) */
+  submitAs(a, seat) {
+    if (this.online && !this.result) net.send({ t: "act", a, as: this.seats[seat].cid });
   }
 
   /** 서버에서 온 기록 하나 (온라인) */
@@ -152,7 +175,7 @@ export class Match {
     const winners = info.winners.map((i) => this.seats[i].name);
     if (!this.replaying) addLocalRecord(this.game, names, winners);
     if (this.online && this.isHost && !this.replaying) {
-      net.send({ t: "result", players: this.seats.map((s) => s.name), winners });
+      net.send({ t: "result", players: this.seats.map((s) => s.name), winners, losers: info.losers.map((i) => this.seats[i].name) });
     }
     const delay = this.replaying ? 0 : 900;
     this.later(() => this.showResultCard(), delay);
@@ -256,5 +279,7 @@ export function seatCard(match, i, { extra = "", sub = null, turn = false } = {}
   const off = match.offline.has(i);
   const intro = off ? "연결이 끊겼어요..." : sub ?? s.intro ?? "";
   const tag = match.controls(i) && match.mode !== "local" ? " (나)" : "";
-  return `<div class="person ${turn ? "turn" : ""} ${off ? "off" : ""}" data-seat="${i}">${avatarHtml(s.avatar, 40)}<div class="who"><div class="nm">${esc(s.name + tag)}</div>${intro ? `<div class="intro">${esc(intro)}</div>` : ""}</div>${extra}</div>`;
+  const streak = match.streaks?.get(s.cid) || 0;
+  const badge = streak >= 2 ? ` <span class="streak">${streak}연승</span>` : "";
+  return `<div class="person ${turn ? "turn" : ""} ${off ? "off" : ""}" data-seat="${i}">${avatarHtml(s.avatar, 40)}<div class="who"><div class="nm">${esc(s.name + tag)}${badge}</div>${intro ? `<div class="intro">${esc(intro)}</div>` : ""}</div>${extra}</div>`;
 }

@@ -1,0 +1,9 @@
+{
+  "name": "kidk-web",
+  "private": true,
+  "description": "KI득KI득 웹판 (static/js 의 규칙 엔진을 Node 테스트에서 ES 모듈로 읽기 위한 설정)",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/engines.test.mjs"
+  }
+}

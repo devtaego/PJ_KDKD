@@ -186,7 +186,10 @@ function chooseMode(game) {
       input.oninput = () => { o.friend = input.value.trim() || "친구"; };
       body.appendChild(f);
     }
-    if (o.mode === "online") body.appendChild(el(`<p class="muted" style="margin-top:0">방을 만들면 4자리 코드와 링크가 생겨요. 친구에게 보내면 폰에서도 바로 들어와요.</p>`));
+    if (o.mode === "online") {
+      body.appendChild(option("방 공개", segment([["", "열린 방 목록에 보이기"], ["1", "비공개 (코드로만)"]], o.private || "", (v) => { o.private = v; })));
+      body.appendChild(el(`<p class="muted" style="margin-top:0">방을 만들면 4자리 코드와 링크가 생겨요. 친구에게 보내면 폰에서도 바로 들어와요.</p>`));
+    }
     const row = el(`<div class="row" style="justify-content:flex-end"></div>`);
     if (o.mode === "online") {
       const find = el(`<button class="btn ghost">열린 방 찾기</button>`);
@@ -197,7 +200,10 @@ function chooseMode(game) {
     go.onclick = () => {
       store.set(`opts.${game}`, o);
       close();
-      if (o.mode === "online") createRoom(game, game === "chess" ? { time: o.time, color: o.color } : game === "omok" ? { rule: o.rule, color: o.color } : {});
+      if (o.mode === "online") {
+        const base = game === "chess" ? { time: o.time, color: o.color } : game === "omok" ? { rule: o.rule, color: o.color } : {};
+        createRoom(game, { ...base, private: o.private || "" });
+      }
       else startLocal(game, o);
     };
     row.appendChild(go);
@@ -275,11 +281,25 @@ net.on("welcome", (msg) => {
 net.on("rooms", (msg) => online.lobby?.update(msg.rooms));
 net.on("error", (msg) => toast(msg.msg));
 
+/** 연승이 늘어난 사람이 있으면 모두에게 알려 줌 (2연승부터) */
+function announceStreaks(prev, room) {
+  if (!prev || prev.id !== room.id) return;
+  const before = new Map(prev.members.map((x) => [x.cid, x.streak || 0]));
+  for (const x of room.members) {
+    if ((x.streak || 0) >= 2 && x.streak > (before.get(x.cid) || 0)) {
+      toast(`${x.name} ${x.streak}연승!`, 3000);
+      (match?.online ? match.chat : online.chat)?.system(`${x.name} 님 ${x.streak}연승 중!`);
+    }
+  }
+}
+
 net.on("room", (msg) => {
   const prev = online.room;
   online.room = msg.room;
+  announceStreaks(prev, msg.room);
   if (match?.online) {
     match.isHost = msg.room.host === net.myCid();
+    match.streaks = new Map(msg.room.members.map((x) => [x.cid, x.streak || 0]));
     const on = new Map(msg.room.members.map((x) => [x.cid, x.online]));
     match.offline = new Set(match.seats.map((s, i) => (on.get(s.cid) === false ? i : -1)).filter((i) => i >= 0));
     match.g.render();
@@ -368,6 +388,7 @@ function startOnline(entry) {
     onExit: () => leaveRoom(), onAgain: () => net.send({ t: "reset" }),
   });
   match.lastSeq = entry.seq;
+  match.streaks = new Map((online.room?.members || []).map((x) => [x.cid, x.streak || 0]));
   match.setNet(online.status);
   show({ root: match.root, back: () => match?.exit() });
 }
@@ -411,9 +432,11 @@ function lobbyScreen(filter = "all") {
     }
     for (const r of shown) {
       const playing = r.status !== "waiting";
+      const king = r.king ? ` · ${esc(r.king.name)} ${r.king.streak}연승 중` : "";
+      const line = r.queue ? ` · 대기 ${r.queue}명` : "";
       const full = r.players >= r.max;
-      const item = el(`<button class="room-item"><span class="gicon">${GAME_ICONS[r.game]}</span><span class="grow"><div>${esc(r.name)} <span class="muted" style="font-size:14px">${esc(r.id)}</span></div><div class="muted" style="font-size:14px">${GAME_NAMES[r.game]} · 방장 ${esc(r.host)} · ${r.players}/${r.max}명${r.spectators ? ` · 관전 ${r.spectators}` : ""}</div></span><span class="pill ${playing ? "live" : "wait"}">${playing ? "대전 중 · 관전" : full ? "꽉 참 · 관전" : "참가 가능"}</span></button>`);
-      item.onclick = () => net.send({ t: "join", room: r.id, as: playing || full ? "spectator" : "player" });
+      const item = el(`<button class="room-item"><span class="gicon">${GAME_ICONS[r.game]}</span><span class="grow"><div>${esc(r.name)} <span class="muted" style="font-size:14px">${esc(r.id)}</span></div><div class="muted" style="font-size:14px">${GAME_NAMES[r.game]} · 방장 ${esc(r.host)} · ${r.players}/${r.max}명${line}${king}</div></span><span class="pill ${playing ? "live" : "wait"}">${playing ? "대전 중 · 줄 서기" : full ? "꽉 참 · 줄 서기" : "참가 가능"}</span></button>`);
+      item.onclick = () => net.send({ t: "join", room: r.id }); // 꽉 찼거나 대전 중이면 서버가 줄을 세움
       list.appendChild(item);
     }
   }
@@ -454,17 +477,20 @@ function waitingScreen() {
     const isHost = r.host === me;
     const mine = r.members.find((x) => x.cid === me);
     const players = r.members.filter((x) => x.role === "player");
-    const specs = r.members.filter((x) => x.role === "spectator");
+    const queue = (r.queue || []).map((cid) => r.members.find((x) => x.cid === cid)).filter(Boolean);
+    const specs = r.members.filter((x) => x.role === "spectator" && !(r.queue || []).includes(x.cid));
     root.querySelector("h1").textContent = `${GAME_NAMES[r.game]} · ${r.name}`;
     const link = `${location.origin}/?room=${r.id}`;
     main.innerHTML = `<div class="row" style="justify-content:space-between;align-items:flex-start"><div><div class="muted" style="font-size:14px">방 코드</div><div class="code-big">${esc(r.id)}</div></div>
       <div class="row"><button class="btn small" data-k="share">링크 보내기</button></div></div>
-      <div class="muted" style="font-size:14px;margin:4px 0 14px;word-break:break-all">${esc(link)}</div>
+      <div class="muted" style="font-size:14px;margin:4px 0 14px;word-break:break-all">${esc(link)}${r.settings.private === "1" ? ` <span class="pill">비공개 · 코드로만 들어와요</span>` : ""}</div>
       <h3>플레이어 ${players.length}/${r.max}</h3><div class="people pl"></div>
+      ${queue.length ? `<h3 style="margin-top:14px">대기 줄 <span class="muted" style="font-size:14px">진 사람은 줄 맨 뒤로, 이긴 사람은 계속!</span></h3><div class="people qu"></div>` : ""}
       ${specs.length ? `<h3 style="margin-top:14px">관전 ${specs.length}</h3><div class="people sp"></div>` : ""}
       <div class="settings" style="margin-top:16px"></div><div class="row start-row" style="justify-content:flex-end;margin-top:12px"></div>`;
-    const tag = (x) => `${x.cid === r.host ? "<span class=\"pill\">방장</span>" : ""}${x.online ? "" : "<span class=\"pill\">연결 끊김</span>"}`;
+    const tag = (x) => `${x.streak >= 2 ? `<span class="streak">${x.streak}연승</span>` : ""}${x.cid === r.host ? "<span class=\"pill\">방장</span>" : ""}${x.online ? "" : "<span class=\"pill\">연결 끊김</span>"}`;
     main.querySelector(".pl").innerHTML = players.map((x) => personHtml(x, { extra: tag(x), cls: x.online ? "" : "off" })).join("") || `<div class="empty">아직 아무도 없어요</div>`;
+    if (queue.length) main.querySelector(".qu").innerHTML = queue.map((x, k) => personHtml(x, { extra: tag(x), cls: x.online ? "" : "off", sub: `${k + 1}번째 대기${x.intro ? " · " + x.intro : ""}` })).join("");
     if (specs.length) main.querySelector(".sp").innerHTML = specs.map((x) => personHtml(x, { extra: tag(x), cls: x.online ? "" : "off" })).join("");
     main.querySelector('[data-k="share"]').onclick = async () => {
       const text = `KI득KI득 ${GAME_NAMES[r.game]} 같이 해요! 방 코드 ${r.id}`;
@@ -484,12 +510,15 @@ function waitingScreen() {
       settings.appendChild(option("규칙", isHost ? segment([["33", "쌍삼 금지"], ["free", "자유룰"]], s.rule || "33", change("rule")) : el(`<div>${s.rule === "free" ? "자유룰" : "쌍삼 금지"}</div>`)));
       settings.appendChild(option("방장의 돌", isHost ? segment([["b", "흑"], ["w", "백"], ["random", "무작위"]], s.color || "b", change("color")) : el(`<div>${{ b: "흑", w: "백", random: "무작위" }[s.color] || "흑"}</div>`)));
     }
+    if (isHost) settings.appendChild(option("방 공개", segment([["", "열린 방 목록에 보이기"], ["1", "비공개 (코드로만)"]], s.private || "", change("private"))));
 
     const startRow = main.querySelector(".start-row");
     if (mine) {
-      const swap = el(`<button class="btn ghost">${mine.role === "player" ? "관전으로 바꾸기" : "플레이어로 참가"}</button>`);
-      swap.disabled = r.status === "playing" || (mine.role === "spectator" && players.length >= r.max);
-      swap.onclick = () => net.send({ t: "seat", role: mine.role === "player" ? "spectator" : "player" });
+      const inLine = (r.queue || []).includes(me);
+      const label = mine.role === "player" ? "관전으로 바꾸기" : inLine ? "줄에서 빠지기" : players.length < r.max && !queue.length ? "플레이어로 참가" : "줄 서기";
+      const swap = el(`<button class="btn ghost">${label}</button>`);
+      swap.disabled = mine.role === "player" && r.status === "playing";
+      swap.onclick = () => net.send({ t: "seat", role: mine.role === "player" || inLine ? "spectator" : "player" });
       startRow.appendChild(swap);
     }
     if (isHost) {
@@ -527,7 +556,7 @@ function startRoomGame(r) {
 // ---------------------------------------------------------------- 랭킹
 function rankingModal() {
   const body = el(`<div><div class="tabs" style="margin-bottom:10px"></div><div class="games-f" style="margin-bottom:12px"></div><div class="table"></div></div>`);
-  let scope = "local", game = "all", classData = null;
+  let scope = "local", game = "all", classData = null, storeKind = null;
   const tableBox = body.querySelector(".table");
   const draw = () => {
     const data = scope === "local" ? store.get("ranking", {}) : classData;
@@ -540,6 +569,7 @@ function rankingModal() {
     tableBox.innerHTML = rows.length
       ? `<table class="rank"><thead><tr><th>순위</th><th>이름</th><th>승</th><th>판</th><th>승률</th></tr></thead><tbody>${rows.map((x, i) => `<tr><td>${i + 1}</td><td>${esc(x.name)}</td><td>${x.wins}</td><td>${x.games}</td><td>${Math.round((x.wins / x.games) * 100)}%</td></tr>`).join("")}</tbody></table>`
       : `<div class="empty">아직 기록이 없어요. 한 판 해 볼까요?</div>`;
+    if (scope === "class" && storeKind === "file") tableBox.insertAdjacentHTML("beforeend", `<p class="muted" style="font-size:13px">이 서버는 기록을 임시 파일에 저장해서, 서버를 다시 켜면 초기화돼요.</p>`);
   };
   body.querySelector(".tabs").appendChild(segment([["local", "이 기기"], ["class", "우리 반 (온라인)"]], scope, (v) => {
     scope = v;
@@ -551,7 +581,11 @@ function rankingModal() {
     draw();
   }));
   body.querySelector(".games-f").appendChild(segment([["all", "전체"], ["chess", "체스"], ["yacht", "야추"], ["omok", "오목"]], game, (v) => { game = v; draw(); }));
-  const off = net.on("ranking", (msg) => { classData = msg.ranking || {}; draw(); });
+  const off = net.on("ranking", (msg) => {
+    classData = msg.ranking || {};
+    storeKind = msg.store;
+    draw();
+  });
   draw();
   const close = modal("랭킹", body);
   const obs = new MutationObserver(() => { if (!body.isConnected) { off(); obs.disconnect(); } });

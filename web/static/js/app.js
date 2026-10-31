@@ -71,7 +71,7 @@ function homeScreen() {
     <div class="home-grid">
       <aside class="card player-card">
         <div class="pc-top"><div class="pc-avatar"></div><div class="pc-who"><div class="pc-label">PLAYER</div><div class="pc-name"></div><div class="pc-intro"></div></div></div>
-        <label class="field"><span>닉네임</span><input id="nick" type="text" maxlength="12" placeholder="예: 태고" autocomplete="nickname"></label>
+        <label class="field"><span>닉네임</span><input id="nick" type="text" maxlength="12" placeholder="예: 홍길동" autocomplete="nickname"></label>
         <div class="field-label">캐릭터 또는 내 사진</div>
         <div class="avatar-pick"></div>
         <label class="field"><span>한 줄 소개 (MBTI, 관심사...)</span><input id="intro" type="text" maxlength="30" placeholder="예: ENFP · 떡볶이 좋아해요"></label>

@@ -26,9 +26,16 @@ export function modal(title, body, { closable = true } = {}) {
   const close = () => back.remove();
   if (closable) {
     back.addEventListener("click", (e) => { if (e.target === back) close(); });
-    const x = el(`<div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn">닫기</button></div>`);
-    x.querySelector("button").onclick = close;
-    back.firstElementChild.appendChild(x);
+    const inline = body.querySelector(".modal-actions"); // 본문에 버튼 줄이 있으면 '닫기'를 그 줄 맨 앞에
+    if (inline) {
+      const b = el(`<button class="btn ghost">닫기</button>`);
+      b.onclick = close;
+      inline.prepend(b);
+    } else {
+      const x = el(`<div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn">닫기</button></div>`);
+      x.querySelector("button").onclick = close;
+      back.firstElementChild.appendChild(x);
+    }
   }
   document.body.appendChild(back);
   return close;

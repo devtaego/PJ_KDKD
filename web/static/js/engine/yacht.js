@@ -17,6 +17,12 @@ export const CAT_HELP = {
   yacht: "5개 모두 같은 눈 → 50점",
 };
 export const BONUS_NEED = 63, BONUS = 35;
+/** 점수표 도움말 말풍선에 보여 주는 예시 주사위 (데스크톱판 YachtApp.EXAMPLES 와 같음) */
+export const CAT_EXAMPLES = {
+  ones: [1, 1, 1, 4, 6], twos: [2, 2, 5, 6, 1], threes: [3, 3, 3, 2, 6], fours: [4, 4, 1, 2, 5],
+  fives: [5, 5, 5, 5, 2], sixes: [6, 6, 6, 3, 1], choice: [6, 5, 5, 3, 2], four: [4, 4, 4, 4, 2],
+  full: [3, 3, 3, 5, 5], sstraight: [1, 2, 3, 4, 6], lstraight: [2, 3, 4, 5, 6], yacht: [6, 6, 6, 6, 6],
+};
 
 export function score(cat, dice) {
   const counts = [1, 2, 3, 4, 5, 6].map((v) => dice.filter((d) => d === v).length);

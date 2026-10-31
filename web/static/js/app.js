@@ -220,7 +220,12 @@ function chooseMode(game) {
       body.appendChild(option("방 공개", segment([["", "열린 방 목록에 보이기"], ["1", "비공개 (코드로만)"]], o.private || "", (v) => { o.private = v; })));
       body.appendChild(el(`<p class="muted" style="margin-top:0">방을 만들면 4자리 코드와 링크가 생겨요. 친구에게 보내면 폰에서도 바로 들어와요.</p>`));
     }
-    const row = el(`<div class="row" style="justify-content:flex-end"></div>`);
+    const row = el(`<div class="row modal-actions"></div>`);
+    if (close) { // 처음엔 modal()이 '닫기'를 넣어 주고, 옵션을 바꿔 다시 그릴 때는 여기서 넣음
+      const x = el(`<button class="btn ghost">닫기</button>`);
+      x.onclick = () => close();
+      row.appendChild(x);
+    }
     if (o.mode === "online") {
       const find = el(`<button class="btn ghost">열린 방 찾기</button>`);
       find.onclick = () => { close(); lobbyScreen(game); };
@@ -445,7 +450,7 @@ function lobbyScreen(filter = "all") {
   let rooms = [];
   const root = el(`<section class="screen">
     <div class="topbar"><button class="icon-btn" aria-label="뒤로">←</button><h1>온라인 방</h1><span class="net-dot ${online.status}"></span><button class="icon-btn" data-k="refresh" aria-label="새로고침">↻</button></div>
-    <div class="lobby-grid"><div class="card"><div class="filter" style="margin-bottom:12px"></div><div class="room-list"></div></div>
+    <div class="lobby-grid"><div class="card"><div class="sec-title">열린 방 <span class="muted">누르면 참가 · 꽉 찼으면 줄 서기</span></div><div class="filter" style="margin-bottom:12px"></div><div class="room-list"></div></div>
     <div class="card"><h3>방 만들기</h3><div class="row"></div>
       <h3 style="margin-top:16px">코드로 들어가기</h3><div class="join-code" style="margin-top:0"><input type="text" maxlength="4" placeholder="ABCD" aria-label="방 코드" autocomplete="off"><button class="btn primary">참가</button></div>
       <p class="muted" style="font-size:14px">진행 중인 방에 들어가면 관전자로 같이 구경하고 채팅할 수 있어요.</p></div></div></section>`);
@@ -481,7 +486,7 @@ function lobbyScreen(filter = "all") {
       const king = r.king ? ` · ${esc(r.king.name)} ${r.king.streak}연승 중` : "";
       const line = r.queue ? ` · 대기 ${r.queue}명` : "";
       const full = r.players >= r.max;
-      const item = el(`<button class="room-item"><span class="gicon">${GAME_ICONS[r.game]}</span><span class="grow"><div>${esc(r.name)} <span class="muted" style="font-size:14px">${esc(r.id)}</span></div><div class="muted" style="font-size:14px">${GAME_NAMES[r.game]} · 방장 ${esc(r.host)} · ${r.players}/${r.max}명${line}${king}</div></span><span class="pill ${playing ? "live" : "wait"}">${playing ? "대전 중 · 줄 서기" : full ? "꽉 참 · 줄 서기" : "참가 가능"}</span></button>`);
+      const item = el(`<button class="room-item g-${r.game}"><span class="gicon">${GAME_ICONS[r.game]}</span><span class="grow"><div>${esc(r.name)} <span class="muted" style="font-size:14px">${esc(r.id)}</span></div><div class="muted" style="font-size:14px">${GAME_NAMES[r.game]} · 방장 ${esc(r.host)} · ${r.players}/${r.max}명${line}${king}</div></span><span class="pill ${playing ? "live" : "wait"}">${playing ? "대전 중 · 줄 서기" : full ? "꽉 참 · 줄 서기" : "참가 가능"}</span></button>`);
       item.onclick = () => net.send({ t: "join", room: r.id }); // 꽉 찼거나 대전 중이면 서버가 줄을 세움
       list.appendChild(item);
     }
@@ -506,7 +511,7 @@ function waitingScreen() {
   if (!room) return lobbyScreen();
   const root = el(`<section class="screen">
     <div class="topbar"><button class="icon-btn" aria-label="방 나가기">←</button><h1></h1><span class="net-dot ${online.status}"></span><button class="icon-btn" data-k="rules" aria-label="규칙 보기">?</button></div>
-    <div class="wait-grid"><div class="card main"></div><div class="side-col"></div></div></section>`);
+    <div class="wait-grid"><div class="wait-main main"></div><div class="side-col"></div></div></section>`);
   const main = root.querySelector(".main");
   const chat = new ChatPanel((m) => net.send({ t: "chat", ...m }));
   root.querySelector(".side-col").appendChild(chat.root);
@@ -527,13 +532,17 @@ function waitingScreen() {
     const specs = r.members.filter((x) => x.role === "spectator" && !(r.queue || []).includes(x.cid));
     root.querySelector("h1").textContent = `${GAME_NAMES[r.game]} · ${r.name}`;
     const link = `${location.origin}/?room=${r.id}`;
-    main.innerHTML = `<div class="row" style="justify-content:space-between;align-items:flex-start"><div><div class="muted" style="font-size:14px">방 코드</div><div class="code-big">${esc(r.id)}</div></div>
-      <div class="row"><button class="btn small" data-k="qr">QR 크게 보기</button><button class="btn small" data-k="share">링크 보내기</button></div></div>
-      <div class="muted" style="font-size:14px;margin:4px 0 14px;word-break:break-all">${esc(link)}${r.settings.private === "1" ? ` <span class="pill">비공개 · 코드로만 들어와요</span>` : ""}</div>
-      <h3>플레이어 ${players.length}/${r.max}</h3><div class="people pl"></div>
-      ${queue.length ? `<h3 style="margin-top:14px">대기 줄 <span class="muted" style="font-size:14px">진 사람은 줄 맨 뒤로, 이긴 사람은 계속!</span></h3><div class="people qu"></div>` : ""}
-      ${specs.length ? `<h3 style="margin-top:14px">관전 ${specs.length}</h3><div class="people sp"></div>` : ""}
-      <div class="settings" style="margin-top:16px"></div><div class="row start-row" style="justify-content:flex-end;margin-top:12px"></div>`;
+    main.innerHTML = `<div class="card ticket">
+        <div class="code-wrap"><div class="muted" style="font-size:13px">방 코드</div><div class="code-big">${esc(r.id)}</div>
+          <div class="link">${esc(link)}${r.settings.private === "1" ? ` <span class="pill">비공개 · 코드로만 들어와요</span>` : ""}</div></div>
+        <div class="actions"><button class="btn small" data-k="qr">QR 크게 보기</button><button class="btn small" data-k="share">링크 보내기</button></div></div>
+      <div class="card">
+        <div class="sec-title">플레이어 <span class="muted">${players.length} / ${r.max}명</span></div><div class="people pl"></div>
+        ${queue.length ? `<div class="sec-title">대기 줄 <span class="muted">진 사람은 줄 맨 뒤로, 이긴 사람은 계속!</span></div><div class="people qu"></div>` : ""}
+        ${specs.length ? `<div class="sec-title">관전 <span class="muted">${specs.length}명</span></div><div class="people sp"></div>` : ""}
+      </div>
+      <div class="card"><div class="sec-title">게임 설정${isHost ? "" : ` <span class="muted">방장이 정해요</span>`}</div><div class="settings"></div>
+        <div class="row start-row" style="justify-content:flex-end;margin-top:6px"></div></div>`;
     const tag = (x) => `${x.streak >= 2 ? `<span class="streak">${x.streak}연승</span>` : ""}${x.cid === r.host ? "<span class=\"pill\">방장</span>" : ""}${x.online ? "" : "<span class=\"pill\">연결 끊김</span>"}${isHost && x.cid !== me ? `<button class="btn ghost small kick" data-kick="${esc(x.cid)}" data-name="${esc(x.name)}">내보내기</button>` : ""}`;
     main.querySelector(".pl").innerHTML = players.map((x) => personHtml(x, { extra: tag(x), cls: x.online ? "" : "off" })).join("") || `<div class="empty">아직 아무도 없어요</div>`;
     if (queue.length) main.querySelector(".qu").innerHTML = queue.map((x, k) => personHtml(x, { extra: tag(x), cls: x.online ? "" : "off", sub: `${k + 1}번째 대기${x.intro ? " · " + x.intro : ""}` })).join("");

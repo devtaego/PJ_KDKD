@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Position, perft, bestMove, sameMove, gameOver } from "../static/js/engine/chess.js";
 import { Board, BLACK, aiMove } from "../static/js/engine/omok.js";
-import { score, YachtGame, aiPickCategory, aiHolds, CATEGORIES } from "../static/js/engine/yacht.js";
+import { score, YachtGame, aiPickCategory, aiHolds, CATEGORIES, CAT_EXAMPLES } from "../static/js/engine/yacht.js";
 import { questionFor, QUESTIONS } from "../static/js/party.js";
 
 test("체스: 시작 위치 수 생성 (perft 1~3)", () => {
@@ -64,6 +64,13 @@ test("야추: 족보 점수", () => {
   assert.equal(score("sstraight", [1, 2, 3, 4, 6]), 15);
   assert.equal(score("four", [5, 5, 5, 5, 1]), 20);
   assert.equal(score("fives", [5, 5, 1, 2, 5]), 15);
+});
+
+test("야추: 도움말 예시 주사위는 모든 칸에 있고 그 칸 점수가 남", () => {
+  for (const c of CATEGORIES) {
+    assert.equal(CAT_EXAMPLES[c].length, 5, c);
+    assert.ok(score(c, CAT_EXAMPLES[c]) > 0, c);
+  }
 });
 
 test("야추: 정해진 주사위 눈으로 굴리기 · 고정 · 기록 · 보너스", () => {

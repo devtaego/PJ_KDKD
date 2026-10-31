@@ -32,6 +32,11 @@
   --blob3: rgba(61, 220, 151, 0.08);
   --dots: rgba(255, 255, 255, 0.05);
   --btn-depth: 0 0 0 transparent; /* 말랑말랑 테마는 버튼 아래 두께 */
+  --surface-hi: rgba(64, 56, 112, 0.92); /* 카드 위쪽 (아래로 갈수록 --surface) */
+  --edge: rgba(255, 255, 255, 0.08); /* 카드 · 줄 테두리 */
+  --row: rgba(255, 255, 255, 0.045); /* 목록 한 줄 바탕 */
+  --input: rgba(10, 8, 30, 0.45); /* 입력칸 · 선택 버튼 바탕 */
+  --accent-2: #9D80FF; /* 버튼 그라데이션 밝은 쪽 */
   --radius: 18px;
   --gap: 14px;
   --safe-b: env(safe-area-inset-bottom, 0px);
@@ -381,6 +386,22 @@ table.score tr.sum td.cur { background: #ECE5FA; }
 table.score tr:nth-child(6) td { border-bottom: 2px solid #D9CDB3; }
 table.score tr.total td { background: #3B3630; color: #FFC94D; font-size: 18px; border-bottom: 0; }
 table.score tr.total td.cur { background: #5B43C9; }
+table.score td.cat button { cursor: help; text-decoration: underline dotted rgba(46, 41, 35, 0.35); text-underline-offset: 3px; }
+table.score tr.total td.cat button { color: inherit; font-size: inherit; text-decoration-color: rgba(255, 201, 77, 0.5); }
+.yacht-tip {
+  position: absolute; z-index: 80; width: min(290px, calc(100vw - 16px)); background: #2E2923; color: #F4EEDF;
+  border-radius: 16px; padding: 12px 14px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35); font-size: 14px; line-height: 1.45;
+  animation: fade 0.12s ease; pointer-events: auto;
+}
+.yacht-tip .tip-title { display: block; color: #FFC94D; font-size: 18px; font-weight: normal; }
+.yacht-tip p { margin: 4px 0 8px; }
+.tip-ex { display: flex; align-items: center; gap: 4px; }
+.tip-label { color: #BDB3A0; font-size: 12px; margin-right: 2px; }
+.tip-die { width: 26px; height: 26px; display: inline-block; }
+.tip-die svg { width: 100%; height: 100%; display: block; }
+.tip-score { margin-left: auto; font-size: 16px; color: #fff; white-space: nowrap; }
+.tip-now { margin-top: 8px; color: #FFC94D; }
+.tip-now b { font-weight: normal; font-size: 16px; }
 .bonus-bar { height: 6px; border-radius: 3px; background: #E3D8C2; overflow: hidden; margin: 0 auto 2px; max-width: 54px; }
 .bonus-bar i { display: block; height: 100%; background: #7C5CFF; border-radius: 3px; }
 .bonus-bar.done i { background: #22B07D; }
@@ -421,6 +442,93 @@ table.rank th { color: var(--muted); font-weight: normal; font-size: 14px; }
 table.rank td:nth-child(2) { text-align: left; }
 .rules p { margin: 0 0 8px; line-height: 1.5; }
 
+/* ================================================================ 다듬기: 모든 화면 공통 (테마 토큰으로 색만 바뀜) */
+/* 카드: 단색 대신 위가 살짝 밝은 그라데이션 + 얇은 테두리 */
+.card, .modal, .result-card, .game-card {
+  background: linear-gradient(180deg, var(--surface-hi), var(--surface));
+  border: 1px solid var(--edge);
+}
+.card > h3, .card > h2, .modal > h2, .sec-title {
+  display: flex; align-items: center; gap: 8px;
+}
+.card > h3::before, .card > h2::before, .modal > h2::before, .sec-title::before {
+  content: ""; width: 5px; height: 1em; border-radius: 3px; background: linear-gradient(180deg, var(--accent-2), var(--pink)); flex: none;
+}
+.card > h3 { font-size: 18px; }
+.sec-title { font-size: 17px; margin: 14px 0 8px; }
+.sec-title:first-child { margin-top: 0; }
+.sec-title .muted { font-size: 13px; }
+
+/* 버튼: 주 버튼은 그라데이션, 나머지는 은은한 바탕 + 테두리 */
+.btn { background: var(--row); box-shadow: inset 0 0 0 1px var(--edge); transition: transform 0.08s, filter 0.15s, background 0.15s; }
+.btn:hover:not(:disabled) { filter: brightness(1.12); }
+.btn.primary { background: linear-gradient(180deg, var(--accent-2), var(--accent)); box-shadow: var(--btn-depth), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+.btn.pink { background: linear-gradient(180deg, #FF86A8, var(--pink)); box-shadow: var(--btn-depth), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+.btn.ghost { background: transparent; }
+.icon-btn { background: var(--row); box-shadow: inset 0 0 0 1px var(--edge); }
+
+/* 입력칸 · 선택 버튼 묶음: 같은 바탕과 테두리 */
+input[type=text], select { background: var(--input); box-shadow: inset 0 0 0 1px var(--edge); }
+input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rgba(124, 92, 255, 0.15); }
+.segment { background: var(--input); box-shadow: inset 0 0 0 1px var(--edge); padding: 3px; gap: 3px; }
+.segment button { padding: 7px 10px; font-size: 14px; }
+.segment button:hover:not([aria-pressed=true]) { color: var(--text); background: var(--row); }
+.segment button[aria-pressed=true] { background: linear-gradient(180deg, var(--accent-2), var(--accent)); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18); }
+/* 설정 한 줄: 이름은 왼쪽, 선택 버튼은 오른쪽 */
+.opt { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 10px; margin-bottom: 10px; }
+.opt > .label { margin: 0; }
+
+/* 목록 한 줄 (사람 · 방) */
+.person, .room-item { background: var(--row); box-shadow: inset 0 0 0 1px var(--edge); }
+.person .avatar { box-shadow: 0 0 0 2px var(--edge), 0 2px 6px rgba(0, 0, 0, 0.2); }
+.person.turn { box-shadow: inset 0 0 0 2px var(--gold), 0 0 14px rgba(255, 201, 77, 0.18); }
+.room-item { position: relative; overflow: hidden; padding-left: 18px; transition: transform 0.12s, filter 0.15s; }
+.room-item::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--tile, var(--accent)); }
+.room-item:hover { transform: translateX(3px); filter: brightness(1.08); }
+.room-item.g-chess { --tile: #7C5CFF; } .room-item.g-yacht { --tile: #FF5C8A; } .room-item.g-omok { --tile: #E3A04F; }
+.pill { box-shadow: inset 0 0 0 1px var(--edge); }
+
+/* 채팅: 스티커는 한 줄로, 대화창은 칸을 채움 */
+.sticker-bar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.sticker-bar::-webkit-scrollbar { display: none; }
+.sticker-bar button { background: var(--row); box-shadow: inset 0 0 0 1px var(--edge); flex: none; }
+/* 옆 칸 채팅: 스티커 8개가 칸 너비를 똑같이 나눠 씀 (잘리지 않게) */
+.chat:not(.yacht-chat) .sticker-bar { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+.chat:not(.yacht-chat) .sticker-bar button { padding: 3px; min-width: 0; display: grid; place-items: center; }
+.chat:not(.yacht-chat) .sticker-bar .sticker { width: 100% !important; height: auto !important; max-width: 30px; aspect-ratio: 1; }
+.chat-log { background: var(--input); border-radius: 12px; padding: 8px 10px; box-shadow: inset 0 0 0 1px var(--edge); }
+
+/* 대기실: 방 정보 · 사람 · 설정을 카드로 나눔, 채팅은 옆 칸 높이에 맞춤 */
+.wait-grid { align-items: stretch; }
+.wait-main { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
+.ticket { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.ticket .code-wrap { flex: 1; min-width: 180px; }
+.ticket .code-big { font-size: 40px; line-height: 1.1; }
+.ticket .link { font-size: 13px; color: var(--muted); word-break: break-all; }
+.ticket .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.start-row .btn.big { min-width: 180px; }
+.side-col { display: flex; min-width: 0; }
+.side-col .chat { flex: 1; }
+.wait-grid .chat-log { flex: 1; height: auto; min-height: 200px; }
+
+/* 게임 화면 오른쪽 카드 */
+.movelist { background: var(--input); border-radius: 10px; padding: 8px; box-shadow: inset 0 0 0 1px var(--edge); }
+.clock { box-shadow: inset 0 0 0 1px var(--edge); }
+
+/* 결과 화면 · 창: 뒤가 비치지 않게 불투명 + 뒤는 살짝 흐리게 */
+.question { background: var(--row); box-shadow: inset 0 0 0 1px var(--edge); }
+.modal, .result-card { background: linear-gradient(180deg, var(--surface-hi), var(--card)); background-color: var(--card); }
+.modal { padding: 22px; }
+.modal-back, .result { backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.modal-actions { justify-content: flex-end; margin-top: 6px; }
+
+/* 말랑말랑 · 오락실에서 겹치는 테두리 정리 */
+[data-theme="pastel"] .card, [data-theme="pastel"] .game-card, [data-theme="pastel"] .modal { border-width: 2px; }
+[data-theme="pastel"] .btn.pink { background: linear-gradient(180deg, #FFA3BF, var(--pink)); }
+[data-theme="arcade"] .btn.pink { background: linear-gradient(180deg, #FF6BE4, var(--pink)); }
+[data-theme="arcade"] .card > h3::before, [data-theme="arcade"] .sec-title::before { box-shadow: 0 0 8px var(--accent); }
+
+
 /* ---------------------------------------------------------------- 좁은 화면 (폰) */
 @media (max-width: 900px) {
   .home-grid, .lobby-grid, .wait-grid, .game-layout, .yacht-screen .game-layout { grid-template-columns: 1fr; }
@@ -430,6 +538,7 @@ table.rank td:nth-child(2) { text-align: left; }
   }
   .yacht-screen .game-layout { grid-template-rows: auto; grid-template-areas: "main" "side" "chat"; } /* 폰: 트레이 → 점수표 → 채팅 */
   .home-main { order: -1; } /* 폰: 게임 고르기가 먼저 보이게 (프로필은 그 아래) */
+  .opt { grid-template-columns: 1fr; gap: 6px; } /* 폰: 설정 이름은 위, 선택 버튼은 아래 */
   .yacht-screen .yacht-chat { grid-template-columns: 1fr; }
   .yacht-screen .yacht-chat .sticker-bar { flex-wrap: wrap; }
   .side { order: 2; }
@@ -498,6 +607,11 @@ table.rank td:nth-child(2) { text-align: left; }
   --blob3: rgba(255, 224, 140, 0.5);
   --dots: rgba(255, 143, 177, 0.28);
   --btn-depth: 0 4px 0 rgba(214, 92, 137, 0.45);
+  --surface-hi: #FFFFFF;
+  --edge: #FFD6E3;
+  --row: #FFF6F9;
+  --input: #FFF7FA;
+  --accent-2: #FFAFC8;
   --radius: 26px;
 }
 [data-theme="pastel"] .backdrop {
@@ -549,6 +663,11 @@ table.rank td:nth-child(2) { text-align: left; }
   --blob2: rgba(0, 229, 255, 0.2);
   --blob3: rgba(255, 230, 0, 0.08);
   --dots: rgba(0, 229, 255, 0.08);
+  --surface-hi: rgba(24, 24, 66, 0.95);
+  --edge: rgba(0, 229, 255, 0.28);
+  --row: rgba(0, 229, 255, 0.05);
+  --input: rgba(4, 4, 18, 0.7);
+  --accent-2: #5CF4FF;
   --radius: 10px;
 }
 [data-theme="arcade"] .backdrop {
@@ -568,8 +687,8 @@ table.rank td:nth-child(2) { text-align: left; }
 [data-theme="arcade"] .game-card.g-omok { --tile: #FFE600; }
 [data-theme="arcade"] .game-card .gplay { color: #07071A; box-shadow: 0 0 16px var(--tile); }
 [data-theme="arcade"] .game-card:hover { box-shadow: 0 0 0 2px var(--tile), 0 0 28px var(--tile); }
-[data-theme="arcade"] .gplay { animation: blink 1.2s steps(2) infinite; }
-@keyframes blink { 50% { opacity: 0.55; } }
+[data-theme="arcade"] .gplay { animation: neon 1.3s ease-in-out infinite alternate; } /* 흐려지지 않고 빛만 숨 쉬듯 */
+@keyframes neon { from { box-shadow: 0 0 6px var(--tile); } to { box-shadow: 0 0 22px var(--tile), 0 0 4px #fff inset; } }
 [data-theme="arcade"] .pc-label { color: #FF2BD6; text-shadow: 0 0 8px #FF2BD6; }
 
 @media (prefers-reduced-motion: reduce) {

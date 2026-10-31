@@ -1,7 +1,7 @@
 // 야추 다이스 화면: 최대 6명, 컵을 꾹 눌러 흔들다 놓으면 주사위가 쏟아져 나옴
-import { YachtGame, UPPER, LOWER, CATEGORIES, CAT_NAMES, CAT_HELP, BONUS_NEED, BONUS, AI_BASE, score, rollDie, aiPickCategory, aiShouldStop, aiHolds } from "../engine/yacht.js";
-import { avatarHtml, esc } from "../art.js";
-import { el, toast, confirmBox } from "../ui.js";
+import { YachtGame, UPPER, LOWER, CATEGORIES, CAT_NAMES, CAT_HELP, CAT_EXAMPLES, BONUS_NEED, BONUS, AI_BASE, score, rollDie, aiPickCategory, aiShouldStop, aiHolds } from "../engine/yacht.js";
+import { avatarHtml, esc, dieSvg } from "../art.js";
+import { el, confirmBox } from "../ui.js";
 import { DiceTray } from "./dice_tray.js";
 
 const AI_STEP_MS = 750;
@@ -116,13 +116,71 @@ export function create(m) {
 
   const pickCat = (ev) => {
     const help = ev.target.closest("[data-help]");
-    if (help) { toast(`${CAT_NAMES[help.dataset.help]}: ${CAT_HELP[help.dataset.help]}`, 3200); return; }
+    if (help) { // 항목 이름을 누르면 설명 + 예시 주사위 말풍선 (한 번 더 누르면 닫힘)
+      if (tip?.dataset.cat === help.dataset.help) hideTip();
+      else showTip(help.dataset.help, help);
+      return;
+    }
     const cell = ev.target.closest("[data-pick]");
     if (!cell || !myTurn() || tray.isRolling()) return;
+    hideTip();
     m.submit({ type: "record", cat: cell.dataset.pick }, game.current);
   };
   scoreWrap.addEventListener("click", pickCat);
   quick.addEventListener("click", pickCat);
+
+  // ------------------------------------------------------------ 점수표 도움말 말풍선 (데스크톱판 show_tip 과 같은 내용)
+  let tip = null;
+  let tipTimer = null;
+  const SPECIAL = {
+    _bonus: ["보너스", `에이스~식스 점수의 합(소계)이 ${BONUS_NEED}점 이상이면 +${BONUS}점을 받아요. 각 숫자를 3개씩 모으면 딱 ${BONUS_NEED}점!`],
+    _total: ["총점", "모든 칸 점수 + 보너스. 12칸을 다 채우면 총점이 가장 높은 사람이 이겨요."],
+  };
+  function showTip(cat, anchor) {
+    hideTip();
+    let html;
+    if (SPECIAL[cat]) {
+      html = `<b class="tip-title">${SPECIAL[cat][0]}</b><p>${esc(SPECIAL[cat][1])}</p>`;
+    } else {
+      const ex = CAT_EXAMPLES[cat];
+      const p = game.players[game.current];
+      const now = game.rolled && !game.over && !tray.isRolling() && p.scores[cat] === undefined
+        ? `<div class="tip-now">지금 주사위로 기록하면 <b>${score(cat, game.dice)}점</b></div>` : "";
+      html = `<b class="tip-title">${CAT_NAMES[cat]}</b><p>${esc(CAT_HELP[cat])}</p>
+        <div class="tip-ex"><span class="tip-label">예시</span>${ex.map((v) => `<span class="tip-die">${dieSvg(v)}</span>`).join("")}<span class="tip-score">→ ${score(cat, ex)}점</span></div>${now}`;
+    }
+    tip = el(`<div class="yacht-tip" role="tooltip" data-cat="${cat}">${html}</div>`);
+    document.body.appendChild(tip);
+    const r = anchor.getBoundingClientRect();
+    const sheet = scoreWrap.getBoundingClientRect();
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    // 점수 칸을 가리지 않게 점수표 바깥 왼쪽에, 자리가 없으면(폰) 항목 바로 아래에
+    let x = sheet.left - w - 12, y = r.top + window.scrollY - 8;
+    if (x < 8) {
+      x = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+      y = r.bottom + window.scrollY + 6;
+    }
+    y = Math.min(y, window.scrollY + window.innerHeight - h - 8);
+    tip.style.left = `${x}px`;
+    tip.style.top = `${Math.max(window.scrollY + 8, y)}px`;
+  }
+  function hideTip() {
+    clearTimeout(tipTimer);
+    tip?.remove();
+    tip = null;
+  }
+  // 마우스는 올려 두기만 해도 잠깐 뒤에 보여 줌
+  scoreWrap.addEventListener("pointerover", (ev) => {
+    const help = ev.target.closest("[data-help]");
+    if (ev.pointerType !== "mouse" || !help) return;
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(() => showTip(help.dataset.help, help), 250);
+  });
+  scoreWrap.addEventListener("pointerout", (ev) => {
+    if (ev.pointerType === "mouse" && ev.target.closest("[data-help]")) hideTip();
+  });
+  const outside = (ev) => { if (tip && !ev.target.closest("[data-help], .yacht-tip")) hideTip(); };
+  document.addEventListener("pointerdown", outside);
 
   /** 다른 사람이 컵을 흔드는 모습 (온라인) */
   function onFx(msg) {
@@ -278,9 +336,9 @@ export function create(m) {
     };
     scoreWrap.innerHTML = `<table class="score"><thead><tr><th class="cat-h">항목</th>${head}</tr></thead><tbody>
       ${UPPER.map(row).join("")}
-      <tr class="sum"><td class="cat">보너스 <span class="hint">63↑ +35</span></td>${game.players.map(bonusCell).join("")}</tr>
+      <tr class="sum"><td class="cat"><button data-help="_bonus">보너스 <span class="hint">63↑ +35</span></button></td>${game.players.map(bonusCell).join("")}</tr>
       ${LOWER.map(row).join("")}
-      <tr class="total"><td class="cat">총점</td>${game.players.map((p, i) => `<td class="${curCls(i)}">${game.total(p)}</td>`).join("")}</tr></tbody></table>`;
+      <tr class="total"><td class="cat"><button data-help="_total">총점</button></td>${game.players.map((p, i) => `<td class="${curCls(i)}">${game.total(p)}</td>`).join("")}</tr></tbody></table>`;
     lastRec = null; // 반짝임은 한 번만
   }
 
@@ -329,6 +387,8 @@ export function create(m) {
       clearTimeout(remoteShake);
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keyup", onKeyUp);
+      document.removeEventListener("pointerdown", outside);
+      hideTip();
       tray.destroy();
     },
   };

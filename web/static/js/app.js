@@ -368,7 +368,7 @@ function startLocal(game, o) {
   const begin = () => {
     if (match) { match.destroy(); match = null; }
     match = new Match({
-      game, mode: o.mode, seats, mySeats, settings, level: o.level, module: MODULES[game],
+      game, mode: o.mode, seats, mySeats, settings: { ...settings, seed: Math.floor(Math.random() * 2 ** 31) }, level: o.level, module: MODULES[game],
       onExit: () => homeScreen(), onAgain: () => begin(),
     });
     show({ root: match.root, back: () => match?.exit(), destroy: () => {} });
@@ -526,7 +526,7 @@ function startOnline(entry) {
   const seats = a.seats.map((s) => ({ cid: String(s.cid), name: String(s.name).slice(0, 12), avatar: s.avatar, intro: String(s.intro || "").slice(0, 30), ai: false }));
   const me = seats.findIndex((s) => s.cid === net.myId());
   match = new Match({
-    game: a.game, mode: "online", seats, mySeats: me >= 0 ? [me] : [], settings: a.settings || {}, level: "normal",
+    game: a.game, mode: "online", seats, mySeats: me >= 0 ? [me] : [], settings: { ...(a.settings || {}), seed: a.seed }, level: "normal",
     module: MODULES[a.game], isHost: online.room?.host === net.myId(),
     onExit: () => leaveRoom(), onAgain: () => net.send({ t: "reset" }),
   });

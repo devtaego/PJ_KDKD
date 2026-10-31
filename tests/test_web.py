@@ -178,7 +178,9 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_server_seeds_yut_acts(self):
         a, b, _ = await self.two_players("yut", {"pieces": "2", "chaos": "chaos"})
-        await self.start(a, b, "yut")
+        await a.send_json({"t": "act", "a": {"type": "start", "game": "yut"}})
+        starts = [(await self.until(ws, "act"))["a"] for ws in (a, b)]
+        self.assertEqual(starts[0]["seed"], starts[1]["seed"])  # 시작 카드도 모두 같은 씨앗으로 나눔
         await a.send_json({"t": "act", "a": {"type": "throw", "seed": 1}})
         seeds = [(await self.until(ws, "act"))["a"]["seed"] for ws in (a, b)]
         self.assertEqual(seeds[0], seeds[1])  # 모든 기기가 같은 seed를 받음

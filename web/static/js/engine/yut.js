@@ -4,7 +4,7 @@
 //   10(왼쪽 위 모서리)에서 시작하면 10→25→26→22→27→28→도착 지름길
 //   22(한가운데)에서 시작하면 22→27→28→도착
 // 모든 무작위(윷 결과 · 능력 뽑기 · 대환장 파티 등)는 행동마다 붙는 seed로 계산 → 모든 기기가 같은 결과
-import { ABILITIES, ABILITY_BY_ID, THROW_ODDS, ABILITY_TILES, HAND_LIMIT, CATCH_UP } from "../data/yut_abilities.js";
+import { ABILITIES, ABILITY_BY_ID, THROW_ODDS, START_HAND } from "../data/yut_abilities.js";
 
 export const START = -1; // 아직 판에 안 올라온 말
 export const HOME = 99; // 도착한 말
@@ -69,8 +69,8 @@ export function josa(word, withFinal, noFinal) {
 }
 
 export class YutGame {
-  /** names: 자리별 이름, opts: { pieces: 2~4, mode: basic / special / chaos } */
-  constructor(names, { pieces = 3, mode = "special" } = {}) {
+  /** names: 자리별 이름, opts: { pieces: 2~4, mode: basic / special / chaos, seed: 시작 카드 나눠 주기용 } */
+  constructor(names, { pieces = 3, mode = "special", seed = 1 } = {}) {
     this.mode = ["basic", "special", "chaos"].includes(mode) ? mode : "special";
     this.pieceCount = Math.min(4, Math.max(2, pieces | 0 || 3));
     this.players = names.map((name) => ({
@@ -91,6 +91,11 @@ export class YutGame {
     this.log = [];
     this.events = []; // 방금 행동에서 일어난 일 (화면 연출용)
     this.lastThrow = null;
+    if (this.abilitiesOn) { // 시작할 때 모두 같은 장수의 능력 카드를 받음
+      const rng = mulberry(seed | 0);
+      for (let k = 0; k < START_HAND[this.mode]; k++) this.players.forEach((_, i) => this.draw(i, rng));
+      this.say(`능력 카드를 ${START_HAND[this.mode]}장씩 나눠 받았어요`, "card");
+    }
   }
 
   get abilitiesOn() { return this.mode !== "basic"; }
@@ -222,16 +227,10 @@ export class YutGame {
         if (fromMove) { this.throws++; this.phase = "throw"; }
       }
     }
-    if (this.abilitiesOn && ABILITY_TILES[this.mode].includes(node) && p.hand.length < HAND_LIMIT) this.draw(seat, rng);
   }
 
   draw(seat, rng) {
-    const last = this.lastPlace();
-    const pool = ABILITIES.map((a) => {
-      let w = a.weight[this.mode] || 0;
-      if (seat === last) w *= CATCH_UP[a.tier] || 1; // 꼴찌 보정
-      return [a, w];
-    }).filter(([, w]) => w > 0);
+    const pool = ABILITIES.map((a) => [a, a.weight[this.mode] || 0]).filter(([, w]) => w > 0);
     const total = pool.reduce((s, [, w]) => s + w, 0);
     let x = rng() * total;
     let pick = pool[pool.length - 1][0];
@@ -240,18 +239,6 @@ export class YutGame {
       x -= w;
     }
     this.players[seat].hand.push(pick.id);
-    this.say(`${josa(this.players[seat].name, "이", "가")} 능력 카드 획득: ${pick.name}`, "card");
-    this.event({ kind: "draw", seat, id: pick.id });
-  }
-
-  lastPlace() {
-    let worst = 0, val = -1;
-    this.players.forEach((p, i) => {
-      if (p.resigned) return;
-      const v = this.remainingOf(i);
-      if (v > val) { val = v; worst = i; }
-    });
-    return worst;
   }
 
   afterAction() {
@@ -361,7 +348,7 @@ export class YutGame {
     if (def.guard && victim !== null && this.players[victim].ward) { // 어쩔티비
       const v = this.players[victim];
       v.ward = false;
-      if (v.hand.length < HAND_LIMIT) v.hand.push(id);
+      v.hand.push(id);
       this.say(`${v.name}: 어쩔티비~ 막고 「${def.name}」 카드를 빼앗았다!`, "ability");
       this.event({ kind: "blocked", seat: victim, id });
       this.afterAction();

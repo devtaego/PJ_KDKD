@@ -7,7 +7,7 @@ import { Board, BLACK, aiMove } from "../static/js/engine/omok.js";
 import { score, YachtGame, aiPickCategory, aiHolds, CATEGORIES, CAT_EXAMPLES } from "../static/js/engine/yacht.js";
 import { questionFor, QUESTIONS } from "../static/js/party.js";
 import { YutGame, pathFrom, remaining, mulberry, rollRaw, START, HOME, CENTER } from "../static/js/engine/yut.js";
-import { THROW_ODDS, abilityOdds } from "../static/js/data/yut_abilities.js";
+import { THROW_ODDS, abilityOdds, START_HAND } from "../static/js/data/yut_abilities.js";
 
 test("체스: 시작 위치 수 생성 (perft 1~3)", () => {
   const pos = new Position();
@@ -103,7 +103,11 @@ test("질문 카드: 이름 순서와 상관없이 같고, 파이썬판과 같�
 });
 
 // ---------------------------------------------------------------- 특수능력 윷놀이
-const yutGame = (n = 2, opts = {}) => new YutGame(Array.from({ length: n }, (_, i) => `P${i}`), { pieces: 2, mode: "chaos", ...opts });
+const yutGame = (n = 2, opts = {}) => { // 카드는 테스트마다 직접 쥐여 줌
+  const g = new YutGame(Array.from({ length: n }, (_, i) => `P${i}`), { pieces: 2, mode: "chaos", ...opts });
+  for (const p of g.players) p.hand = [];
+  return g;
+};
 // 원하는 결과가 나오는 seed 찾기 (윷 결과는 seed로만 정해짐)
 const seedFor = (r) => { for (let s = 1; ; s++) if (rollRaw(mulberry(s)) === r) return s; };
 
@@ -116,6 +120,22 @@ test("윷: 지름길 · 남은 거리 · 결과 확률표 합 100%", () => {
   assert.ok(Math.abs(THROW_ODDS.reduce((s, o) => s + o.p, 0) - 1) < 1e-9);
   for (const mode of ["special", "chaos"]) assert.ok(Math.abs(abilityOdds(mode).reduce((s, a) => s + a.pct, 0) - 100) < 1e-9);
   assert.ok(abilityOdds("special").every((a) => a.tier !== "legend"));
+});
+
+test("윷: 능력 카드는 시작할 때만 모두 같은 장수, 같은 seed면 같은 카드", () => {
+  const names = ["A", "B", "C"];
+  const a = new YutGame(names, { mode: "chaos", seed: 7 }), b = new YutGame(names, { mode: "chaos", seed: 7 });
+  assert.ok(a.players.every((p) => p.hand.length === START_HAND.chaos));
+  assert.deepEqual(a.players.map((p) => p.hand), b.players.map((p) => p.hand));
+  assert.ok(new YutGame(names, { mode: "special", seed: 7 }).players.every((p) => p.hand.length === START_HAND.special && p.hand.every((id) => !["party", "quake", "assemble", "roulette", "dopamine"].includes(id))));
+  assert.ok(new YutGame(names, { mode: "basic", seed: 7 }).players.every((p) => p.hand.length === 0));
+  // 판 위를 돌아다녀도 카드가 늘지 않음
+  const g = new YutGame(["A", "B"], { mode: "chaos", seed: 3, pieces: 2 });
+  g.players[0].hand = [];
+  g.players[0].pieces[0].node = 3;
+  g.throw(seedFor(2));
+  g.move(0, 0, 1); // 예전 카드 칸(5)에 멈춤
+  assert.equal(g.players[0].hand.length, 0);
 });
 
 test("윷: 던지기 · 옮기기 · 잡으면 한 번 더 · 업기", () => {
@@ -226,7 +246,7 @@ test("윷: 같은 seed면 같은 판 (아무렇게나 끝까지 둬도 규칙이
         g.move(ok[Math.floor(rng() * ok.length)], 0, s);
       }
       for (const pl of g.players) {
-        assert.ok(pl.hand.length <= 2);
+        assert.ok(pl.hand.length <= START_HAND.chaos + 4); // 처음 받은 카드 + 어쩔티비로 빼앗은 카드
         for (const pc of pl.pieces) assert.ok(pc.node === START || pc.node === HOME || (pc.node >= 0 && pc.node <= 28));
       }
     }

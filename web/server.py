@@ -322,6 +322,8 @@ class Hub:
             room.seat_cids, a["seats"] = self.seats_for_start(room, a.pop("order", None))
             room.seat_names = [self.clients[c].profile["name"] for c in room.seat_cids]
             room.losers = []
+            if room.game == "yut":
+                a["seed"] = secrets.randbits(31)  # 시작 카드 나눠 주기도 서버가 정한 씨앗으로
         elif a.get("type") == "roll" and room.game == "yacht":
             a["dice"] = [secrets.randbelow(6) + 1 for _ in range(5)]  # 주사위는 서버가 굴림 (조작 방지)
         elif room.game == "yut":

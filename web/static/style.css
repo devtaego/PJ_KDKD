@@ -784,10 +784,10 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
 .yut-seats .person.turn { box-shadow: inset 4px 0 0 var(--pc), inset 0 0 0 2px var(--gold), 0 0 14px rgba(255, 201, 77, 0.2); }
 .yut-dots { display: flex; gap: 3px; }
 .yut-dots i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid; display: block; }
-.yut-stage { position: relative; width: min(100%, calc(100dvh - 330px), 560px); aspect-ratio: 1; }
+.yut-stage { position: relative; width: min(100%, calc((100dvh - 320px) * 4 / 3), 820px); aspect-ratio: 4 / 3; }
 .yut-board { width: 100%; height: 100%; transition: transform 0.6s cubic-bezier(.5, -0.3, .3, 1.4); }
 .yut-board.upside { transform: rotate(180deg); }
-.yut-board svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.35)); }
+.yut-board svg { width: 100%; height: 100%; display: block; overflow: visible; }
 .yb-bg { fill: #E9C892; stroke: #8A5A2B; stroke-width: 1.4; }
 .yb-lines line { stroke: #8A5A2B; stroke-width: 0.9; stroke-dasharray: 2 1.6; }
 .yb-node { fill: #FFF6E3; stroke: #8A5A2B; stroke-width: 0.8; }
@@ -864,7 +864,7 @@ table.odds td { vertical-align: middle; }
 @media (max-width: 1100px) { .games { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 900px) {
   .yut-screen .game-layout { grid-template-columns: 1fr; }
-  .yut-stage { width: min(100%, 560px); }
+  .yut-stage { width: min(100%, 820px); }
 }
 @media (max-width: 640px) {
   .games { grid-template-columns: 1fr; }
@@ -975,3 +975,85 @@ html[data-theme] .topbar .icon-btn, html[data-theme] .home-head .icon-btn, .titl
   .title-credit { right: 50%; transform: translateX(50%); white-space: nowrap; }
 }
 html[data-theme] .yut-hint { color: var(--chip-text); text-shadow: 1px 1px 0 var(--ink), -1px -1px 0 var(--ink), 1px -1px 0 var(--ink), -1px 1px 0 var(--ink), 0 2px 0 var(--ink); }
+
+/* ---------------------------------------------------------------- 윷판: 비스듬히 본 입체 판 · 서 있는 말 */
+.yb-top { fill: url(#ywood); stroke: #8A5A2B; stroke-width: 0.8; stroke-linejoin: round; }
+.yb-side-l { fill: #A86F37; }
+.yb-side-r { fill: #8A5726; }
+.yb-inner { fill: none; stroke: rgba(255, 255, 255, 0.35); stroke-width: 0.6; stroke-dasharray: 2 2; }
+.yut-board svg { filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.4)); }
+.yb-lines line { stroke: #8A5A2B; stroke-width: 1.1; stroke-dasharray: 2.4 1.8; stroke-linecap: round; }
+.yb-tile .top { fill: #FFF6E3; stroke: #8A5A2B; stroke-width: 0.6; }
+.yb-tile .side { fill: #B98447; }
+.yb-tile.corner .top { fill: #FFE7B0; }
+.yb-tile.start .top { fill: #FF8FA3; stroke: #B2304E; }
+.yb-tile.start .side { fill: #C2465F; }
+.yb-tile.dest .top { fill: #7CE7FF; stroke: #1C8FB0; stroke-width: 0.9; }
+.yb-tile.dest, .yb-tile.pickable { cursor: pointer; }
+.yb-tile.pickable .top { stroke: #FF2E2E; stroke-width: 0.9; }
+.yb-label { font-size: 3.4px; text-anchor: middle; fill: #fff; paint-order: stroke; stroke: #8E2440; stroke-width: 0.7; pointer-events: none; }
+.yb-piece { cursor: default; }
+.yb-piece.movable, .yb-piece.pickable { cursor: pointer; }
+.yb-hit { fill: transparent; }
+.yb-shadow { fill: rgba(40, 20, 0, 0.35); }
+.yb-ring { fill: none; stroke-width: 0.9; }
+.yb-ring.can { stroke: #FFFFFF; stroke-dasharray: 1.6 1.2; animation: ring-spin 3s linear infinite; }
+.yb-ring.sel { stroke: #FFD34D; stroke-width: 1.4; fill: rgba(255, 211, 77, 0.3); }
+.yb-ring.pick { stroke: #FF2E2E; stroke-width: 1.3; fill: rgba(255, 46, 46, 0.2); animation: pulse 0.6s ease-in-out infinite alternate; }
+@keyframes ring-spin { to { stroke-dashoffset: -14; } }
+.yb-piece.movable .yb-bob { animation: bob 0.9s ease-in-out infinite alternate; }
+.yb-piece.selected .yb-bob { animation: bob 0.45s ease-in-out infinite alternate; }
+@keyframes bob { to { transform: translateY(-1.6px); } }
+.yb-badge { fill: #1E1B18; stroke: #fff; stroke-width: 0.5; }
+.yb-count { font-size: 2.9px; text-anchor: middle; fill: #fff; pointer-events: none; }
+.yb-shield { fill: rgba(124, 231, 255, 0.25); stroke: #7CE7FF; stroke-width: 0.6; stroke-dasharray: 1.2 0.8; }
+.yb-dock rect { fill: rgba(0, 0, 0, 0.28); stroke: var(--pc); stroke-width: 0.6; stroke-opacity: 0.6; }
+.yb-dock.on rect { fill: color-mix(in srgb, var(--pc) 30%, rgba(0, 0, 0, 0.3)); stroke-width: 1.1; stroke-opacity: 1; }
+.yb-dock-name { font-size: 3.6px; paint-order: stroke; stroke: rgba(20, 12, 40, 0.85); stroke-width: 0.9; }
+.yb-dest { cursor: pointer; }
+.yb-dest-in { animation: dest-bob 0.7s ease-in-out infinite alternate; }
+.yb-dest path { fill: #FFD34D; stroke: #8A5A2B; stroke-width: 0.7; }
+.yb-dest text { font-size: 4.4px; text-anchor: middle; fill: #5B3A1A; }
+.yb-dest:hover path { fill: #FFE68A; }
+@keyframes dest-bob { to { transform: translateY(-1.5px); } }
+.res-chip { cursor: default; }
+.skin-btn { border: 0; background: var(--row); border-radius: 10px; padding: 2px 6px 2px 2px; display: inline-flex; align-items: center; gap: 2px; font-size: 13px; box-shadow: inset 0 0 0 1px var(--edge); flex: none; }
+.skin-btn svg { width: 24px; height: 30px; }
+.skin-pick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; min-width: min(420px, 80vw); }
+.skin-opt { border: 0; border-radius: 14px; background: var(--row); box-shadow: inset 0 0 0 1px var(--edge); padding: 8px 4px 6px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.skin-opt svg { width: 76px; height: 108px; }
+.skin-opt.on { box-shadow: inset 0 0 0 3px var(--gold); }
+.skin-opt:hover { transform: translateY(-2px); }
+@media (prefers-reduced-motion: reduce) { .yb-bob, .yb-dest-in, .yb-ring { animation: none !important; } }
+.yb-arrow { stroke: #fff; stroke-width: 0.35; stroke-linejoin: round; pointer-events: none; }
+.yb-arrow.main { fill: #E8590C; }
+.yb-arrow.short { fill: #1C8FB0; }
+.yb-arrow.first { animation: nudge-arrow 0.8s ease-in-out infinite alternate; transform-box: fill-box; }
+@keyframes nudge-arrow { to { opacity: 0.55; } }
+.yb-corner-label { font-size: 2.6px; text-anchor: middle; fill: #8A5A2B; pointer-events: none; }
+.yb-start-sign { pointer-events: none; }
+.yb-start-sign rect { fill: #E8590C; stroke: #fff; stroke-width: 0.7; }
+.yb-start-sign text { font-size: 4.6px; text-anchor: middle; fill: #fff; }
+/* 윷 던지기: 판 위로 크게 */
+.yut-toss { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 2; }
+.toss-sticks { position: relative; width: 60%; height: 60%; }
+.toss-sticks.out { animation: toss-out 0.4s ease forwards; }
+@keyframes toss-out { to { opacity: 0; transform: scale(0.9); } }
+.stick.big {
+  position: absolute; left: calc(50% + var(--x)); top: calc(50% + var(--y)); width: clamp(12px, 2.4vw, 22px); height: clamp(72px, 14vw, 140px);
+  margin: calc(clamp(72px, 14vw, 140px) / -2) 0 0 calc(clamp(12px, 2.4vw, 22px) / -2);
+  gap: clamp(10px, 2.4vw, 22px); border-width: 3px; border-radius: 999px; box-shadow: 0 10px 14px rgba(0, 0, 0, 0.4);
+  animation: fly 0.85s cubic-bezier(.25, .7, .35, 1) var(--d) both;
+}
+.stick.big b { width: clamp(8px, 1.6vw, 14px); height: clamp(8px, 1.6vw, 14px); }
+.stick.big .mark { top: -14px; width: 14px; height: 14px; }
+@keyframes fly {
+  0% { transform: translateY(170%) rotate(0deg) scale(1.5); opacity: 0; }
+  15% { opacity: 1; }
+  55% { transform: translateY(-45%) rotate(calc(var(--r) + 540deg)) scale(1.25); }
+  82% { transform: translateY(4%) rotate(calc(var(--r) + 712deg)) scale(1); }
+  100% { transform: translateY(0) rotate(calc(var(--r) + 720deg)) scale(1); }
+}
+.yut-throw { gap: 18px; }
+.yut-result { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.yut-result .res-chip { font-size: 16px; padding: 4px 12px; }

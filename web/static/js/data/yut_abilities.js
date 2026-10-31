@@ -76,8 +76,5 @@ export const THROW_ODDS = [
   { v: 5, name: "모", p: 0.03 },
 ];
 
-// 능력 칸 (특수능력: 네 모서리 + 한가운데 / 개막장: 바깥 변 가운데 4칸 추가)
-export const ABILITY_TILES = { special: [5, 10, 15, 22], chaos: [5, 10, 15, 22, 2, 7, 12, 17] };
-export const HAND_LIMIT = 2;
-// 꼴찌는 좋은 능력이 더 잘 나오게 (희귀 × 1.5, 전설 × 2)
-export const CATCH_UP = { rare: 1.5, legend: 2 };
+// 능력 카드는 게임을 시작할 때 한 번만 나눠 받음 (판 위에 카드 칸은 없음)
+export const START_HAND = { special: 3, chaos: 4 };

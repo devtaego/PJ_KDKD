@@ -1,15 +1,16 @@
 // KI득KI득 웹판: 첫 화면 · 프로필 · 게임 고르기 · 온라인 방 목록 · 대기실 · 랭킹
 import * as net from "./net.js";
-import { ANIMALS, avatarHtml, photoToSpec, GAME_ICONS, esc } from "./art.js";
+import { ANIMALS, avatarHtml, photoToSpec, GAME_ICONS, esc, setPhoto } from "./art.js";
 import { el, toast, modal, confirmBox, segment, option, store, ChatPanel, personHtml } from "./ui.js";
 import { play, soundOn, setSound } from "./sound.js";
 import { Match, showRules } from "./match.js";
 import { GAME_NAMES, GAME_DESC } from "./rules.js";
+import { THEMES, applyTheme, currentTheme } from "./theme.js";
 import * as chess from "./games/chess.js";
 import * as omok from "./games/omok.js";
 import * as yacht from "./games/yacht.js";
 
-const APP_VERSION = "2.0.0-web";
+const APP_VERSION = "2.2.0-web";
 const APP_SUB = "같은 기수, 키득키득";
 const DEVELOPER = "KDA 5기 송재혁";
 const REPO_URL = "https://github.com/devtaego/PJ_KDKD";
@@ -55,41 +56,68 @@ function needName() {
 }
 
 // ---------------------------------------------------------------- 첫 화면
+const GAME_META = {
+  chess: { people: "1~2명", modes: "컴퓨터 · 온라인" },
+  yacht: { people: "1~6명", modes: "컴퓨터 · 여럿이" },
+  omok: { people: "1~2명", modes: "컴퓨터 · 온라인" },
+};
+
 function homeScreen() {
-  const root = el(`<section class="screen">
-    <header class="home-head"><h1 class="logo">KI<b>득</b>KI<em>득</em></h1><div class="muted">${esc(APP_SUB)} · 아이스브레이킹 미니게임룸</div></header>
+  const root = el(`<section class="screen home">
+    <header class="home-head">
+      <h1 class="logo" aria-label="KI득KI득"><span>K</span><span>I</span><b>득</b><span>K</span><span>I</span><em>득</em></h1>
+      <div class="tagline"><span class="tag-pill">${esc(APP_SUB)}</span><span class="muted">체스 · 야추 · 오목 아이스브레이킹 게임룸</span></div>
+    </header>
     <div class="home-grid">
-      <div class="card profile">
-        <h2>내 프로필</h2>
+      <aside class="card player-card">
+        <div class="pc-top"><div class="pc-avatar"></div><div class="pc-who"><div class="pc-label">PLAYER</div><div class="pc-name"></div><div class="pc-intro"></div></div></div>
         <label class="field"><span>닉네임</span><input id="nick" type="text" maxlength="12" placeholder="예: 태고" autocomplete="nickname"></label>
-        <div class="muted" style="font-size:14px">캐릭터 또는 내 사진</div>
+        <div class="field-label">캐릭터 또는 내 사진</div>
         <div class="avatar-pick"></div>
         <label class="field"><span>한 줄 소개 (MBTI, 관심사...)</span><input id="intro" type="text" maxlength="30" placeholder="예: ENFP · 떡볶이 좋아해요"></label>
-        <div class="row"><button class="btn small ghost" data-k="sound"></button><span class="grow"></span><button class="btn small ghost" data-k="about">정보</button></div>
-      </div>
-      <div>
+        <div class="field-label">테마</div>
+        <div class="theme-pick" role="group" aria-label="화면 테마"></div>
+        <div class="row pc-bottom"><button class="btn small ghost" data-k="sound"></button><span class="grow"></span><button class="btn small ghost" data-k="about">정보</button></div>
+      </aside>
+      <div class="home-main">
+        <div class="section-title">게임 고르기 <span class="muted">눌러서 바로 시작!</span></div>
         <div class="games"></div>
-        <div class="card" style="margin-top:var(--gap)">
-          <h3>친구들과 온라인으로</h3>
-          <div class="muted" style="font-size:15px">와이파이가 달라도, 폰이어도 괜찮아요. 방 코드나 링크만 나누면 같이 할 수 있어요.</div>
-          <div class="join-code"><input id="code" type="text" maxlength="4" placeholder="방 코드" aria-label="방 코드" autocomplete="off"><button class="btn primary" data-k="join">참가</button></div>
+        <div class="card online-card">
+          <div class="online-head"><h3>친구들과 온라인으로</h3><span class="muted">와이파이가 달라도, 폰이어도 OK</span></div>
+          <div class="join-code"><input id="code" type="text" maxlength="4" placeholder="방 코드 4자리" aria-label="방 코드" autocomplete="off"><button class="btn primary" data-k="join">참가</button></div>
           <div class="home-tools"><button class="btn" data-k="lobby">열린 방 보기</button><button class="btn" data-k="rank">랭킹</button><button class="btn ghost" data-k="rules">규칙 보기</button></div>
         </div>
       </div>
     </div></section>`);
+  const preview = () => { // 왼쪽 위 '플레이어 카드'에 지금 프로필을 바로 보여 줌
+    root.querySelector(".pc-avatar").innerHTML = avatarHtml(profile.avatar, 76);
+    root.querySelector(".pc-name").textContent = profile.name || "닉네임을 정해 주세요";
+    root.querySelector(".pc-intro").textContent = profile.intro || "한 줄 소개로 말 걸 거리를 만들어요";
+  };
+  preview();
+  const themes = root.querySelector(".theme-pick");
+  const drawThemes = () => {
+    themes.innerHTML = "";
+    for (const t of THEMES) {
+      const b = el(`<button type="button" aria-pressed="${currentTheme() === t.id}"><span class="sw">${t.swatch.map((c) => `<i style="background:${c}"></i>`).join("")}</span>${esc(t.name)}</button>`);
+      b.onclick = () => { applyTheme(t.id); play("pop"); drawThemes(); };
+      themes.appendChild(b);
+    }
+  };
+  drawThemes();
   const nick = root.querySelector("#nick");
   const intro = root.querySelector("#intro");
   nick.value = profile.name;
   intro.value = profile.intro;
-  nick.oninput = () => { profile.name = nick.value.trim(); saveProfile(); };
-  intro.oninput = () => { profile.intro = intro.value.trim(); saveProfile(); };
+  nick.oninput = () => { profile.name = nick.value.trim(); saveProfile(); preview(); };
+  intro.oninput = () => { profile.intro = intro.value.trim(); saveProfile(); preview(); };
 
   const pick = root.querySelector(".avatar-pick");
   const drawPick = () => {
     pick.innerHTML = "";
     for (const [id, label] of ANIMALS) {
       const b = el(`<button type="button" aria-label="${label}" aria-pressed="${profile.avatar === id}">${avatarHtml(id, 52)}</button>`);
-      b.onclick = () => { profile.avatar = id; saveProfile(); play("pop"); drawPick(); };
+      b.onclick = () => { profile.avatar = id; saveProfile(); play("pop"); drawPick(); preview(); };
       pick.appendChild(b);
     }
     const isPhoto = profile.avatar.startsWith("data:");
@@ -102,6 +130,7 @@ function homeScreen() {
         profile.avatar = await photoToSpec(file.files[0]);
         saveProfile();
         drawPick();
+        preview();
       } catch { toast("사진을 열 수 없어요"); }
     };
     pick.append(ph, file);
@@ -110,7 +139,8 @@ function homeScreen() {
 
   const games = root.querySelector(".games");
   for (const g of ["chess", "yacht", "omok"]) {
-    const card = el(`<button class="game-card"><div class="gicon">${GAME_ICONS[g]}</div><div><div class="gname">${GAME_NAMES[g]}</div><div class="gdesc">${GAME_DESC[g]}</div></div></button>`);
+    const meta = GAME_META[g];
+    const card = el(`<button class="game-card g-${g}"><span class="gband"></span><div class="gicon">${GAME_ICONS[g]}</div><div class="gbody"><div class="gname">${GAME_NAMES[g]}</div><div class="gdesc">${GAME_DESC[g]}</div><div class="gmeta"><span>${meta.people}</span><span>${meta.modes}</span></div></div><span class="gplay">▶ 플레이</span></button>`);
     card.onclick = () => { if (!needName()) { play("click"); chooseMode(g); } };
     games.appendChild(card);
   }
@@ -280,6 +310,20 @@ net.on("welcome", (msg) => {
 
 net.on("rooms", (msg) => online.lobby?.update(msg.rooms));
 net.on("error", (msg) => toast(msg.msg));
+net.on("sleep", () => toast("오래 쉬어서 연결을 잠시 쉬게 했어요. 화면을 누르면 다시 이어져요", 4000));
+
+net.on("photos", (msg) => { // 방 사람들의 프로필 사진 (한 번만 받아 두고 계속 씀)
+  for (const [pid, url] of Object.entries(msg.photos || {})) setPhoto(pid, url);
+  online.wait?.update();
+  match?.g.render();
+});
+
+net.on("kicked", () => {
+  online.room = null;
+  if (match) { match.destroy(); match = null; }
+  toast("방장이 방에서 내보냈어요", 3500);
+  lobbyScreen();
+});
 
 /** 연승이 늘어난 사람이 있으면 모두에게 알려 줌 (2연승부터) */
 function announceStreaks(prev, room) {
@@ -298,11 +342,12 @@ net.on("room", (msg) => {
   online.room = msg.room;
   announceStreaks(prev, msg.room);
   if (match?.online) {
-    match.isHost = msg.room.host === net.myCid();
+    match.isHost = msg.room.host === net.myId();
     match.streaks = new Map(msg.room.members.map((x) => [x.cid, x.streak || 0]));
     const on = new Map(msg.room.members.map((x) => [x.cid, x.online]));
-    match.offline = new Set(match.seats.map((s, i) => (on.get(s.cid) === false ? i : -1)).filter((i) => i >= 0));
-    match.g.render();
+    const gone = new Map(msg.room.members.map((x) => [x.cid, x.gone]));
+    match.setOffline(new Set(match.seats.map((s, i) => (on.get(s.cid) === false ? i : -1)).filter((i) => i >= 0)),
+      new Map(match.seats.map((s, i) => [i, gone.get(s.cid) || null])), msg.room.grace || 30);
     return;
   }
   if (!prev || prev.id !== msg.room.id || !online.wait) waitingScreen();
@@ -337,7 +382,8 @@ net.on("chat", (msg) => {
 net.on("fx", (msg) => match?.online && match.onFx(msg));
 
 net.on("notice", (msg) => {
-  const text = msg.kind === "join" ? `${msg.name} 님이 들어왔어요${msg.role === "spectator" ? " (관전)" : ""}` : `${msg.name} 님이 나갔어요`;
+  const text = msg.kind === "join" ? `${msg.name} 님이 들어왔어요${msg.role === "spectator" ? " (관전)" : ""}`
+    : msg.kind === "kick" ? `방장이 ${msg.name} 님을 내보냈어요` : `${msg.name} 님이 나갔어요`;
   if (msg.kind === "join") play("join");
   (match?.online ? match.chat : online.chat)?.system(text);
 });
@@ -381,10 +427,10 @@ function startOnline(entry) {
   online.wait = null;
   online.chat = null;
   const seats = a.seats.map((s) => ({ cid: String(s.cid), name: String(s.name).slice(0, 12), avatar: s.avatar, intro: String(s.intro || "").slice(0, 30), ai: false }));
-  const me = seats.findIndex((s) => s.cid === net.myCid());
+  const me = seats.findIndex((s) => s.cid === net.myId());
   match = new Match({
     game: a.game, mode: "online", seats, mySeats: me >= 0 ? [me] : [], settings: a.settings || {}, level: "normal",
-    module: MODULES[a.game], isHost: online.room?.host === net.myCid(),
+    module: MODULES[a.game], isHost: online.room?.host === net.myId(),
     onExit: () => leaveRoom(), onAgain: () => net.send({ t: "reset" }),
   });
   match.lastSeq = entry.seq;
@@ -473,7 +519,7 @@ function waitingScreen() {
   function update() {
     const r = online.room;
     if (!r) return;
-    const me = net.myCid();
+    const me = net.myId();
     const isHost = r.host === me;
     const mine = r.members.find((x) => x.cid === me);
     const players = r.members.filter((x) => x.role === "player");
@@ -482,16 +528,24 @@ function waitingScreen() {
     root.querySelector("h1").textContent = `${GAME_NAMES[r.game]} · ${r.name}`;
     const link = `${location.origin}/?room=${r.id}`;
     main.innerHTML = `<div class="row" style="justify-content:space-between;align-items:flex-start"><div><div class="muted" style="font-size:14px">방 코드</div><div class="code-big">${esc(r.id)}</div></div>
-      <div class="row"><button class="btn small" data-k="share">링크 보내기</button></div></div>
+      <div class="row"><button class="btn small" data-k="qr">QR 크게 보기</button><button class="btn small" data-k="share">링크 보내기</button></div></div>
       <div class="muted" style="font-size:14px;margin:4px 0 14px;word-break:break-all">${esc(link)}${r.settings.private === "1" ? ` <span class="pill">비공개 · 코드로만 들어와요</span>` : ""}</div>
       <h3>플레이어 ${players.length}/${r.max}</h3><div class="people pl"></div>
       ${queue.length ? `<h3 style="margin-top:14px">대기 줄 <span class="muted" style="font-size:14px">진 사람은 줄 맨 뒤로, 이긴 사람은 계속!</span></h3><div class="people qu"></div>` : ""}
       ${specs.length ? `<h3 style="margin-top:14px">관전 ${specs.length}</h3><div class="people sp"></div>` : ""}
       <div class="settings" style="margin-top:16px"></div><div class="row start-row" style="justify-content:flex-end;margin-top:12px"></div>`;
-    const tag = (x) => `${x.streak >= 2 ? `<span class="streak">${x.streak}연승</span>` : ""}${x.cid === r.host ? "<span class=\"pill\">방장</span>" : ""}${x.online ? "" : "<span class=\"pill\">연결 끊김</span>"}`;
+    const tag = (x) => `${x.streak >= 2 ? `<span class="streak">${x.streak}연승</span>` : ""}${x.cid === r.host ? "<span class=\"pill\">방장</span>" : ""}${x.online ? "" : "<span class=\"pill\">연결 끊김</span>"}${isHost && x.cid !== me ? `<button class="btn ghost small kick" data-kick="${esc(x.cid)}" data-name="${esc(x.name)}">내보내기</button>` : ""}`;
     main.querySelector(".pl").innerHTML = players.map((x) => personHtml(x, { extra: tag(x), cls: x.online ? "" : "off" })).join("") || `<div class="empty">아직 아무도 없어요</div>`;
     if (queue.length) main.querySelector(".qu").innerHTML = queue.map((x, k) => personHtml(x, { extra: tag(x), cls: x.online ? "" : "off", sub: `${k + 1}번째 대기${x.intro ? " · " + x.intro : ""}` })).join("");
     if (specs.length) main.querySelector(".sp").innerHTML = specs.map((x) => personHtml(x, { extra: tag(x), cls: x.online ? "" : "off" })).join("");
+    main.querySelectorAll("[data-kick]").forEach((b) => {
+      b.onclick = async () => {
+        if (await confirmBox("내보내기", `${b.dataset.name} 님을 이 방에서 내보낼까요? 다시 들어올 수 없어요.`, "내보내기", "취소")) {
+          net.send({ t: "kick", pid: b.dataset.kick });
+        }
+      };
+    });
+    main.querySelector('[data-k="qr"]').onclick = () => showQr(r, link);
     main.querySelector('[data-k="share"]').onclick = async () => {
       const text = `KI득KI득 ${GAME_NAMES[r.game]} 같이 해요! 방 코드 ${r.id}`;
       try {
@@ -539,18 +593,28 @@ function waitingScreen() {
   chat.system(`방 코드 ${room.id} — 친구에게 링크를 보내 보세요!`);
 }
 
+/** 교실 화면(빔프로젝터)에 크게 띄워 폰으로 찍어 들어오게 하는 QR */
+function showQr(r, link) {
+  const body = el(`<div class="qr-box"><img class="qr" alt="방 링크 QR 코드" src="/qr/${encodeURIComponent(r.id)}.svg">
+    <div class="code-big">${esc(r.id)}</div><div class="muted" style="word-break:break-all">${esc(link)}</div>
+    <p class="muted" style="margin:6px 0 0">폰 카메라로 찍으면 바로 이 방으로 들어와요</p></div>`);
+  modal(`${GAME_NAMES[r.game]} · ${r.name}`, body);
+  body.closest(".modal").classList.add("modal-wide");
+}
+
 function startRoomGame(r) {
-  const players = r.members.filter((x) => x.role === "player");
-  let seats = players.map((x) => ({ cid: x.cid, name: x.name, avatar: x.avatar, intro: x.intro }));
+  // 자리에 앉는 사람과 이름 · 사진은 서버가 정함. 여기서는 체스 · 오목 색에 맞춘 자리 순서만 보냄
+  let order = r.members.filter((x) => x.role === "player").map((x) => x.cid);
   if (r.game !== "yacht") {
-    const hostIdx = seats.findIndex((x) => x.cid === r.host);
     const firstColor = r.game === "chess" ? "w" : "b";
     const hostColor = resolveColor(r.game, r.settings.color || firstColor);
-    const host = seats.splice(hostIdx, 1)[0];
-    seats = hostColor === firstColor ? [host, ...seats] : [...seats, host];
+    if (order.includes(r.host)) {
+      const rest = order.filter((p) => p !== r.host);
+      order = hostColor === firstColor ? [r.host, ...rest] : [...rest, r.host];
+    }
   }
   const settings = r.game === "chess" ? { time: r.settings.time || "none" } : r.game === "omok" ? { rule: r.settings.rule || "33" } : {};
-  net.send({ t: "act", a: { type: "start", game: r.game, settings, seats } });
+  net.send({ t: "act", a: { type: "start", game: r.game, settings, order } });
 }
 
 // ---------------------------------------------------------------- 랭킹

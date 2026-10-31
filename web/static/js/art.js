@@ -97,9 +97,15 @@ function animalSvg(kind) {
 }
 
 const avatarCache = new Map();
-/** 프로필 그림 HTML. spec = 동물 id 또는 사진 data URL */
+const photos = new Map(); // 공개 번호(pid) -> 사진 data URL (서버가 방에 들어갈 때 한 번만 보내 줌)
+export const setPhoto = (pid, url) => {
+  if (typeof url === "string" && url.startsWith("data:image/")) photos.set(String(pid), url);
+};
+
+/** 프로필 그림 HTML. spec = 동물 id, 사진 data URL, 또는 "photo:<pid>:<해시>" (온라인에서 받은 사진) */
 export function avatarHtml(spec, size = 44, extraClass = "") {
   const cls = `avatar ${extraClass}`.trim();
+  if (typeof spec === "string" && spec.startsWith("photo:")) spec = photos.get(spec.split(":")[1]) || "cat";
   if (typeof spec === "string" && spec.startsWith("data:image/")) {
     return `<span class="${cls}" style="width:${size}px;height:${size}px"><img src="${esc(spec)}" alt=""></span>`;
   }

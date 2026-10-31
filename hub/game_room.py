@@ -44,6 +44,7 @@ APP_NAME = "KI득KI득"
 APP_VERSION = "1.1.0"
 UPDATE_URL = "https://raw.githubusercontent.com/devtaego/PJ_KDKD/main/VERSION"  # 새 버전 알림용
 DOWNLOAD_URL = "https://github.com/devtaego/PJ_KDKD/tree/main/release"
+WEB_URL = "https://kidk-web.onrender.com"  # 웹 · 폰판 (와이파이가 달라도 같이 할 수 있음)
 LEVELS = [("easy", "쉬움"), ("normal", "보통"), ("hard", "어려움")]
 RULES_TEXT = {
     "chess": ["두 사람이 백과 흑을 나눠 갖고 백부터 번갈아 한 수씩 둬요.",
@@ -251,6 +252,10 @@ class GameRoom:
     def open_download(self):
         import webbrowser
         webbrowser.open(DOWNLOAD_URL)
+
+    def open_web(self):
+        import webbrowser
+        webbrowser.open(WEB_URL)
 
     def toggle_sound(self):
         sound.enabled = not sound.enabled
@@ -525,8 +530,9 @@ class GameRoom:
         cv.create_text(S(24), h - S(26), anchor="w",
                        text=f"내 IP  {chess_game.local_ip()}   ·   네트워크 대전은 같은 와이파이(또는 핫스팟)에서",
                        fill=MUTED, font=self.F(9, bold=False))
-        cv.create_text(w - S(112), h - S(26), anchor="e", text=f"Made by  {DEVELOPER}", fill="#D9D4F5",
+        cv.create_text(w - S(196), h - S(26), anchor="e", text=f"Made by  {DEVELOPER}", fill="#D9D4F5",
                        font=self.F(10))
+        self.pill(w - S(184), h - S(42), w - S(108), h - S(10), "웹판", self.open_web, bg=ACCENT, size=9)
         self.pill(w - S(100), h - S(42), w - S(24), h - S(10), "정보", self.open_info, bg=CARD, size=9)
 
     def draw_avatar_picker(self, cx, cy):
@@ -927,7 +933,7 @@ class GameRoom:
 
     def draw_info(self, w, h):
         cv = self.cv
-        need = 90 + 150 + len(CREDITS) * 52 + 90 + 20
+        need = 90 + 150 + len(CREDITS) * 52 + 90 + 70
         self.k = min(self.k, max((h - 10) / need, 0.55))
         S = self.S
         cx = w / 2
@@ -952,6 +958,8 @@ class GameRoom:
                        fill=MUTED, font=self.F(9, bold=False), width=pw - S(60), justify="center")
         cv.create_text(cx, y + S(36), text="네트워크 대전은 같은 와이파이 안에서만 연결되며, 채팅은 암호화되지 않아요.",
                        fill=MUTED, font=self.F(9, bold=False), width=pw - S(60), justify="center")
+        self.pill(cx - S(150), y + S(58), cx + S(150), y + S(94), "와이파이가 달라도 · 폰으로도: 웹판 열기",
+                  self.open_web, bg=ACCENT, size=10)
 
     def go_home(self):
         self.screen, self.message = "home", ""

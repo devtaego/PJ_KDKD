@@ -70,6 +70,23 @@ export class Match {
     }));
   }
 
+  /** 연결이 끊긴 자리 표시 + "N초 뒤 기권" 카운트다운 (서버가 GRACE초 뒤 나간 것으로 처리) */
+  setOffline(offline, goneAt, grace) {
+    this.offline = offline;
+    this.goneAt = goneAt;
+    this.grace = grace;
+    clearInterval(this.offlineTick);
+    if (offline.size && !this.result) this.offlineTick = setInterval(() => this.g.render(), 1000);
+    this.g.render();
+  }
+
+  /** 끊긴 자리가 기권 처리되기까지 남은 초 (모르면 null) */
+  secondsLeft(seat) {
+    const at = this.goneAt?.get(seat);
+    if (!at) return null;
+    return Math.max(0, Math.ceil(this.grace - (net.serverNow() - at) / 1000));
+  }
+
   modeLabel() {
     if (this.online) return this.mySeats.length ? "온라인" : "관전 중";
     if (this.mode === "ai") return `컴퓨터 대전 (${{ easy: "쉬움", normal: "보통", hard: "어려움" }[this.level] || "보통"})`;
@@ -260,6 +277,7 @@ export class Match {
   }
 
   destroy() {
+    clearInterval(this.offlineTick);
     for (const id of this.timers) clearTimeout(id);
     this.timers.clear();
     this.resultView?.close();
@@ -277,7 +295,8 @@ export function showRules(game) {
 export function seatCard(match, i, { extra = "", sub = null, turn = false } = {}) {
   const s = match.seats[i];
   const off = match.offline.has(i);
-  const intro = off ? "연결이 끊겼어요..." : sub ?? s.intro ?? "";
+  const left = off ? match.secondsLeft(i) : null;
+  const intro = off ? (left !== null ? `연결 끊김 · ${left}초 안에 안 오면 기권` : "연결이 끊겼어요...") : sub ?? s.intro ?? "";
   const tag = match.controls(i) && match.mode !== "local" ? " (나)" : "";
   const streak = match.streaks?.get(s.cid) || 0;
   const badge = streak >= 2 ? ` <span class="streak">${streak}연승</span>` : "";

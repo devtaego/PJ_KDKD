@@ -10,3 +10,9 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      # 우리 반 랭킹을 Supabase에 저장할 때만 필요 (README 참고). 값은 Render 대시보드 Environment에서 직접 넣고,
+      # sync: false 라서 Blueprint를 다시 맞춰도 덮어쓰지 않음. 키 값은 절대 이 파일에 쓰지 말 것.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false

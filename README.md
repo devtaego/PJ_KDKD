@@ -11,6 +11,8 @@ KDA(키움 산하 교육기관) 새 기수가 처음 만났을 때 어색함 없
 - **데스크톱판 (v1)**: exe 하나로 같은 와이파이 안에서 해요.
 - 만든 사람: **KDA 5기 송재혁** · 개발 과정과 고민: [DEVLOG.md](DEVLOG.md)
 
+<p align="center"><img src="docs/images/title-night.jpg" alt="타이틀 화면: 별이 반짝이는 픽셀 도시 위의 KI득KI득 로고와 메뉴" width="720"></p>
+
 <table>
   <tr>
     <td width="50%"><img src="docs/images/home.jpg" alt="첫 화면: 프로필과 게임 고르기"></td>
@@ -50,7 +52,7 @@ KDA(키움 산하 교육기관) 새 기수가 처음 만났을 때 어색함 없
 | 사람이 많을 때 | 꽉 찬 방에 들어가면 **대기 줄**에 서요. 진 사람은 줄 맨 뒤로, 이긴 사람은 계속 — **연승**이 쌓여요 |
 | 모르는 사람 없이 우리끼리 | 방을 **비공개**로 만들면 목록에 안 보이고 코드로만 들어와요. 이상한 사람은 방장이 **내보내기** |
 | 교실에서 한 번에 | 대기실의 **QR 크게 보기**를 빔프로젝터에 띄우면 다들 폰 카메라로 찍고 바로 들어와요 |
-| 분위기 바꾸기 | 첫 화면에서 **테마** 고르기: 밤하늘 · 말랑말랑(귀여운 파스텔) · 오락실(네온) |
+| 분위기 바꾸기 | 타이틀 화면에서 **테마** 고르기(◀ ▶): 밤하늘 · 말랑말랑(귀여운 파스텔) · 오락실(네온) |
 | 누가 제일 잘하나 | **랭킹**: 이 기기 기록 + 우리 반(온라인) 기록 |
 
 ### 게임
@@ -66,16 +68,23 @@ KDA(키움 산하 교육기관) 새 기수가 처음 만났을 때 어색함 없
 - **결과 화면**: 상황별 도발 멘트 버튼, 이긴 사람만 쓰는 **티배깅**(진 사람 얼굴이 빨개지고 핏줄이 뛰어요), 모두에게 똑같이 나오는 **진 사람 질문 카드**("최애 점심 메뉴는?")
 - **연승**: 같은 방에서 2연승부터 이름 옆에 "3연승" 배지 + 모두에게 알림
 
-### 테마
+### 타이틀 화면과 테마
+
+게임을 켜면 픽셀 아트 장면 위에 큰 로고와 메뉴가 뜨는 **타이틀 화면**이 먼저 나와요. 마우스 · 터치로 고르거나, 키보드 ↑ ↓ 로 ▶ 커서를 옮기고 Enter, 테마는 ◀ ▶.
+장면은 테마마다 다르고 모두 코드로 직접 그렸어요 (작게 그려서 크게 늘린 도트).
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/images/theme-pastel.jpg" alt="말랑말랑 테마"></td>
-    <td width="50%"><img src="docs/images/theme-arcade.jpg" alt="오락실 테마"></td>
+    <td width="50%"><img src="docs/images/title-pastel.jpg" alt="말랑말랑 타이틀: 햇살 아래 언덕 위 학교"></td>
+    <td width="50%"><img src="docs/images/title-arcade.jpg" alt="오락실 타이틀: 네온 해와 달리는 격자 바닥"></td>
   </tr>
   <tr>
-    <td align="center">말랑말랑 — 크림 · 분홍 · 하늘색 파스텔, 물방울 무늬, 통통한 버튼</td>
-    <td align="center">오락실 — 네온 글자와 격자 바닥</td>
+    <td align="center">말랑말랑 — 구름이 흘러가는 언덕 위 학교, 동화책 같은 노란 로고</td>
+    <td align="center">오락실 — 줄무늬 네온 해와 앞으로 달려오는 격자 바닥</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/theme-pastel.jpg" alt="말랑말랑 테마의 게임 고르기 화면"></td>
+    <td><img src="docs/images/theme-arcade.jpg" alt="오락실 테마의 게임 고르기 화면"></td>
   </tr>
 </table>
 
@@ -102,9 +111,11 @@ KDA(키움 산하 교육기관) 새 기수가 처음 만났을 때 어색함 없
 - 데스크톱판 첫 화면의 **웹판** 버튼으로도 열 수 있어요.
 
 <p align="center">
-  <img src="docs/images/mobile-home.jpg" alt="폰 첫 화면 (말랑말랑 테마)" width="260">
+  <img src="docs/images/mobile-title.jpg" alt="폰 타이틀 화면 (말랑말랑 테마)" width="240">
   &nbsp;
-  <img src="docs/images/mobile-yacht.jpg" alt="폰 화면의 야추 다이스" width="260">
+  <img src="docs/images/mobile-home.jpg" alt="폰 게임 고르기 (말랑말랑 테마)" width="240">
+  &nbsp;
+  <img src="docs/images/mobile-yacht.jpg" alt="폰 화면의 야추 다이스" width="240">
 </p>
 
 ### 데스크톱판 (같은 와이파이 전용)
@@ -184,6 +195,7 @@ web/                 웹 · 모바일판
     js/games/            체스 · 오목 · 야추 화면, 주사위 트레이 물리
     js/app.js            첫 화면 · 방 목록 · 대기실 · 랭킹
     js/theme.js          테마 (밤하늘 · 말랑말랑 · 오락실)
+    js/scene.js          타이틀 화면 픽셀 아트 장면 (테마마다)
     js/match.js          한 판 진행 틀 (컴퓨터 · 한 기기 · 온라인을 같은 방식으로)
   tests/               자바스크립트 규칙 엔진 테스트 (Node)
 supabase/schema.sql  랭킹 표와 함수

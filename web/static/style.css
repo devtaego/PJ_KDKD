@@ -694,3 +694,85 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
 @media (prefers-reduced-motion: reduce) {
   .logo > *, .game-card .gicon, [data-theme="arcade"] .gplay { animation: none !important; }
 }
+/* ================================================================ 타이틀 화면 (게임 시작 화면) */
+.title-screen { position: fixed; inset: 0; overflow: hidden; background: #000; }
+.title-scene { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; image-rendering: crisp-edges; }
+.title-ui {
+  position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 16px 16px calc(16px + var(--safe-b)); text-align: center;
+}
+.title-player {
+  position: absolute; top: 14px; left: 14px; display: flex; align-items: center; gap: 8px; padding: 4px 14px 4px 4px;
+  background: rgba(0, 0, 0, 0.45); border: 2px solid rgba(255, 255, 255, 0.75); border-radius: 999px; color: #fff;
+}
+.title-player span { font-size: 11px; letter-spacing: 2px; color: var(--gold); }
+.title-player b { font-weight: normal; font-size: 16px; }
+.title-logo {
+  margin: 0; font-size: clamp(64px, 15vw, 156px); line-height: 1; letter-spacing: 2px; font-weight: normal;
+  color: #FFFFFF; -webkit-text-stroke: 7px #1A1446; paint-order: stroke fill;
+  text-shadow: 0 6px 0 #FF5C8A, 0 11px 0 #7C5CFF, 0 18px 26px rgba(0, 0, 0, 0.55);
+  animation: drop 0.7s cubic-bezier(.2, 1.4, .4, 1) both;
+}
+.title-logo > * { display: inline-block; animation: hop 2.8s ease-in-out infinite; }
+.title-logo > :nth-child(2) { animation-delay: 0.12s; } .title-logo > :nth-child(3) { animation-delay: 0.24s; }
+.title-logo > :nth-child(4) { animation-delay: 0.36s; } .title-logo > :nth-child(5) { animation-delay: 0.48s; } .title-logo > :nth-child(6) { animation-delay: 0.6s; }
+.title-logo b { color: var(--gold); font-weight: normal; }
+.title-logo em { color: var(--pink); font-style: normal; }
+@keyframes drop { from { transform: translateY(-60px) scale(0.8); opacity: 0; } }
+.title-sub {
+  font-size: clamp(16px, 2.6vw, 24px); color: #fff; padding: 4px 18px; border-radius: 999px; margin: 6px 0 14px;
+  background: rgba(0, 0, 0, 0.42); border: 2px solid rgba(255, 255, 255, 0.6);
+}
+.title-menu { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.title-item {
+  border: 0; background: none; padding: 4px 26px; font-size: clamp(22px, 3.4vw, 34px); color: #FFFFFF; position: relative;
+  text-shadow: 3px 0 0 #1A1446, -3px 0 0 #1A1446, 0 3px 0 #1A1446, 0 -3px 0 #1A1446, 2px 2px 0 #1A1446, -2px -2px 0 #1A1446, 2px -2px 0 #1A1446, -2px 2px 0 #1A1446, 0 6px 0 rgba(0, 0, 0, 0.35);
+  transition: transform 0.1s, color 0.1s;
+}
+.title-item.on { color: var(--gold); transform: scale(1.08); }
+.title-item.on::before { content: "▶"; position: absolute; left: -6px; top: 50%; transform: translateY(-50%); font-size: 0.7em; animation: nudge 0.6s ease-in-out infinite alternate; }
+@keyframes nudge { to { left: 2px; } }
+.title-hint { position: absolute; bottom: calc(12px + var(--safe-b)); font-size: 13px; color: rgba(255, 255, 255, 0.85); text-shadow: 0 1px 2px #000; }
+
+/* 말랑말랑: 노란 글자 + 갈색 테두리 (동화책 게임 느낌) */
+[data-theme="pastel"] .title-logo { color: #FFD34D; -webkit-text-stroke-color: #6B3E26; text-shadow: 0 6px 0 #E58A3A, 0 11px 0 #B5652A, 0 18px 24px rgba(107, 62, 38, 0.35); }
+[data-theme="pastel"] .title-logo b { color: #FF9EC0; }
+[data-theme="pastel"] .title-logo em { color: #7FD0FF; }
+[data-theme="pastel"] .title-item { color: #FFF8E7; text-shadow: 3px 0 0 #6B3E26, -3px 0 0 #6B3E26, 0 3px 0 #6B3E26, 0 -3px 0 #6B3E26, 2px 2px 0 #6B3E26, -2px -2px 0 #6B3E26, 2px -2px 0 #6B3E26, -2px 2px 0 #6B3E26, 0 6px 0 rgba(107, 62, 38, 0.3); }
+[data-theme="pastel"] .title-item.on { color: #FFD34D; }
+[data-theme="pastel"] .title-sub, [data-theme="pastel"] .title-player { background: rgba(107, 62, 38, 0.55); border-color: #FFF8E7; }
+[data-theme="pastel"] .title-hint { color: #FFF8E7; text-shadow: 1px 1px 0 #6B3E26, -1px -1px 0 #6B3E26, 1px -1px 0 #6B3E26, -1px 1px 0 #6B3E26; }
+
+/* 오락실: 네온 테두리 */
+[data-theme="arcade"] .title-logo { color: #EFFFFF; -webkit-text-stroke-color: #07071A; text-shadow: 0 0 10px #00E5FF, 0 0 28px #00E5FF, 0 6px 0 #FF2BD6; }
+[data-theme="arcade"] .title-logo b { color: #FFE600; }
+[data-theme="arcade"] .title-logo em { color: #FF2BD6; }
+[data-theme="arcade"] .title-item { color: #7CF7FF; text-shadow: 0 0 6px #00E5FF, 2px 2px 0 #07071A, -2px -2px 0 #07071A, 2px -2px 0 #07071A, -2px 2px 0 #07071A; }
+[data-theme="arcade"] .title-menu { background: rgba(7, 7, 26, 0.72); border: 2px solid #00E5FF; border-radius: 12px; padding: 10px 6px; box-shadow: 0 0 18px rgba(0, 229, 255, 0.45); }
+[data-theme="arcade"] .title-item.on { color: #FFE600; text-shadow: 0 0 10px #FFE600, 2px 2px 0 #07071A, -2px -2px 0 #07071A; }
+
+/* 첫 화면 위 '타이틀로' 버튼 */
+.home-head { position: relative; }
+.home-back { position: absolute; left: 0; top: 4px; }
+
+/* ================================================================ 또렷하게: 제목 · 테두리 · 버튼을 더 분명히 */
+.card, .modal, .result-card, .game-card { border-width: 2px; }
+.card > h3, .sec-title, .section-title, .topbar h1, .game-card .gname, .pc-name, .result-card h2 { text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35); }
+[data-theme="pastel"] .card > h3, [data-theme="pastel"] .sec-title, [data-theme="pastel"] .section-title, [data-theme="pastel"] .topbar h1,
+[data-theme="pastel"] .game-card .gname, [data-theme="pastel"] .pc-name, [data-theme="pastel"] .result-card h2 { text-shadow: 0 2px 0 #FFE0EA; }
+.section-title { font-size: 22px; }
+.game-card .gname { font-size: 28px; }
+.btn.primary, .btn.pink, .game-card .gplay, .tag-pill { box-shadow: 0 4px 0 rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.3); }
+.btn.primary:active:not(:disabled), .btn.pink:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35); }
+[data-theme="pastel"] .btn.primary, [data-theme="pastel"] .btn.pink, [data-theme="pastel"] .game-card .gplay, [data-theme="pastel"] .tag-pill { box-shadow: var(--btn-depth), inset 0 1px 0 rgba(255, 255, 255, 0.4); }
+[data-theme="arcade"] .btn.primary, [data-theme="arcade"] .tag-pill { box-shadow: 0 0 14px rgba(0, 229, 255, 0.6); }
+
+@media (max-width: 640px) {
+  .title-item { padding: 4px 22px; }
+  .title-hint { display: none; } /* 폰은 키보드 안내 대신 눌러서 고르기 */
+  .title-player { top: 10px; left: 10px; }
+  .home-back { top: 0; width: 36px; height: 36px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .title-logo, .title-logo > *, .title-item.on::before { animation: none !important; }
+}

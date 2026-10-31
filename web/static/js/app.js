@@ -6,6 +6,7 @@ import { play, soundOn, setSound } from "./sound.js";
 import { Match, showRules } from "./match.js";
 import { GAME_NAMES, GAME_DESC } from "./rules.js";
 import { THEMES, applyTheme, currentTheme } from "./theme.js";
+import { TitleScene } from "./scene.js";
 import * as chess from "./games/chess.js";
 import * as omok from "./games/omok.js";
 import * as yacht from "./games/yacht.js";
@@ -55,6 +56,59 @@ function needName() {
   return true;
 }
 
+// ---------------------------------------------------------------- 타이틀 화면 (게임 시작 화면)
+function titleScreen() {
+  const root = el(`<section class="title-screen">
+    <canvas class="title-scene" aria-hidden="true"></canvas>
+    <div class="title-ui">
+      <div class="title-player"></div>
+      <h1 class="title-logo" aria-label="KI득KI득"><span>K</span><span>I</span><b>득</b><span>K</span><span>I</span><em>득</em></h1>
+      <div class="title-sub">${esc(APP_SUB)}</div>
+      <nav class="title-menu" aria-label="메뉴"></nav>
+      <div class="title-hint">↑ ↓ 고르기 · Enter 결정 · ◀ ▶ 테마</div>
+    </div></section>`);
+  const scene = new TitleScene(root.querySelector(".title-scene"), currentTheme());
+  const menu = root.querySelector(".title-menu");
+  const themeName = () => THEMES.find((t) => t.id === currentTheme()).name;
+  const cycleTheme = (dir = 1) => {
+    const i = THEMES.findIndex((t) => t.id === currentTheme());
+    applyTheme(THEMES[(i + dir + THEMES.length) % THEMES.length].id);
+    scene.setTheme(currentTheme());
+    play("pop");
+    draw();
+  };
+  const items = [
+    { label: () => "게임 시작", go: () => homeScreen() },
+    { label: () => "친구 방 들어가기", go: () => (profile.name ? lobbyScreen() : homeScreen(true)) },
+    { label: () => "랭킹", go: () => rankingModal() },
+    { label: () => `테마 ◀ ${themeName()} ▶`, go: () => cycleTheme(1), side: (d) => cycleTheme(d) },
+    { label: () => "게임 설명", go: () => rulesPicker() },
+  ];
+  let sel = 0;
+  function draw() {
+    menu.innerHTML = "";
+    items.forEach((it, i) => {
+      const b = el(`<button class="title-item${i === sel ? " on" : ""}" type="button"></button>`);
+      b.textContent = it.label();
+      b.onpointerenter = () => { if (sel !== i) { sel = i; play("click"); draw(); } };
+      b.onclick = () => { sel = i; play("pop"); it.go(); };
+      menu.appendChild(b);
+    });
+    root.querySelector(".title-player").innerHTML = profile.name
+      ? `${avatarHtml(profile.avatar, 34)}<span>PLAYER</span><b>${esc(profile.name)}</b>` : `<span>PLAYER</span><b>닉네임을 정해 주세요</b>`;
+  }
+  draw();
+  const onKey = (e) => {
+    if (document.querySelector(".modal-back")) return;
+    if (e.key === "ArrowDown" || e.key === "s") { sel = (sel + 1) % items.length; play("click"); draw(); e.preventDefault(); }
+    else if (e.key === "ArrowUp" || e.key === "w") { sel = (sel - 1 + items.length) % items.length; play("click"); draw(); e.preventDefault(); }
+    else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && items[sel].side) items[sel].side(e.key === "ArrowLeft" ? -1 : 1);
+    else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); play("pop"); items[sel].go(); }
+  };
+  document.addEventListener("keydown", onKey);
+  show({ root, destroy: () => { scene.destroy(); document.removeEventListener("keydown", onKey); } }, { push: false });
+}
+
 // ---------------------------------------------------------------- 첫 화면
 const GAME_META = {
   chess: { people: "1~2명", modes: "컴퓨터 · 온라인" },
@@ -62,9 +116,10 @@ const GAME_META = {
   omok: { people: "1~2명", modes: "컴퓨터 · 온라인" },
 };
 
-function homeScreen() {
+function homeScreen(focusName = false) {
   const root = el(`<section class="screen home">
     <header class="home-head">
+      <button class="icon-btn home-back" aria-label="타이틀 화면으로">←</button>
       <h1 class="logo" aria-label="KI득KI득"><span>K</span><span>I</span><b>득</b><span>K</span><span>I</span><em>득</em></h1>
       <div class="tagline"><span class="tag-pill">${esc(APP_SUB)}</span><span class="muted">체스 · 야추 · 오목 아이스브레이킹 게임룸</span></div>
     </header>
@@ -163,8 +218,10 @@ function homeScreen() {
   };
   root.querySelector('[data-k="join"]').onclick = join;
   code.addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
-  show({ root }, { push: false });
+  root.querySelector(".home-back").onclick = () => titleScreen();
+  show({ root, back: () => titleScreen() });
   if (pendingCode && !profile.name) toast("닉네임을 정하고 '참가'를 누르면 친구 방에 들어가요", 3500);
+  if (focusName) { toast("먼저 닉네임을 정해 주세요!"); nick.focus(); }
 }
 
 function rulesPicker() {
@@ -668,5 +725,6 @@ function rankingModal() {
 
 // ---------------------------------------------------------------- 시작
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
-homeScreen();
+if (pendingCode) homeScreen(); // 초대 링크로 왔으면 바로 참가할 수 있는 화면으로
+else titleScreen();
 if (profile.name) connect(); // 새로고침해도 하던 방/판으로 돌아가도록

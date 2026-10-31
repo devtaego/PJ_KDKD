@@ -1,0 +1,12 @@
+# Render 무료 플랜 배포 설정 (Dashboard → New → Blueprint 에서 이 저장소를 고르면 자동으로 읽음)
+services:
+  - type: web
+    name: kidk-web
+    runtime: python
+    plan: free
+    buildCommand: pip install -r web/requirements.txt
+    startCommand: python web/server.py
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9

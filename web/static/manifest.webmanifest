@@ -1,0 +1,15 @@
+{
+  "name": "KI득KI득 — 같은 기수, 키득키득",
+  "short_name": "KI득KI득",
+  "description": "체스 · 야추 다이스 · 오목을 웹과 폰에서 같이 하는 아이스브레이킹 게임룸",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1A1446",
+  "theme_color": "#1A1446",
+  "lang": "ko",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

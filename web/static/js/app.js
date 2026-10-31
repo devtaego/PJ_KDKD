@@ -10,13 +10,14 @@ import { TitleScene } from "./scene.js";
 import * as chess from "./games/chess.js";
 import * as omok from "./games/omok.js";
 import * as yacht from "./games/yacht.js";
+import * as yut from "./games/yut.js";
 
 const APP_VERSION = "2.2.0-web";
 const APP_SUB = "같은 기수, 키득키득";
 const DEVELOPER = "KDA 5기 송재혁";
 const REPO_URL = "https://github.com/devtaego/PJ_KDKD";
-const MODULES = { chess, omok, yacht };
-const MAX_PLAYERS = { chess: 2, omok: 2, yacht: 6 };
+const MODULES = { chess, omok, yacht, yut };
+const MAX_PLAYERS = { chess: 2, omok: 2, yacht: 6, yut: 4 };
 const LEVELS = [["easy", "쉬움"], ["normal", "보통"], ["hard", "어려움"]];
 const ROBOT_NAMES = ["컴퓨터", "로봇 철수", "로봇 영희", "로봇 민수", "로봇 지수", "로봇 하나"];
 
@@ -114,6 +115,7 @@ const GAME_META = {
   chess: { people: "1~2명", modes: "컴퓨터 · 온라인" },
   yacht: { people: "1~6명", modes: "컴퓨터 · 여럿이" },
   omok: { people: "1~2명", modes: "컴퓨터 · 온라인" },
+  yut: { people: "2~4명", modes: "한 기기 · 온라인" },
 };
 
 function homeScreen(focusName = false) {
@@ -193,7 +195,7 @@ function homeScreen(focusName = false) {
   drawPick();
 
   const games = root.querySelector(".games");
-  for (const g of ["chess", "yacht", "omok"]) {
+  for (const g of ["chess", "yacht", "omok", "yut"]) {
     const meta = GAME_META[g];
     const card = el(`<button class="game-card g-${g}"><span class="gband"></span><div class="gicon">${GAME_ICONS[g]}</div><div class="gbody"><div class="gname">${GAME_NAMES[g]}</div><div class="gdesc">${GAME_DESC[g]}</div><div class="gmeta"><span>${meta.people}</span><span>${meta.modes}</span></div></div><span class="gplay">▶ 플레이</span></button>`);
     card.onclick = () => { if (!needName()) { play("click"); chooseMode(g); } };
@@ -227,7 +229,7 @@ function homeScreen(focusName = false) {
 function rulesPicker() {
   const body = el(`<div class="row"></div>`);
   let close;
-  for (const g of ["chess", "yacht", "omok"]) {
+  for (const g of ["chess", "yacht", "omok", "yut"]) {
     const b = el(`<button class="btn">${GAME_NAMES[g]}</button>`);
     b.onclick = () => { close(); showRules(g); };
     body.appendChild(b);
@@ -248,12 +250,14 @@ function about() {
 // ---------------------------------------------------------------- 게임 · 모드 고르기
 function chooseMode(game) {
   const saved = store.get(`opts.${game}`, {});
-  const o = { mode: "ai", level: "normal", time: "none", color: game === "omok" ? "b" : "w", rule: "33", bots: 1, people: 2, friend: "친구", ...saved };
+  const o = { mode: "ai", level: "normal", time: "none", color: game === "omok" ? "b" : "w", rule: "33", bots: 1, people: 2, friend: "친구", pieces: "3", chaos: "chaos", ...saved };
+  if (game === "yut" && o.mode === "ai") o.mode = "local"; // 윷놀이는 사람끼리만 (컴퓨터 대전 없음)
   const body = el(`<div></div>`);
   let close;
   const draw = () => {
     body.innerHTML = "";
-    const modes = [["ai", "컴퓨터 대전"], ["local", game === "yacht" ? "한 기기 여럿" : "한 기기 2인"], ["online", "온라인"]];
+    const modes = [["ai", "컴퓨터 대전"], ["local", game === "yacht" || game === "yut" ? "한 기기 여럿" : "한 기기 2인"], ["online", "온라인"]]
+      .filter(([m]) => !(game === "yut" && m === "ai"));
     body.appendChild(option("어떻게 할까요?", segment(modes, o.mode, (v) => { o.mode = v; draw(); })));
     if (o.mode === "ai") body.appendChild(option("컴퓨터 난이도", segment(LEVELS, o.level, (v) => { o.level = v; })));
     if (game === "chess") {
@@ -266,7 +270,12 @@ function chooseMode(game) {
     }
     if (game === "yacht" && o.mode === "ai") body.appendChild(option("컴퓨터 수", segment([1, 2, 3, 4, 5].map((n) => [n, `${n}명`]), o.bots, (v) => { o.bots = v; })));
     if (game === "yacht" && o.mode === "local") body.appendChild(option("같이 하는 사람 수 (나 포함)", segment([2, 3, 4, 5, 6].map((n) => [n, `${n}명`]), o.people, (v) => { o.people = v; })));
-    if (game !== "yacht" && o.mode === "local") {
+    if (game === "yut") {
+      body.appendChild(option("모드", segment(Object.entries(yut.MODES), o.chaos, (v) => { o.chaos = v; })));
+      body.appendChild(option("말 개수", segment([["2", "2개 (빨리)"], ["3", "3개"], ["4", "4개 (길게)"]], o.pieces, (v) => { o.pieces = v; })));
+      if (o.mode === "local") body.appendChild(option("같이 하는 사람 수 (나 포함)", segment([2, 3, 4].map((n) => [n, `${n}명`]), Math.min(4, o.people), (v) => { o.people = v; })));
+    }
+    if (game !== "yacht" && game !== "yut" && o.mode === "local") {
       const f = el(`<label class="field"><span>같이 하는 친구 이름</span><input type="text" maxlength="12"></label>`);
       const input = f.querySelector("input");
       input.value = o.friend;
@@ -293,7 +302,8 @@ function chooseMode(game) {
       store.set(`opts.${game}`, o);
       close();
       if (o.mode === "online") {
-        const base = game === "chess" ? { time: o.time, color: o.color } : game === "omok" ? { rule: o.rule, color: o.color } : {};
+        const base = game === "chess" ? { time: o.time, color: o.color } : game === "omok" ? { rule: o.rule, color: o.color }
+          : game === "yut" ? { pieces: o.pieces, chaos: o.chaos } : {};
         createRoom(game, { ...base, private: o.private || "" });
       }
       else startLocal(game, o);
@@ -314,7 +324,11 @@ function startLocal(game, o) {
   const me = { name: profile.name, avatar: profile.avatar, intro: profile.intro, ai: false };
   const botAvatar = { name: ROBOT_NAMES[0], avatar: "robot", intro: "", ai: true };
   let seats, mySeats;
-  if (game === "yacht") {
+  if (game === "yut") {
+    const n = Math.min(4, Math.max(2, o.people));
+    seats = [me, ...Array.from({ length: n - 1 }, (_, i) => ({ name: `친구 ${i + 1}`, avatar: ANIMALS[(i + 1) % ANIMALS.length][0], intro: "", ai: false }))];
+    mySeats = seats.map((_, i) => i);
+  } else if (game === "yacht") {
     if (o.mode === "ai") {
       seats = [me, ...Array.from({ length: o.bots }, (_, i) => ({ ...botAvatar, name: o.bots === 1 ? ROBOT_NAMES[0] : ROBOT_NAMES[i + 1] }))];
       mySeats = [0];
@@ -329,7 +343,7 @@ function startLocal(game, o) {
     seats = meFirst ? [me, other] : [other, me];
     mySeats = o.mode === "local" ? [0, 1] : [meFirst ? 0 : 1];
   }
-  const settings = game === "chess" ? { time: o.time } : game === "omok" ? { rule: o.rule } : {};
+  const settings = game === "chess" ? { time: o.time } : game === "omok" ? { rule: o.rule } : game === "yut" ? { pieces: o.pieces, chaos: o.chaos } : {};
   const begin = () => {
     if (match) { match.destroy(); match = null; }
     match = new Match({
@@ -512,9 +526,9 @@ function lobbyScreen(filter = "all") {
       <h3 style="margin-top:16px">코드로 들어가기</h3><div class="join-code" style="margin-top:0"><input type="text" maxlength="4" placeholder="ABCD" aria-label="방 코드" autocomplete="off"><button class="btn primary">참가</button></div>
       <p class="muted" style="font-size:14px">진행 중인 방에 들어가면 관전자로 같이 구경하고 채팅할 수 있어요.</p></div></div></section>`);
   const list = root.querySelector(".room-list");
-  root.querySelector(".filter").appendChild(segment([["all", "전체"], ["chess", "체스"], ["yacht", "야추"], ["omok", "오목"]], filter, (v) => { filter = v; draw(); }));
+  root.querySelector(".filter").appendChild(segment([["all", "전체"], ["chess", "체스"], ["yacht", "야추"], ["omok", "오목"], ["yut", "윷놀이"]], filter, (v) => { filter = v; draw(); }));
   const make = root.querySelector(".lobby-grid .card:last-child .row");
-  for (const g of ["chess", "yacht", "omok"]) {
+  for (const g of ["chess", "yacht", "omok", "yut"]) {
     const b = el(`<button class="btn">${GAME_NAMES[g]}</button>`);
     b.onclick = () => chooseModeOnline(g);
     make.appendChild(b);
@@ -626,6 +640,9 @@ function waitingScreen() {
     if (r.game === "chess") {
       settings.appendChild(option("시간", isHost ? segment(Object.entries(chess.TIME_MODES).map(([k, v]) => [k, v[0]]), s.time || "none", change("time")) : el(`<div>${esc(chess.TIME_MODES[s.time]?.[0] || "무제한")}</div>`)));
       settings.appendChild(option("방장의 색", isHost ? segment([["w", "백"], ["b", "흑"], ["random", "무작위"]], s.color || "w", change("color")) : el(`<div>${{ w: "백", b: "흑", random: "무작위" }[s.color] || "백"}</div>`)));
+    } else if (r.game === "yut") {
+      settings.appendChild(option("모드", isHost ? segment(Object.entries(yut.MODES), s.chaos || "chaos", change("chaos")) : el(`<div>${yut.MODES[s.chaos] || "개막장"}</div>`)));
+      settings.appendChild(option("말 개수", isHost ? segment([["2", "2개"], ["3", "3개"], ["4", "4개"]], s.pieces || "3", change("pieces")) : el(`<div>${esc(s.pieces || "3")}개</div>`)));
     } else if (r.game === "omok") {
       settings.appendChild(option("규칙", isHost ? segment([["33", "쌍삼 금지"], ["free", "자유룰"]], s.rule || "33", change("rule")) : el(`<div>${s.rule === "free" ? "자유룰" : "쌍삼 금지"}</div>`)));
       settings.appendChild(option("방장의 돌", isHost ? segment([["b", "흑"], ["w", "백"], ["random", "무작위"]], s.color || "b", change("color")) : el(`<div>${{ b: "흑", w: "백", random: "무작위" }[s.color] || "흑"}</div>`)));
@@ -671,7 +688,7 @@ function showQr(r, link) {
 function startRoomGame(r) {
   // 자리에 앉는 사람과 이름 · 사진은 서버가 정함. 여기서는 체스 · 오목 색에 맞춘 자리 순서만 보냄
   let order = r.members.filter((x) => x.role === "player").map((x) => x.cid);
-  if (r.game !== "yacht") {
+  if (r.game !== "yacht" && r.game !== "yut") {
     const firstColor = r.game === "chess" ? "w" : "b";
     const hostColor = resolveColor(r.game, r.settings.color || firstColor);
     if (order.includes(r.host)) {
@@ -679,7 +696,8 @@ function startRoomGame(r) {
       order = hostColor === firstColor ? [r.host, ...rest] : [...rest, r.host];
     }
   }
-  const settings = r.game === "chess" ? { time: r.settings.time || "none" } : r.game === "omok" ? { rule: r.settings.rule || "33" } : {};
+  const settings = r.game === "chess" ? { time: r.settings.time || "none" } : r.game === "omok" ? { rule: r.settings.rule || "33" }
+    : r.game === "yut" ? { pieces: r.settings.pieces || "3", chaos: r.settings.chaos || "chaos" } : {};
   net.send({ t: "act", a: { type: "start", game: r.game, settings, order } });
 }
 
@@ -710,7 +728,7 @@ function rankingModal() {
     }
     draw();
   }));
-  body.querySelector(".games-f").appendChild(segment([["all", "전체"], ["chess", "체스"], ["yacht", "야추"], ["omok", "오목"]], game, (v) => { game = v; draw(); }));
+  body.querySelector(".games-f").appendChild(segment([["all", "전체"], ["chess", "체스"], ["yacht", "야추"], ["omok", "오목"], ["yut", "윷놀이"]], game, (v) => { game = v; draw(); }));
   const off = net.on("ranking", (msg) => {
     classData = msg.ranking || {};
     storeKind = msg.store;

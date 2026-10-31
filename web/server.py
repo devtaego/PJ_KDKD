@@ -28,8 +28,8 @@ STATIC = os.path.join(HERE, "static")
 FONTS = os.path.join(os.path.dirname(HERE), "fonts")
 RANKING_FILE = os.environ.get("KIDK_RANKING_FILE", os.path.join(HERE, "ranking.json"))
 
-GAMES = {"chess": 2, "omok": 2, "yacht": 6}  # 게임 -> 최대 플레이어 수
-SETTING_KEYS = {"time", "color", "rule", "private"}  # 방 설정으로 받는 값
+GAMES = {"chess": 2, "omok": 2, "yacht": 6, "yut": 4}  # 게임 -> 최대 플레이어 수
+SETTING_KEYS = {"time", "color", "rule", "private", "pieces", "chaos"}  # 방 설정으로 받는 값
 FX_KINDS = {"teabag", "taunt", "shake"}  # 기록 없이 전달하는 효과
 MAX_MSG = 100_000  # 메시지 하나 최대 크기 (프로필 사진 포함해도 충분)
 MAX_PHOTO = 60_000
@@ -324,6 +324,8 @@ class Hub:
             room.losers = []
         elif a.get("type") == "roll" and room.game == "yacht":
             a["dice"] = [secrets.randbelow(6) + 1 for _ in range(5)]  # 주사위는 서버가 굴림 (조작 방지)
+        elif room.game == "yut":
+            a["seed"] = secrets.randbits(31)  # 윷 결과 · 능력 뽑기 등 모든 무작위는 서버가 정한 씨앗으로
         if len(room.log) < MAX_LOG:
             room.log.append(entry)
         await self.to_room(room, {"t": "act", **entry})

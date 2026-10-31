@@ -6,6 +6,8 @@ import { Position, perft, bestMove, sameMove, gameOver } from "../static/js/engi
 import { Board, BLACK, aiMove } from "../static/js/engine/omok.js";
 import { score, YachtGame, aiPickCategory, aiHolds, CATEGORIES, CAT_EXAMPLES } from "../static/js/engine/yacht.js";
 import { questionFor, QUESTIONS } from "../static/js/party.js";
+import { YutGame, pathFrom, remaining, mulberry, rollRaw, START, HOME, CENTER } from "../static/js/engine/yut.js";
+import { THROW_ODDS, abilityOdds } from "../static/js/data/yut_abilities.js";
 
 test("체스: 시작 위치 수 생성 (perft 1~3)", () => {
   const pos = new Position();
@@ -98,4 +100,138 @@ test("질문 카드: 이름 순서와 상관없이 같고, 파이썬판과 같�
   assert.ok(QUESTIONS.includes(questionFor("a", "b", 1)));
   assert.equal(questionFor("a", "b", 1), "MBTI가 뭐예요?"); // party.question_for("a", "b", 1)
   assert.equal(questionFor("태고", "민수", 12), "요즘 제일 빠져 있는 것은?");
+});
+
+// ---------------------------------------------------------------- 특수능력 윷놀이
+const yutGame = (n = 2, opts = {}) => new YutGame(Array.from({ length: n }, (_, i) => `P${i}`), { pieces: 2, mode: "chaos", ...opts });
+// 원하는 결과가 나오는 seed 찾기 (윷 결과는 seed로만 정해짐)
+const seedFor = (r) => { for (let s = 1; ; s++) if (rollRaw(mulberry(s)) === r) return s; };
+
+test("윷: 지름길 · 남은 거리 · 결과 확률표 합 100%", () => {
+  assert.deepEqual(pathFrom(5).slice(0, 6), [20, 21, 22, 23, 24, 15]);
+  assert.deepEqual(pathFrom(10), [25, 26, 22, 27, 28, HOME]);
+  assert.deepEqual(pathFrom(CENTER), [27, 28, HOME]);
+  assert.equal(remaining(START), 20);
+  assert.equal(remaining(HOME), 0);
+  assert.ok(Math.abs(THROW_ODDS.reduce((s, o) => s + o.p, 0) - 1) < 1e-9);
+  for (const mode of ["special", "chaos"]) assert.ok(Math.abs(abilityOdds(mode).reduce((s, a) => s + a.pct, 0) - 100) < 1e-9);
+  assert.ok(abilityOdds("special").every((a) => a.tier !== "legend"));
+});
+
+test("윷: 던지기 · 옮기기 · 잡으면 한 번 더 · 업기", () => {
+  const g = yutGame(2, { mode: "basic" });
+  assert.ok(g.throw(seedFor(3)));
+  assert.equal(g.phase, "move");
+  assert.ok(g.move(0, 0, 1));
+  assert.equal(g.players[0].pieces[0].node, 3);
+  assert.equal(g.current, 1);
+  g.throw(seedFor(3));
+  g.move(0, 0, 1); // P1이 3에 있는 P0 말을 잡음
+  assert.equal(g.players[0].pieces[0].node, START);
+  assert.equal(g.players[0].captured, 1);
+  assert.equal(g.current, 1);
+  assert.equal(g.phase, "throw"); // 한 번 더
+  g.throw(seedFor(2));
+  g.move(1, 0, 1); // 새 말 → 2
+  g.throw(seedFor(1));
+  g.move(0, 0, 1); // P0 말 → 1
+  g.throw(seedFor(1));
+  g.move(1, 0, 1); // P1 말 2 → 3 : 3에 있는 내 말과 업힘
+  assert.deepEqual(g.players[1].pieces.map((p) => p.node), [3, 3]);
+  g.throw(seedFor(4)); g.throw(seedFor(1)); // 윷(한 번 더) + 도
+  g.move(0, 0, 1); // P0 말 1 → 5
+  assert.equal(g.players[0].pieces[0].node, 5);
+});
+
+test("윷: 빽도는 판 위 말이 없으면 버려지고, 있으면 한 칸 뒤로", () => {
+  const g = yutGame(2, { mode: "basic" });
+  g.throw(seedFor(-1));
+  assert.equal(g.current, 1); // 버려지고 차례 넘어감
+  const h = yutGame(2, { mode: "basic" });
+  h.players[0].pieces[0].node = 7;
+  h.throw(seedFor(-1));
+  h.move(0, 0, 1);
+  assert.equal(h.players[0].pieces[0].node, 6);
+});
+
+test("윷: 능력 — 폭탄 · 어쩔티비 · 갓생 · 미사일", () => {
+  const g = yutGame(2);
+  g.players[0].hand = ["bomb", "missile"];
+  assert.equal(g.use(0, { node: 3 }, 1), true);
+  assert.equal(g.bombs[3], 0);
+  g.throw(seedFor(3));
+  g.move(0, 0, 1); // 내 말도 폭탄에 당함
+  assert.equal(g.players[0].pieces[0].node, START);
+  assert.equal(g.bombs[3], undefined);
+
+  const h = yutGame(2);
+  h.players[1].pieces[0].node = 12;
+  h.players[1].ward = true;
+  h.players[0].hand = ["kingbat"];
+  h.use(0, { opp: { seat: 1, idx: 0 } }, 1);
+  assert.equal(h.players[1].pieces[0].node, 12); // 막힘
+  assert.deepEqual(h.players[1].hand, ["kingbat"]); // 빼앗음
+  assert.equal(h.players[1].ward, false);
+
+  const k = yutGame(3);
+  k.players[1].pieces[0].node = 12;
+  k.players[2].pieces[0].node = 17;
+  k.players[2].pieces[0].shield = 99; // 갓생: 미사일 대상에서 빠짐
+  k.players[0].hand = ["missile"];
+  k.use(0, {}, 1);
+  assert.equal(k.players[1].pieces[0].node, 9);
+  assert.equal(k.players[2].pieces[0].node, 17);
+});
+
+test("윷: 능력 — 이게 맞아? · 존버 · 손가락 꼬임 · 전원 집합", () => {
+  const g = yutGame(2);
+  g.players[0].pieces[0].node = 2;
+  g.players[1].pieces[0].node = 15;
+  g.players[0].hand = ["isthisright"];
+  g.use(0, { own: 0, opp: { seat: 1, idx: 0 } }, 1);
+  assert.equal(g.players[0].pieces[0].node, 15);
+  assert.equal(g.players[1].pieces[0].node, 2);
+
+  const h = yutGame(2);
+  h.players[0].hand = ["hodl"];
+  h.use(0, {}, 1);
+  assert.equal(h.current, 1);
+  assert.equal(h.players[0].shift, 2);
+  h.players[1].hand = ["twist"];
+  h.use(0, {}, 1); // 다음 사람(P0)에게 -1 → 합쳐서 +1
+  assert.equal(h.players[0].shift, 1);
+  const c = yutGame(3);
+  c.players[0].pieces[0].node = 4;
+  c.players[1].pieces[0].node = 9;
+  c.players[2].pieces[1].node = 27;
+  c.players[0].hand = ["assemble"];
+  c.use(0, {}, 1);
+  assert.deepEqual([c.players[0].pieces[0].node, c.players[1].pieces[0].node, c.players[2].pieces[1].node], [CENTER, CENTER, CENTER]);
+});
+
+test("윷: 같은 seed면 같은 판 (아무렇게나 끝까지 둬도 규칙이 깨지지 않음)", () => {
+  const play = (seed) => {
+    const rng = mulberry(seed);
+    const g = new YutGame(["A", "B", "C", "D"], { pieces: 3, mode: "chaos" });
+    for (let step = 0; step < 4000 && !g.over; step++) {
+      const s = Math.floor(rng() * 2 ** 31);
+      const p = g.players[g.current];
+      if (p.hand.length && !g.usedAbility && rng() < 0.3) {
+        const opp = (g.current + 1) % 4;
+        g.use(0, { own: Math.floor(rng() * 3), opp: { seat: opp, idx: Math.floor(rng() * 3) }, node: 1 + Math.floor(rng() * 28) }, s);
+      } else if (g.phase === "throw") g.throw(s);
+      else {
+        const ok = p.pieces.map((_, i) => i).filter((i) => g.destOf(p.pieces[i], g.pending[0]) !== null);
+        assert.ok(ok.length > 0, "옮길 수 있는 말이 있어야 함");
+        g.move(ok[Math.floor(rng() * ok.length)], 0, s);
+      }
+      for (const pl of g.players) {
+        assert.ok(pl.hand.length <= 2);
+        for (const pc of pl.pieces) assert.ok(pc.node === START || pc.node === HOME || (pc.node >= 0 && pc.node <= 28));
+      }
+    }
+    assert.ok(g.over, "끝까지 가야 함");
+    return JSON.stringify([g.winner, g.ranking(), g.log]);
+  };
+  for (const seed of [1, 2, 3, 42, 777]) assert.equal(play(seed), play(seed));
 });

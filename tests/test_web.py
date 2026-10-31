@@ -176,6 +176,17 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         for ws in (a, b):
             await ws.close()
 
+    async def test_server_seeds_yut_acts(self):
+        a, b, _ = await self.two_players("yut", {"pieces": "2", "chaos": "chaos"})
+        await self.start(a, b, "yut")
+        await a.send_json({"t": "act", "a": {"type": "throw", "seed": 1}})
+        seeds = [(await self.until(ws, "act"))["a"]["seed"] for ws in (a, b)]
+        self.assertEqual(seeds[0], seeds[1])  # 모든 기기가 같은 seed를 받음
+        self.assertIsInstance(seeds[0], int)
+        self.assertNotEqual(seeds[0], 1)  # 보낸 값이 아니라 서버가 정한 값 (우연히 1일 확률은 거의 0)
+        for ws in (a, b):
+            await ws.close()
+
     async def test_host_can_act_only_for_offline_player(self):
         a, b, _ = await self.two_players("yacht")
         await self.start(a, b, "yacht")

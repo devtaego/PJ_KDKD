@@ -11,7 +11,7 @@ import time
 
 import aiohttp
 
-GAMES = ("chess", "omok", "yacht")
+GAMES = ("chess", "omok", "yacht", "yut")
 
 
 def merge_rows(rows):

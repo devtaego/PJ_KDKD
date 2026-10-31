@@ -215,6 +215,8 @@ export class Match {
       const text = f.text.slice(0, 40);
       this.resultView?.bubble(String(f.seat), text);
       this.chat.add(this.seats[f.seat].name, { text });
+    } else {
+      this.g.onFx?.(msg); // 게임마다의 효과 (야추 컵 흔들기 등)
     }
   }
 

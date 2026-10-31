@@ -217,9 +217,12 @@ label.field > span { display: block; color: var(--muted); font-size: 14px; margi
 
 /* 야추 */
 .yacht-table {
-  width: 100%; max-width: 720px; border-radius: 22px; padding: 18px 14px; display: flex; flex-direction: column; align-items: center; gap: 14px;
-  background: radial-gradient(ellipse at 50% 40%, #C92A33, #8E1A22); box-shadow: inset 0 0 0 8px #6E4A2E, inset 0 0 0 11px #3A2616, 0 12px 30px rgba(0, 0, 0, 0.4);
+  width: 100%; max-width: 760px; border-radius: 26px; padding: 14px; display: flex; flex-direction: column; align-items: center; gap: 10px;
+  background: repeating-linear-gradient(176deg, #C98F55 0 7px, #B9824A 7px 11px, #D19A60 11px 19px); /* 나무 테이블 */
+  box-shadow: inset 0 0 0 3px rgba(110, 63, 30, 0.6), 0 12px 30px rgba(0, 0, 0, 0.4);
 }
+.tray-slot, .dice-tray { width: 100%; }
+.dice-tray canvas { width: 100%; display: block; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; filter: drop-shadow(6px 12px 10px rgba(45, 20, 8, 0.55)); }
 .dice-row { display: flex; gap: clamp(6px, 2vw, 14px); justify-content: center; min-height: 76px; }
 .die { width: clamp(52px, 14vw, 76px); aspect-ratio: 1; border: 0; padding: 0; background: transparent; transition: transform 0.15s; touch-action: manipulation; }
 .die svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 4px 4px rgba(0, 0, 0, 0.4)); }
@@ -228,7 +231,7 @@ label.field > span { display: block; color: var(--muted); font-size: 14px; margi
 .die.rolling { animation: tumble 0.55s cubic-bezier(.3, .7, .4, 1); }
 .die.blank { opacity: 0.25; }
 @keyframes tumble { 0% { transform: translate(var(--dx), -40px) rotate(var(--rot)); } 60% { transform: translate(0, 6px) rotate(-12deg); } 100% { transform: none; } }
-.held-label { color: #FFD7DB; font-size: 14px; min-height: 18px; }
+.held-label { color: #4A2810; font-size: 15px; min-height: 18px; text-align: center; }
 .cup-btn { position: relative; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .cup-btn.shaking { animation: shake 0.16s infinite; }
 @keyframes shake { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg) translateY(-3px); } }

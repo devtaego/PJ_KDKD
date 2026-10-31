@@ -64,6 +64,7 @@ const SOUNDS = {
   move: () => { noise(0.05, { gain: 0.35, freq: 1500, q: 1.2 }); tone(240, 0.06, { gain: 0.12 }); },
   shake: () => { for (let i = 0; i < 5; i++) noise(0.04, { gain: 0.3, at: i * 0.06, freq: 3000, q: 2 }); },
   roll: () => { for (let i = 0; i < 7; i++) noise(0.05, { gain: 0.4 - i * 0.04, at: i * 0.07 + Math.random() * 0.03, freq: 2200, q: 1.6 }); },
+  tick: () => { noise(0.025, { gain: 0.28, freq: 3400, q: 2.5 }); tone(1300 + Math.random() * 500, 0.03, { type: "triangle", gain: 0.05 }); },
   thud: () => { tone(120, 0.18, { gain: 0.4, slide: -70 }); noise(0.08, { gain: 0.3, freq: 400 }); },
   win: () => [523, 659, 784, 1047].forEach((fq, i) => tone(fq, 0.22, { type: "triangle", gain: 0.16, at: i * 0.11 })),
   lose: () => [392, 330, 262].forEach((fq, i) => tone(fq, 0.3, { type: "sine", gain: 0.16, at: i * 0.16 })),

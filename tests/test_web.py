@@ -206,6 +206,16 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         await a.close()
         await b.close()
 
+    async def test_yut_host_can_choose_own_character(self):
+        a, b, _ = await self.two_players("yut")
+        await self.until(a, "room")  # 방장 쪽에 참가 알림으로 전송된 최신 방 정보를 비움
+        await a.send_json({"t": "yut_skin", "skin": "penguin"})
+        room = (await self.until(a, "room"))["room"]
+        host = next(member for member in room["members"] if member["cid"] == self.pids["aaaaaaaa1"])
+        self.assertEqual(host["yut_skin"], "penguin")
+        await a.close()
+        await b.close()
+
     async def test_host_can_act_only_for_offline_player(self):
         a, b, _ = await self.two_players("yacht")
         await self.start(a, b, "yacht")

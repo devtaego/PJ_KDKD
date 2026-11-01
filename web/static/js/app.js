@@ -842,6 +842,10 @@ function waitingScreen() {
         if (!net.isOpen()) { toast("서버 연결을 확인한 뒤 다시 선택해 주세요"); return; }
         // 방장 본인의 말은 현재 연결 ID로 저장해 방장 권한/대상 ID 불일치에 영향받지 않게 한다.
         net.send({ t: "yut_skin", ...(targetPid === me ? {} : { pid: targetPid }), skin });
+        // 서버의 room 방송을 기다리지 않고 즉시 미리보기를 갱신한다.
+        const target = online.room?.members.find((member) => member.cid === targetPid);
+        if (target) target.yut_skin = skin;
+        online.wait?.update();
         play("pop");
       };
       const columns = teamMode ? [["A", "A팀"], ["B", "B팀"]] : [["A", "참가 플레이어"]];

@@ -309,14 +309,17 @@ label.field > span { display: block; color: var(--muted); font-size: 14px; margi
 .yacht-screen .game-layout > .board-wrap { grid-area: main; }
 .yacht-screen .game-layout > .side { grid-area: side; }
 .yacht-screen .yacht-chat {
-  grid-area: chat; align-self: start; padding: 10px 12px;
-  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: center;
+  grid-area: chat; align-self: stretch; min-width: 0; padding: 9px 11px;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, .88fr); gap: 6px 10px; align-items: center;
 }
-.yacht-screen .yacht-chat h3 { display: none; }
-.yacht-screen .yacht-chat .chat-log { height: 64px; grid-column: 1 / -1; }
-.yacht-screen .yacht-chat .sticker-bar { flex-wrap: nowrap; gap: 3px; }
+.yacht-screen .yacht-chat h3 { grid-column: 1 / -1; margin: 0; font-size: 14px; }
+.yacht-screen .yacht-chat .chat-log { height: 78px; min-height: 68px; max-height: 88px; grid-column: 1 / -1; }
+.yacht-screen .yacht-chat .sticker-bar { grid-column: 1; min-width: 0; flex-wrap: nowrap; gap: 3px; }
 .yacht-screen .yacht-chat .sticker-bar button { padding: 2px; }
 .yacht-screen .yacht-chat .sticker-bar .sticker { width: 24px !important; height: 24px !important; }
+.yacht-screen .yacht-chat .chat-form { grid-column: 2; min-width: 0; }
+.yacht-screen .yacht-chat .chat-form input { min-width: 0; padding: 7px 9px; font-size: 14px; }
+.yacht-screen .yacht-chat .chat-form .btn { flex: none; padding: 7px 11px; font-size: 13px; }
 .streak { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: linear-gradient(90deg, #FF8A4C, #FF5C8A); color: #fff; white-space: nowrap; vertical-align: 1px; margin-left: 4px; }
 .top-actions { display: flex; gap: 6px; flex: none; }
 .top-actions:empty { display: none; }
@@ -440,14 +443,21 @@ table.score tr.total td.cat button { color: inherit; font-size: inherit; text-de
 .taunts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin: 10px 0; }
 .confetti { position: absolute; top: -10px; width: 9px; height: 14px; border-radius: 2px; animation: fall linear forwards; pointer-events: none; }
 @keyframes fall { to { transform: translateY(110vh) rotate(720deg); } }
-.tb-fly { position: fixed; z-index: 60; pointer-events: none; }
+.tb-fly { position: fixed; z-index: 60; pointer-events: none; transform-origin: 50% 60%; will-change: transform; display: grid; place-items: center; }
+.tb-fly .crown { position: absolute; z-index: 2; top: -25px; left: 50%; width: 44px; transform: translateX(-50%) rotate(-8deg); filter: drop-shadow(0 3px 3px rgba(0,0,0,.4)); }
+.tb-fly .avatar { width: 100%; height: 100%; }
 .angry .avatar { box-shadow: 0 0 0 3px #FF3B3B; }
 .angry .avatar::after { content: ""; position: absolute; inset: 0; background: rgba(255, 40, 40, 0.42); border-radius: 50%; }
 .angry .avatar { position: relative; }
 .vein { position: absolute; top: -6px; right: -6px; width: 30px; animation: throb 0.3s infinite alternate; }
 @keyframes throb { to { transform: scale(1.3); } }
+.tb-impact { animation: tb-target-hit .34s cubic-bezier(.2,.8,.2,1); }
+@keyframes tb-target-hit { 0%,100% { transform: translateX(0) scale(1); } 22% { transform: translateX(-7px) rotate(-4deg) scale(.94,1.08); } 48% { transform: translateX(6px) rotate(4deg) scale(1.07,.92); } 72% { transform: translateX(-3px) rotate(-2deg); } }
 .boom { position: fixed; z-index: 61; pointer-events: none; color: #FFF; font-size: 22px; text-shadow: 0 2px 0 #FF3B3B, 0 0 8px #000; animation: boom 0.7s ease-out forwards; }
 @keyframes boom { from { transform: translate(-50%, 0) scale(0.6); opacity: 1; } to { transform: translate(-50%, -46px) scale(1.2); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .tb-impact, .boom, .vein { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}
 
 /* ---------------------------------------------------------------- 랭킹 / 규칙 */
 table.rank { width: 100%; border-collapse: collapse; }
@@ -462,7 +472,7 @@ table.rank td:nth-child(2) { text-align: left; }
 .plan-kicker { color: var(--gold); font-size: 12px; font-weight: 900; letter-spacing: .08em; }
 .plan-hero h3 { margin: 7px 0; font-size: clamp(23px, 4vw, 32px); line-height: 1.2; }
 .plan-hero p { max-width: 390px; margin: 0; color: var(--muted); line-height: 1.55; }
-.plan-art { width: min(34%, 210px); min-width: 120px; height: auto; flex: none; }
+.plan-art { width: min(42%, 300px); min-width: 180px; max-height: 190px; height: auto; flex: none; object-fit: cover; object-position: center 42%; border-radius: 14px; }
 .plan-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
 .plan-point { display: flex; gap: 10px; align-items: flex-start; padding: 14px 12px; border: 1px solid var(--edge); border-radius: 15px; background: var(--surface); }
 .plan-number { display: grid; place-items: center; width: 29px; height: 29px; flex: none; border-radius: 10px; background: var(--accent); color: var(--on-accent); font-size: 12px; font-weight: 900; }
@@ -474,8 +484,8 @@ table.rank td:nth-child(2) { text-align: left; }
 .plan-details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .plan-details p { margin-top: 8px; }
 @media (max-width: 640px) {
-  .plan-hero { padding: 16px; }
-  .plan-art { width: 31%; min-width: 92px; }
+  .plan-hero { flex-direction: column-reverse; align-items: stretch; padding: 16px; }
+  .plan-art { width: 100%; min-width: 0; max-height: none; object-fit: contain; }
   .plan-grid { grid-template-columns: 1fr; }
   .plan-point { padding: 12px; }
   .plan-footer { flex-wrap: wrap; }
@@ -606,8 +616,9 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
   .yacht-screen .game-layout { grid-template-rows: auto; grid-template-areas: "main" "side" "chat"; } /* 폰: 트레이 → 점수표 → 채팅 */
   .home-main { order: -1; } /* 폰: 게임 고르기가 먼저 보이게 (프로필은 그 아래) */
   .opt { grid-template-columns: 1fr; gap: 6px; } /* 폰: 설정 이름은 위, 선택 버튼은 아래 */
-  .yacht-screen .yacht-chat { grid-template-columns: 1fr; }
-  .yacht-screen .yacht-chat .sticker-bar { flex-wrap: wrap; }
+  .yacht-screen .yacht-chat { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .yacht-screen .yacht-chat .chat-log { height: 68px; min-height: 58px; max-height: 72px; }
+  .yacht-screen .yacht-chat .sticker-bar, .yacht-screen .yacht-chat .chat-form { grid-column: 1; }
   .side { order: 2; }
 }
 @media (max-width: 640px) {
@@ -1332,7 +1343,11 @@ html[data-theme="pastel"] .title-logo {
   filter: drop-shadow(3px 0 0 #fff) drop-shadow(-3px 0 0 #fff) drop-shadow(0 3px 0 #fff) drop-shadow(0 -3px 0 #fff);
 }
 html[data-theme="pastel"] .title-logo em, html[data-theme="pastel"] .logo em { color: #36A3E8; }
-html[data-theme="arcade"] .title-logo { filter: drop-shadow(0 0 2px #07071A) drop-shadow(0 0 2px #07071A); }
+html[data-theme="arcade"] .title-logo {
+  color: #FFFFFF; -webkit-text-stroke: 8px #07071A; paint-order: stroke fill;
+  text-shadow: 0 5px 0 #FF2BD6, 0 12px 14px rgba(0, 0, 0, 0.35);
+  filter: drop-shadow(3px 0 0 #fff) drop-shadow(-3px 0 0 #fff) drop-shadow(0 3px 0 #fff) drop-shadow(0 -3px 0 #fff);
+}
 @keyframes drop { from { transform: translateY(-60px) scale(0.8); opacity: 0.6; } }
 /* 게임 고르기 화면 위쪽 로고도 타이틀과 같게 (크기만 작게) */
 html[data-theme="night"] .logo {
@@ -1344,7 +1359,11 @@ html[data-theme="pastel"] .logo {
   filter: drop-shadow(2px 0 0 #fff) drop-shadow(-2px 0 0 #fff) drop-shadow(0 2px 0 #fff) drop-shadow(0 -2px 0 #fff);
 }
 html[data-theme="pastel"] .logo b { color: #FF9EC0; }
-html[data-theme="arcade"] .logo { text-shadow: 0 0 8px #00E5FF, 0 0 18px #00E5FF, 0 4px 0 #FF2BD6; filter: drop-shadow(0 0 2px #07071A) drop-shadow(0 0 2px #07071A); }
+html[data-theme="arcade"] .logo {
+  color: #FFFFFF; -webkit-text-stroke: 5px #07071A; paint-order: stroke fill;
+  text-shadow: 0 4px 0 #FF2BD6, 0 8px 10px rgba(0, 0, 0, 0.32);
+  filter: drop-shadow(2px 0 0 #fff) drop-shadow(-2px 0 0 #fff) drop-shadow(0 2px 0 #fff) drop-shadow(0 -2px 0 #fff);
+}
 
 /* 윷판 다듬기: 움직이는 말 · 갈 길 · 말풍선 종류 · 차례 표시 */
 .yut-ghost { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; transition: transform 0.6s cubic-bezier(.5, -0.3, .3, 1.4); }

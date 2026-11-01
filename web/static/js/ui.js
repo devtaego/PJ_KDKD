@@ -234,7 +234,7 @@ export function showResult(opts) {
     podium.appendChild(pl);
   }
   if (opts.question) {
-    card.appendChild(el(`<div class="question"><span class="muted">${esc(opts.questionFor || "진 사람")}에게 질문!</span><b>${esc(opts.question)}</b></div>`));
+    card.appendChild(el(`<div class="question"><span class="muted">패자 ${esc(opts.questionFor || "진 사람")} 님의 질문 카드 · 다 함께 이야기해요</span><b>${esc(opts.question)}</b></div>`));
   }
   if (opts.myKind) {
     const taunts = el(`<div class="taunts"></div>`);
@@ -314,7 +314,7 @@ export function showResult(opts) {
   return api;
 }
 
-const TEABAG_TIME = 3.4, TB_GO = 0.35, TB_BOUNCE = 9;
+const TEABAG_TIME = 3.1, TB_GO = 0.48;
 
 /** 이긴 사람 프로필이 진 사람 머리 위로 날아가 앉았다 일어났다 (party.teabag_pos 와 같은 움직임) */
 function teabag(podium, fromKey, toKey) {
@@ -325,24 +325,33 @@ function teabag(podium, fromKey, toKey) {
   const to = toPl.querySelector(".avatar");
   const fr = from.getBoundingClientRect(), tr = to.getBoundingClientRect();
   const size = fr.width;
-  const fly = from.cloneNode(true);
-  fly.classList.add("tb-fly");
+  // 프로필과 왕관을 하나의 이동 레이어에 넣어 항상 함께 움직이게 한다.
+  const fly = el(`<div class="tb-fly"></div>`);
+  const crown = podium.querySelector(`[data-key="${CSS.escape(fromKey)}"] .crown`);
+  if (crown) fly.appendChild(crown.cloneNode(true));
+  fly.appendChild(from.cloneNode(true));
+  fly.style.width = `${size}px`;
+  fly.style.height = `${size}px`;
   fly.style.left = `${fr.left}px`;
   fly.style.top = `${fr.top}px`;
   document.body.appendChild(fly);
   from.style.visibility = "hidden";
+  const originalCrown = podium.querySelector(`[data-key="${CSS.escape(fromKey)}"] .crown`);
+  if (originalCrown) originalCrown.style.visibility = "hidden";
   toPl.classList.add("angry");
   toPl.insertAdjacentHTML("beforeend", VEIN_SVG);
   const hx = fr.left, hy = fr.top, tx = tr.left + (tr.width - size) / 2, ty = tr.top - size * 0.62;
   const start = performance.now();
-  let lastLow = false;
+  let lastImpact = -1;
   let done = false;
   const finish = () => { // 탭이 뒤에 있어 그림이 멈춰도 시간이 되면 반드시 정리
     if (done) return;
     done = true;
     fly.remove();
     from.style.visibility = "";
+    if (originalCrown) originalCrown.style.visibility = "";
     toPl.classList.remove("angry");
+    toPl.classList.remove("tb-impact");
     toPl.querySelector(".vein")?.remove();
     delete podium.dataset.tb;
   };
@@ -352,29 +361,44 @@ function teabag(podium, fromKey, toKey) {
     const t = (now - start) / 1000;
     if (done) return;
     if (t >= TEABAG_TIME) return finish();
-    let x, y;
-    const back = TEABAG_TIME - TB_GO;
+    let x, y, rotation = 0, scaleX = 1, scaleY = 1;
+    const back = TEABAG_TIME - TB_GO * 0.78;
     if (t < TB_GO) {
-      const e = 1 - (1 - t / TB_GO) ** 3;
-      x = hx + (tx - hx) * e; y = hy + (ty - hy) * e - Math.sin(e * Math.PI) * size * 0.8;
+      const p = t / TB_GO;
+      const e = 1 - (1 - p) ** 4;
+      x = hx + (tx - hx) * e;
+      y = hy + (ty - hy) * e - Math.sin(p * Math.PI) * size * 1.25;
+      rotation = -18 + 34 * p;
+      scaleX = 0.78 + p * 0.22; scaleY = 1.18 - p * 0.18;
     } else if (t > back) {
-      const e = 1 - (1 - (t - back) / TB_GO) ** 3;
-      x = tx + (hx - tx) * e; y = ty + (hy - ty) * e - Math.sin(e * Math.PI) * size * 0.8;
+      const p = (t - back) / (TEABAG_TIME - back);
+      const e = p * p * (3 - 2 * p);
+      x = tx + (hx - tx) * e;
+      y = ty + (hy - ty) * e - Math.sin(p * Math.PI) * size * 0.8;
+      rotation = 16 * (1 - p); scaleX = 1 - p * 0.2; scaleY = 1 + p * 0.2;
     } else {
-      const bounce = Math.abs(Math.sin((t - TB_GO) * TB_BOUNCE));
-      x = tx; y = ty - bounce * size * 0.4;
-      const low = bounce < 0.12;
-      if (low && !lastLow) {
+      const p = t - TB_GO;
+      // 빠르고 크게 시작해 매번 낮아지는 착지 바운스
+      const bounce = Math.abs(Math.sin(p * 15)) * Math.exp(-p * 0.43);
+      x = tx + Math.sin(p * 8) * size * 0.07 * Math.exp(-p * 0.45);
+      y = ty - bounce * size * 0.66;
+      rotation = Math.sin(p * 11) * 9 * Math.exp(-p * 0.55);
+      scaleX = 1 + bounce * 0.18; scaleY = 1 - bounce * 0.2;
+      const impact = Math.floor(p / 0.42);
+      if (impact > lastImpact && bounce < 0.16) {
+        lastImpact = impact;
         play("thud");
-        const boom = el(`<div class="boom">${esc(randomOf(["쿵!", "퍽!", ...TAUNTS]))}</div>`);
+        toPl.classList.remove("tb-impact");
+        void toPl.offsetWidth;
+        toPl.classList.add("tb-impact");
+        const boom = el(`<div class="boom">${esc(randomOf(["착!", "쿵!", "앉았다!", ...TAUNTS]))}</div>`);
         boom.style.left = `${tr.left + tr.width / 2 + (Math.random() - 0.5) * 60}px`;
         boom.style.top = `${tr.top - 10}px`;
         document.body.appendChild(boom);
         setTimeout(() => boom.remove(), 720);
       }
-      lastLow = low;
     }
-    fly.style.transform = `translate(${x - hx}px, ${y - hy}px)`;
+    fly.style.transform = `translate(${x - hx}px, ${y - hy}px) rotate(${rotation}deg) scale(${scaleX}, ${scaleY})`;
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);

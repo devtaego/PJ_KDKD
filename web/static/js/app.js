@@ -115,13 +115,15 @@ function titleScreen() {
     { label: () => "게임 기획 의도", go: () => about() },
   ];
   let sel = 0;
+  let keyboardNavigation = false;
+  menu.addEventListener("pointermove", () => { keyboardNavigation = false; });
   function draw() {
     menu.innerHTML = "";
     items.forEach((it, i) => {
       const b = el(`<button class="title-item${i === sel ? " on" : ""}" type="button"></button>`);
       b.textContent = it.label();
-      b.onpointerenter = () => { if (sel !== i) { sel = i; play("click"); draw(); } };
-      b.onclick = () => { sel = i; play("pop"); it.go(); };
+      b.onpointerenter = () => { if (!keyboardNavigation && sel !== i) { sel = i; play("click"); draw(); } };
+      b.onclick = () => { keyboardNavigation = false; sel = i; play("pop"); it.go(); };
       menu.appendChild(b);
     });
     root.querySelector(".title-player").innerHTML = profile.name
@@ -130,9 +132,9 @@ function titleScreen() {
   draw();
   const onKey = (e) => {
     if (document.querySelector(".modal-back") || e.isComposing) return;
-    if (e.key === "ArrowDown" || e.key === "s") { sel = (sel + 1) % items.length; play("click"); draw(); e.preventDefault(); }
-    else if (e.key === "ArrowUp" || e.key === "w") { sel = (sel - 1 + items.length) % items.length; play("click"); draw(); e.preventDefault(); }
-    else if ((e.key === "Enter" || e.key === " ") && !e.target.closest?.("button, a, input, textarea, select, [contenteditable=true]")) { e.preventDefault(); play("pop"); items[sel].go(); }
+    if (e.key === "ArrowDown" || e.key === "s") { keyboardNavigation = true; sel = (sel + 1) % items.length; play("click"); draw(); e.preventDefault(); }
+    else if (e.key === "ArrowUp" || e.key === "w") { keyboardNavigation = true; sel = (sel - 1 + items.length) % items.length; play("click"); draw(); e.preventDefault(); }
+    else if ((e.key === "Enter" || e.key === " ") && !e.target.closest?.(".title-sound, .title-theme, input, textarea, select, [contenteditable=true]")) { e.preventDefault(); play("pop"); items[sel].go(); }
   };
   document.addEventListener("keydown", onKey);
   show({ root, destroy: () => { scene.destroy(); window.removeEventListener("themechange", syncSceneTheme); document.removeEventListener("keydown", onKey); } }, { push: false });
@@ -278,20 +280,14 @@ function themePicker() {
 function about() {
   const body = el(`<div class="rules">
     <section class="plan-hero">
-      <div><span class="plan-kicker">KI득KI득 · v${APP_VERSION}</span><h3>처음 만난 우리,<br>한 판이면 친구</h3>
-        <p>게임을 함께하는 동안 자연스럽게 웃고 대화하며 가까워지는 경험을 만들어요.</p></div>
-      <svg class="plan-art" viewBox="0 0 220 150" role="img" aria-label="함께 게임을 즐기는 네 명의 플레이어">
-        <path d="M30 105 110 56l80 49-80 40z" fill="var(--panel)" stroke="var(--accent)" stroke-width="4" stroke-linejoin="round"/>
-        <path d="m57 105 53-32 53 32-53 32z" fill="var(--surface-hi)" stroke="var(--edge)" stroke-width="2"/>
-        <circle cx="55" cy="45" r="17" fill="#FFD84D"/><circle cx="110" cy="28" r="17" fill="#FF8FA3"/><circle cx="165" cy="45" r="17" fill="#7ED67A"/>
-        <path d="M47 45h16M102 28h16M157 45h16" stroke="#342A50" stroke-width="3" stroke-linecap="round"/>
-        <circle cx="110" cy="102" r="11" fill="var(--gold)" stroke="#70451F" stroke-width="3"/><path d="m98 111 12-8 12 8" fill="none" stroke="#70451F" stroke-width="3" stroke-linecap="round"/>
-      </svg>
+      <div><span class="plan-kicker">KI득KI득 · ICEBREAKING GAMES</span><h3>어색함은 깨고,<br>친해짐은 빠르게</h3>
+        <p>처음 만난 사람 사이의 어색함을 게임으로 풀어요. 함께 웃고 대화할 계기를 만들어 더 빠르게 친해지도록 돕는 아이스브레이킹 게임 모음이에요.</p></div>
+      <img class="plan-art" src="/images/game-planning.png" alt="친구들이 함께 보드게임을 즐기는 모습">
     </section>
     <div class="plan-grid">
-      <article class="plan-point"><span class="plan-number">01</span><div><b>함께라서 쉬운 시작</b><p>체스 · 오목 · 야추 다이스 · 윷놀이를 컴퓨터, 한 기기, 온라인에서 즐겨요.</p></div></article>
-      <article class="plan-point"><span class="plan-number">02</span><div><b>각자의 방식으로 플레이</b><p>간단한 규칙부터 팀전과 특수능력까지, 인원과 분위기에 맞춰 골라요.</p></div></article>
-      <article class="plan-point"><span class="plan-number">03</span><div><b>웃음이 생기는 순간</b><p>윷놀이에서는 동물 말과 능력 카드로 예상 밖의 역전과 이야기를 만들어요.</p></div></article>
+      <article class="plan-point"><span class="plan-number">01</span><div><b>어색함을 깨는 시작</b><p>짧고 익숙한 게임이 먼저 말을 거는 부담을 줄이고, 자연스럽게 대화를 열어 줘요.</p></div></article>
+      <article class="plan-point"><span class="plan-number">02</span><div><b>함께 웃고 응원하는 시간</b><p>체스 · 오목 · 야추 다이스 · 윷놀이를 함께하며 자연스럽게 말을 건네고 공감대를 만들어요.</p></div></article>
+      <article class="plan-point"><span class="plan-number">03</span><div><b>패자의 질문 카드로 더 가까이</b><p>게임이 끝나면 패자가 대화 카드를 받고, 모두가 서로 질문하고 답해요. MBTI와 취미부터 첫인상, 요즘 관심사까지 가벼운 질문으로 어색함을 풀고 빠르게 친해져요.</p></div></article>
     </div>
     <div class="plan-footer"><span>만든 사람 · ${esc(DEVELOPER)}</span><a href="${REPO_URL}" target="_blank" rel="noopener">GitHub 저장소 ↗</a></div>
     <details class="plan-details"><summary>제작 정보와 출처</summary><p>글꼴은 주아체(SIL Open Font License 1.1)를 사용했어요. 기물 · 주사위 · 캐릭터 · 윷판 · 윷가락 · 스티커는 코드로 직접 그렸고, 채팅은 서버를 통해 전달되며 따로 저장하지 않아요.</p><p>윷 던지는 소리 출처: <a href="${YUT_SOUND_URL}" target="_blank" rel="noopener">프로가 직접 만드는 윷놀이 소리 (YouTube)</a></p></details>

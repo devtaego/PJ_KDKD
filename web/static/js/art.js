@@ -4,6 +4,7 @@ export const ANIMALS = [
   ["rabbit", "토끼", "#FFFFFF", "#FFD6E6"], ["frog", "개구리", "#7ED67A", "#DDF7D2"],
   ["chick", "병아리", "#FFD84D", "#FFF4C2"], ["pig", "돼지", "#FFB3C1", "#FFE1E7"],
   ["panda", "판다", "#FFFFFF", "#DCEBFF"], ["fox", "여우", "#FF8A4C", "#FFE0CF"],
+  ["penguin", "펭귄", "#4A4E57", "#E7ECF2"], ["tiger", "호랑이", "#FFA43A", "#FFF0D9"],
 ];
 const ROBOT = ["robot", "로봇", "#C9D3E3", "#E6ECF5"];
 const BY_ID = Object.fromEntries(ANIMALS.concat([ROBOT]).map((a) => [a[0], a]));

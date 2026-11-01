@@ -65,7 +65,7 @@ export function create(m) {
   // 지금 움직이는 말 { seat, node, count, victims }: 그동안 옮긴 말만 숨기고(도착 칸에 원래 있던 내 말은 그대로),
   // 잡힌 말은 잡는 말이 도착할 때까지 그 칸에 남겨 둠. 유령 말이 길을 따라 콩콩
   let anim = null;
-  const picked = new Set(m.mode === "online" ? m.seats.flatMap((s, i) => CHAR_IDS.has(s.avatar) ? [i] : []) : []);
+  const picked = new Set(m.seats.flatMap((s, i) => CHAR_IDS.has(s.avatar) ? [i] : []));
   let picking = null; // 지금 열린 고르기 창 { seat, close }
   const pickSent = {}; // 자리 -> 고른 걸 보낸 시각 (온라인에서 답이 오기 전에 창이 다시 뜨지 않게)
   const allPicked = () => game.players.every((p, i) => picked.has(i) || p.resigned || m.offline.has(i));

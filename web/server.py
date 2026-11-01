@@ -44,7 +44,7 @@ MAX_CLIENTS, MAX_ROOMS = 1000, 300  # 서버 전체 상한 (무료 서버가 버
 IDLE_LOBBY, IDLE_ROOM = 20 * 60, 45 * 60  # 이만큼(초) 아무것도 안 하면 연결을 끊어 서버가 잠들 수 있게 함
 ROOM_ADJ = ["용감한", "졸린", "신나는", "수줍은", "배고픈", "반짝이는", "느긋한", "씩씩한", "엉뚱한", "다정한"]
 ROOM_ANIMAL = ["판다", "여우", "토끼", "곰돌이", "병아리", "개구리", "고양이", "돼지", "펭귄", "다람쥐"]
-ANIMALS = {"cat", "bear", "rabbit", "frog", "chick", "pig", "panda", "fox"}
+ANIMALS = {"cat", "bear", "rabbit", "frog", "chick", "pig", "panda", "fox", "penguin", "tiger"}
 CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # 헷갈리는 0/O, 1/I 뺌
 
 

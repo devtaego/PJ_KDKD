@@ -377,6 +377,8 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
     async def test_profile_is_cleaned(self):
         p = server.clean_profile({"name": "  아주아주아주아주긴닉네임입니다  ", "avatar": "<script>", "intro": "x" * 99})
         self.assertEqual((len(p["name"]), p["avatar"], len(p["intro"])), (12, "cat", 30))
+        for avatar in ("penguin", "tiger"):
+            self.assertEqual(server.clean_profile({"name": "윷 플레이어", "avatar": avatar})["avatar"], avatar)
         self.assertIsNone(server.clean_profile({"name": "   "}))
 
 

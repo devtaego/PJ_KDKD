@@ -16,6 +16,7 @@ const APP_VERSION = "2.2.0-web";
 const APP_SUB = "같은 기수, 키득키득";
 const DEVELOPER = "KDA 5기 송재혁";
 const REPO_URL = "https://github.com/devtaego/PJ_KDKD";
+const YUT_SOUND_URL = "https://www.youtube.com/watch?v=rLSAQLD6xos"; // 윷 던지는 소리 출처
 const MODULES = { chess, omok, yacht, yut };
 const MAX_PLAYERS = { chess: 2, omok: 2, yacht: 6, yut: 4 };
 const LEVELS = [["easy", "쉬움"], ["normal", "보통"], ["hard", "어려움"]];
@@ -261,9 +262,11 @@ function rulesPicker() {
 function about() {
   const body = el(`<div class="rules">
     <p><b>KI득KI득</b> v${APP_VERSION} — ${esc(APP_SUB)}</p>
-    <p>새 기수가 처음 만났을 때 어색함 없이 친해질 수 있도록 만든 미니게임 모음이에요. 체스 · 야추 다이스 · 오목을 컴퓨터와, 한 기기에서, 또는 온라인으로 함께 해요.</p>
+    <p>새 기수가 처음 만났을 때 어색함 없이 친해질 수 있도록 만든 미니게임 모음이에요. 체스 · 야추 다이스 · 오목은 컴퓨터와, 한 기기에서, 또는 온라인으로 함께 해요.</p>
+    <p><b>윷놀이</b>는 2~4명이 한 기기나 온라인으로 해요. 시작할 때 각자 동물 캐릭터 말을 고르고, 밈 이름이 붙은 능력 카드(특수능력 3장 · 개막장 4장)로 판을 뒤집어요. 카드별 확률은 게임 화면의 '확률표'에서 볼 수 있어요.</p>
     <p>만든 사람: ${esc(DEVELOPER)}</p>
-    <p class="muted">글꼴: 주아체 (SIL Open Font License 1.1) · 기물 · 주사위 · 캐릭터 · 스티커는 모두 코드로 직접 그렸어요. 채팅은 서버를 거쳐 전달되고 따로 저장하지 않아요.</p>
+    <p class="muted">글꼴: 주아체 (SIL Open Font License 1.1) · 기물 · 주사위 · 캐릭터 · 윷판 · 윷가락 · 스티커는 모두 코드로 직접 그렸어요. 채팅은 서버를 거쳐 전달되고 따로 저장하지 않아요.</p>
+    <p class="muted">윷 던지는 소리: <a href="${YUT_SOUND_URL}" target="_blank" rel="noopener" style="color:var(--gold)">「[무료효과음] 프로가 직접 만드는 윷놀이 소리 SoundEffects / Yutnori」 (YouTube)</a>에서 가져왔어요.</p>
     <p><a href="${REPO_URL}" target="_blank" rel="noopener" style="color:var(--gold)">GitHub 저장소</a> · 데스크톱(exe)판도 있어요</p></div>`);
   modal("정보", body);
 }

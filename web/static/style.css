@@ -784,7 +784,7 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
 .yut-seats .person.turn { box-shadow: inset 4px 0 0 var(--pc), inset 0 0 0 2px var(--gold), 0 0 14px rgba(255, 201, 77, 0.2); }
 .yut-dots { display: flex; gap: 3px; }
 .yut-dots i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid; display: block; }
-.yut-stage { position: relative; width: min(100%, calc((100dvh - 320px) * 4 / 3), 820px); aspect-ratio: 4 / 3; }
+.yut-stage { position: relative; width: min(100%, calc((100dvh - 300px) * 20 / 17), 820px); aspect-ratio: 20 / 17; }
 .yut-board { width: 100%; height: 100%; transition: transform 0.6s cubic-bezier(.5, -0.3, .3, 1.4); }
 .yut-board.upside { transform: rotate(180deg); }
 .yut-board svg { width: 100%; height: 100%; display: block; overflow: visible; }
@@ -1028,32 +1028,72 @@ html[data-theme] .yut-hint { color: var(--chip-text); text-shadow: 1px 1px 0 var
 .yb-arrow { stroke: #fff; stroke-width: 0.35; stroke-linejoin: round; pointer-events: none; }
 .yb-arrow.main { fill: #E8590C; }
 .yb-arrow.short { fill: #1C8FB0; }
-.yb-arrow.first { animation: nudge-arrow 0.8s ease-in-out infinite alternate; transform-box: fill-box; }
-@keyframes nudge-arrow { to { opacity: 0.55; } }
+.yb-go { pointer-events: none; }
+.yb-go path { fill: #E8590C; stroke: #fff; stroke-width: 1.2; stroke-linejoin: round; }
+.yb-go-in { animation: go-up 0.8s ease-in-out infinite alternate; }
+@keyframes go-up { to { transform: translateY(-3px); } }
+.yb-go text { font-size: 4.2px; text-anchor: middle; fill: #fff; paint-order: stroke; stroke: #B23E08; stroke-width: 1; }
 .yb-corner-label { font-size: 2.6px; text-anchor: middle; fill: #8A5A2B; pointer-events: none; }
 .yb-start-sign { pointer-events: none; }
 .yb-start-sign rect { fill: #E8590C; stroke: #fff; stroke-width: 0.7; }
 .yb-start-sign text { font-size: 4.6px; text-anchor: middle; fill: #fff; }
 /* 윷 던지기: 판 위로 크게 */
 .yut-toss { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 2; }
-.toss-sticks { position: relative; width: 60%; height: 60%; }
-.toss-sticks.out { animation: toss-out 0.4s ease forwards; }
-@keyframes toss-out { to { opacity: 0; transform: scale(0.9); } }
+/* 윷가락: 평평한 면 = 밝은 나무, 둥근 등 = 진한 나무 + × 무늬 (아래 끝은 반달 모양 단면) */
+.toss-row { display: flex; align-items: center; gap: clamp(14px, 2.6vw, 28px); padding: 16px 24px; border-radius: 22px; background: #FFFBF3; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35), inset 0 0 0 3px #E8D2B0; }
+.toss-row.out { animation: toss-out 0.4s ease forwards; }
+@keyframes toss-out { to { opacity: 0; transform: scale(0.92); } }
+.toss-sticks { display: flex; gap: clamp(4px, 0.8vw, 8px); align-items: flex-end; }
 .stick.big {
-  position: absolute; left: calc(50% + var(--x)); top: calc(50% + var(--y)); width: clamp(12px, 2.4vw, 22px); height: clamp(72px, 14vw, 140px);
-  margin: calc(clamp(72px, 14vw, 140px) / -2) 0 0 calc(clamp(12px, 2.4vw, 22px) / -2);
-  gap: clamp(10px, 2.4vw, 22px); border-width: 3px; border-radius: 999px; box-shadow: 0 10px 14px rgba(0, 0, 0, 0.4);
-  animation: fly 0.85s cubic-bezier(.25, .7, .35, 1) var(--d) both;
+  width: clamp(22px, 3.4vw, 38px); aspect-ratio: 30 / 132; height: auto; border: 0; border-radius: 0; background: none; box-shadow: none; display: block;
+  filter: drop-shadow(0 6px 5px rgba(60, 30, 10, 0.3)); animation: fly 0.85s cubic-bezier(.25, .7, .35, 1) var(--d) both;
 }
-.stick.big b { width: clamp(8px, 1.6vw, 14px); height: clamp(8px, 1.6vw, 14px); }
-.stick.big .mark { top: -14px; width: 14px; height: 14px; }
+.stick.big svg { width: 100%; height: 100%; display: block; }
 @keyframes fly {
-  0% { transform: translateY(170%) rotate(0deg) scale(1.5); opacity: 0; }
+  0% { transform: translateY(180%) rotate(calc(var(--s) - 40deg)) scale(1.4); opacity: 0; }
   15% { opacity: 1; }
-  55% { transform: translateY(-45%) rotate(calc(var(--r) + 540deg)) scale(1.25); }
-  82% { transform: translateY(4%) rotate(calc(var(--r) + 712deg)) scale(1); }
-  100% { transform: translateY(0) rotate(calc(var(--r) + 720deg)) scale(1); }
+  55% { transform: translateY(-50%) rotate(calc(var(--s) + 500deg)) scale(1.15); }
+  82% { transform: translateY(6%) rotate(712deg) scale(1); }
+  100% { transform: translateY(0) rotate(720deg) scale(1); }
 }
+.toss-cap { display: flex; flex-direction: column; gap: 2px; color: #3B2412; opacity: 0; animation: cap-in 0.3s ease 0.8s forwards; white-space: nowrap; }
+.toss-cap b { font-weight: normal; font-size: clamp(30px, 5vw, 52px); line-height: 1; }
+.toss-cap span { font-size: clamp(15px, 2vw, 22px); }
+.toss-cap.good b { color: #E8590C; }
+.toss-cap.bad b { color: #C2255C; }
+@keyframes cap-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
 .yut-throw { gap: 18px; }
 .yut-result { display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .yut-result .res-chip { font-size: 16px; padding: 4px 12px; }
+
+.yb-dock-name { text-anchor: start; }
+.yb-dock-sub { font-size: 3px; text-anchor: start; fill: #fff; paint-order: stroke; stroke: rgba(20, 12, 40, 0.85); stroke-width: 0.8; }
+.yb-dest-lead { stroke: #FFD34D; stroke-width: 0.7; stroke-dasharray: 1.4 1; pointer-events: none; }
+.res-chip.go { cursor: pointer; border: 0; animation: pulse 0.8s ease-in-out infinite alternate; }
+.skin-opt:disabled { opacity: 0.35; filter: grayscale(0.8); }
+
+/* 타이틀 · 게임 고르기 로고를 또렷하게: 하늘색과 섞이지 않게 바깥에 흰 테두리(스티커처럼), 그림자는 옅게 한 겹 */
+html[data-theme="night"] .title-logo {
+  -webkit-text-stroke: 8px #1A1446;
+  text-shadow: 0 5px 0 #7C5CFF, 0 12px 14px rgba(0, 0, 0, 0.3);
+  filter: drop-shadow(3px 0 0 #fff) drop-shadow(-3px 0 0 #fff) drop-shadow(0 3px 0 #fff) drop-shadow(0 -3px 0 #fff) drop-shadow(0 0 14px rgba(150, 130, 255, 0.25));
+}
+html[data-theme="pastel"] .title-logo {
+  -webkit-text-stroke: 8px #6B3E26;
+  text-shadow: 0 5px 0 #E58A3A, 0 12px 14px rgba(107, 62, 38, 0.2);
+  filter: drop-shadow(3px 0 0 #fff) drop-shadow(-3px 0 0 #fff) drop-shadow(0 3px 0 #fff) drop-shadow(0 -3px 0 #fff);
+}
+html[data-theme="pastel"] .title-logo em, html[data-theme="pastel"] .logo em { color: #36A3E8; }
+html[data-theme="arcade"] .title-logo { filter: drop-shadow(0 0 2px #07071A) drop-shadow(0 0 2px #07071A); }
+@keyframes drop { from { transform: translateY(-60px) scale(0.8); opacity: 0.6; } }
+/* 게임 고르기 화면 위쪽 로고도 타이틀과 같게 (크기만 작게) */
+html[data-theme="night"] .logo {
+  color: #FFFFFF; -webkit-text-stroke: 5px #1A1446; text-shadow: 0 3px 0 #7C5CFF, 0 8px 10px rgba(0, 0, 0, 0.3);
+  filter: drop-shadow(2px 0 0 #fff) drop-shadow(-2px 0 0 #fff) drop-shadow(0 2px 0 #fff) drop-shadow(0 -2px 0 #fff);
+}
+html[data-theme="pastel"] .logo {
+  color: #FFD34D; -webkit-text-stroke: 5px #6B3E26; text-shadow: 0 3px 0 #E58A3A, 0 8px 10px rgba(107, 62, 38, 0.2);
+  filter: drop-shadow(2px 0 0 #fff) drop-shadow(-2px 0 0 #fff) drop-shadow(0 2px 0 #fff) drop-shadow(0 -2px 0 #fff);
+}
+html[data-theme="pastel"] .logo b { color: #FF9EC0; }
+html[data-theme="arcade"] .logo { text-shadow: 0 0 8px #00E5FF, 0 0 18px #00E5FF, 0 4px 0 #FF2BD6; filter: drop-shadow(0 0 2px #07071A) drop-shadow(0 0 2px #07071A); }

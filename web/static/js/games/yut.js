@@ -1,5 +1,5 @@
 // 윷놀이 화면: 2~4명, 한 기기 또는 온라인 (컴퓨터 대전 없음)
-// 판은 비스듬히 내려다본 입체 마름모(출발이 아래), 말은 서 있는 캐릭터. 대기 말은 판 귀퉁이에 두고 눌러서 올림
+// 판은 앞에서 비스듬히 내려다본 두꺼운 사각형(출발은 오른쪽 아래), 말은 서 있는 캐릭터. 대기 말은 판 위아래에 두고 눌러서 올림
 // 윷은 판 위로 크게 던져서 떨어지고, 아래에는 결과만 작게
 import { YutGame, START, HOME, CENTER, RESULT_NAMES } from "../engine/yut.js";
 import { ABILITY_BY_ID, TIERS, START_HAND, abilityOdds, THROW_ODDS } from "../data/yut_abilities.js";
@@ -31,16 +31,13 @@ const POS = (() => {
   p[27] = lerp(c, p[0], 1 / 3); p[28] = lerp(c, p[0], 2 / 3);
   return p;
 })();
-// 비스듬히 본 화면 좌표: 45도 돌려 출발(0)이 아래로 오게 하고, 세로를 눌러 기울어진 느낌
-const SCALE = 1.5, TILT = 0.6, CX = 100, CY = 76;
-const proj = (x, y) => {
-  const u = x - 50, v = y - 50;
-  return [CX + (u - v) * 0.7071 * SCALE, CY + (u + v) * 0.7071 * SCALE * TILT];
-};
+// 화면 좌표: 사각형 그대로 두고 세로만 눌러서 앞에서 비스듬히 내려다본 느낌
+const SX = 1.75, SY = 1.15, CX = 100, CY = 88;
+const proj = (x, y) => [CX + (x - 50) * SX, CY + (y - 50) * SY];
 const SP = Object.fromEntries(Object.entries(POS).map(([n, [x, y]]) => [n, proj(x, y)]));
 const BIG = new Set([0, 5, 10, 15, CENTER]);
-// 대기 말 자리 (판 귀퉁이): 0 왼쪽 아래, 1 오른쪽 아래, 2 오른쪽 위, 3 왼쪽 위
-const DOCKS = [[14, 136], [150, 136], [150, 32], [14, 32]];
+// 대기 말 자리 (판 위아래 띠): 0 왼쪽 아래, 1 오른쪽 아래, 2 오른쪽 위, 3 왼쪽 위
+const DOCKS = [[10, 166], [132, 166], [132, 24], [10, 24]];
 // 윷가락 4개의 평평한 면 개수 (빽도는 표시가 있는 첫 가락만 평평)
 const FLATS = { "-1": [1, 0, 0, 0], 1: [0, 1, 0, 0], 2: [1, 1, 0, 0], 3: [1, 1, 1, 0], 4: [1, 1, 1, 1], 5: [0, 0, 0, 0] };
 
@@ -60,6 +57,11 @@ export function create(m) {
   let sel = null; // 고른 내 말 번호 (업힌 말은 맨 앞 번호)
   let targeting = null; // { hand, def, own? }
   let tossing = false;
+  const picked = new Set(); // 말을 고른 자리
+  let picking = null; // 지금 열린 고르기 창 { seat, close }
+  const pickSent = {}; // 자리 -> 고른 걸 보낸 시각 (온라인에서 답이 오기 전에 창이 다시 뜨지 않게)
+  const allPicked = () => game.players.every((p, i) => picked.has(i) || p.resigned || m.offline.has(i));
+  const takenBy = (id, except) => skins.findIndex((k, i) => i !== except && picked.has(i) && k === id);
 
   m.root.classList.add("yut-screen");
   const root = el(`<div class="board-wrap" style="width:100%">
@@ -129,7 +131,11 @@ export function create(m) {
   }
 
   // ------------------------------------------------------------ 입력
-  throwBtn.onclick = () => { if (myTurn() && game.phase === "throw" && !tossing) act({ type: "throw" }); };
+  throwBtn.onclick = () => { if (myTurn() && game.phase === "throw" && !tossing && allPicked()) act({ type: "throw" }); };
+  resultsEl.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-res]");
+    if (b && myTurn() && game.phase === "move" && sel !== null) act({ type: "move", piece: sel, res: +b.dataset.res });
+  });
   const onKey = (e) => {
     if (e.code !== "Space" || e.target.closest?.("input, textarea") || document.querySelector(".modal-back")) return;
     e.preventDefault();
@@ -181,25 +187,43 @@ export function create(m) {
     if (nd && +nd.dataset.node === 0 && firstWaiting() >= 0) { sel = firstWaiting(); render(); }
   });
 
-  // 자리 카드의 '말' 버튼: 말 캐릭터 고르기
+  // 말 캐릭터 고르기 창 (시작할 때는 꼭 골라야 해서 닫기 없음, 게임 중에는 자리 카드의 '말' 버튼으로 바꾸기)
+  function openPicker(s, first) {
+    picking?.close();
+    const body = el(`<div><p class="muted" style="margin:0 0 10px">${first ? "판에 세울 내 말을 골라요. 다른 사람이 고른 캐릭터는 못 골라요." : "바꿀 캐릭터를 골라요."}</p><div class="skin-pick"></div></div>`);
+    const grid = body.querySelector(".skin-pick");
+    let done = () => {};
+    for (const { id, name } of CHARACTERS) {
+      const owner = takenBy(id, s);
+      const btn = el(`<button type="button" class="skin-opt${skins[s] === id && picked.has(s) ? " on" : ""}" aria-label="${esc(name)}" ${owner >= 0 ? "disabled" : ""}><svg viewBox="-11 -27 22 29">${tokenSvg(0, 0, s, { skin: id })}</svg><span>${owner >= 0 ? `${esc(m.seats[owner].name.slice(0, 5))} 님` : esc(name)}</span></button>`);
+      btn.onclick = () => { pickSent[s] = Date.now(); m.submit({ type: "skin", skin: id }, s); done(); };
+      grid.appendChild(btn);
+    }
+    const close = modal(`${m.seats[s].name} 님, 말을 골라요`, body, { closable: !first });
+    done = () => { close(); picking = null; };
+    picking = { seat: s, close: done };
+  }
   seatsEl.addEventListener("click", (e) => {
     const b = e.target.closest("[data-skin]");
     if (!b) return;
     const s = +b.dataset.skin;
     if (!m.controls(s) || m.result) return;
-    const body = el(`<div class="skin-pick"></div>`);
-    for (const { id, name } of CHARACTERS) {
-      const btn = el(`<button type="button" class="skin-opt${skins[s] === id ? " on" : ""}" aria-label="${esc(name)}"><svg viewBox="-11 -27 22 29">${tokenSvg(0, 0, s, { skin: id })}</svg><span>${esc(name)}</span></button>`);
-      btn.onclick = () => { m.submit({ type: "skin", skin: id }, s); close(); };
-      body.appendChild(btn);
-    }
-    const close = modal(`${m.seats[s].name} 님의 말 고르기`, body);
+    openPicker(s, !picked.has(s));
   });
+  /** 아직 말을 안 고른 내 자리가 있으면 고르기 창을 띄움 (한 기기면 자리 순서대로) */
+  function promptPick() {
+    if (m.replaying || game.over || m.result || picking) return;
+    const s = game.players.findIndex((p, i) => !picked.has(i) && !p.resigned && m.controls(i));
+    if (s < 0) return;
+    if (Date.now() - (pickSent[s] || 0) < 2500) { m.later(promptPick, 2600); return; } // 이미 보냄: 남이 먼저 고른 캐릭터였으면 그때 다시
+    m.later(() => { if (!picking && !picked.has(s)) openPicker(s, true); }, 150);
+  }
 
   // ------------------------------------------------------------ 행동 적용
   function apply(a, at, seat) {
     if (a.type === "skin") { // 겉모습만 바뀜 (누구 차례든 상관없음)
-      if (CHAR_IDS.has(a.skin)) skins[seat] = a.skin;
+      if (CHAR_IDS.has(a.skin) && takenBy(a.skin, seat) < 0) { skins[seat] = a.skin; picked.add(seat); }
+      if (picking && picking.seat !== seat) openPicker(picking.seat, !picked.has(picking.seat)); // 남이 방금 고른 캐릭터를 내 창에서도 막음
       return;
     }
     if (game.over || seat !== game.current) return;
@@ -246,9 +270,9 @@ export function create(m) {
     for (const e of game.events) {
       if (e.kind === "throw") {
         tossing = true;
-        m.sfx("roll");
+        m.sfx("yut");
         tossSticks(e.value);
-        m.later(() => { tossing = false; shout(RESULT_NAMES[e.value], e.value >= 4 ? "good" : e.value === -1 ? "bad" : ""); render(); }, 900);
+        m.later(() => { tossing = false; render(); }, 900);
       } else if (e.kind === "move") m.sfx("move");
       else if (e.kind === "catch") { m.sfx("thud"); shout("잡았다!", "good"); }
       else if (e.kind === "boom") { m.sfx("thud"); shout("펑!!", "bad"); }
@@ -273,12 +297,33 @@ export function create(m) {
 
   // ------------------------------------------------------------ 그리기
   /** 윷가락 4개를 판 위로 크게 던져서 떨어뜨림 (떨어진 모양 = 나온 결과) */
+  /** 윷가락 하나 (SVG): 둥근 윗머리, 나뭇결, 아래 끝은 반달 단면 */
+  function stickSvg(flat, back) {
+    const x = (y) => `<path d="M11.4 ${y - 3.4} l7.2 6.8 M18.6 ${y - 3.4} l-7.2 6.8"/>`;
+    const id = flat ? "ysf" : "ysr";
+    return `<svg viewBox="0 0 30 132" aria-hidden="true">
+      <defs><linearGradient id="${id}" x1="0" x2="1">${flat
+        ? '<stop offset="0" stop-color="#FFE4B8"/><stop offset="0.45" stop-color="#F9CF95"/><stop offset="1" stop-color="#E9AE70"/>'
+        : '<stop offset="0" stop-color="#B9692E"/><stop offset="0.4" stop-color="#D58C4E"/><stop offset="1" stop-color="#9A5322"/>'}</linearGradient></defs>
+      <path d="M3 116 Q15 129 27 116Z" fill="${flat ? "#EFC08C" : "#7E4320"}" stroke="#4A2E1A" stroke-width="1.3" stroke-linejoin="round"/>
+      <path d="M3 14 Q3 3 15 3 Q27 3 27 14 V116 H3Z" fill="url(#${id})" stroke="#4A2E1A" stroke-width="1.3" stroke-linejoin="round"/>
+      <path d="M7 12 V110" stroke="rgba(255,255,255,${flat ? 0.45 : 0.22})" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M12 20 Q13 60 11.5 104 M20 16 Q19 52 20.5 98" fill="none" stroke="${flat ? "rgba(196,120,60,0.22)" : "rgba(60,30,10,0.18)"}" stroke-width="0.8"/>
+      ${flat ? "" : `<g stroke="#4A2E1A" stroke-width="1.2" stroke-linecap="round">${x(32)}${x(60)}${x(88)}</g>`}
+      ${back ? '<g stroke="#E03131" stroke-width="2.6" stroke-linecap="round"><path d="M9 52 l12 12 M21 52 l-12 12"/></g>' : ""}
+    </svg>`;
+  }
+
+  /** 윷가락 4개를 판 위로 던져서 나란히 세우고, 옆에 결과와 몇 칸 가는지 적음
+   *  평평한 면은 밝은 나무 그대로, 둥근 등은 진한 나무에 × 무늬, 빽도는 표시 가락의 평평한 면에 빨간 × */
   function tossSticks(value) {
     const flats = FLATS[value] ?? [0, 0, 0, 0];
-    const lay = [[-27, -14, -18], [-9, 8, 9], [9, -10, -6], [27, 12, 21]]; // 떨어질 자리 (가로 %, 세로 %, 기울기)
-    tossEl.innerHTML = `<div class="toss-sticks">${flats.map((f, i) => `<div class="stick big ${f ? "flat" : "round"}" style="--x:${lay[i][0]}%;--y:${lay[i][1]}%;--r:${lay[i][2] + 90}deg;--d:${i * 50}ms">${f && i === 0 ? '<i class="mark"></i>' : ""}${f ? "<b></b><b></b><b></b>" : ""}</div>`).join("")}</div>`;
-    m.later(() => tossEl.firstElementChild?.classList.add("out"), 1900);
-    m.later(() => { if (!tossing) tossEl.innerHTML = ""; }, 2300);
+    const sticks = flats.map((f, i) => `<div class="stick big" style="--d:${i * 60}ms;--s:${(i - 1.5) * 14}deg">${stickSvg(f, f && value === -1 && i === 0)}</div>`).join("");
+    const steps = value === -1 ? "1칸 뒤로" : `${value}칸 앞으로`;
+    tossEl.innerHTML = `<div class="toss-row"><div class="toss-sticks">${sticks}</div>
+      <div class="toss-cap${value >= 4 ? " good" : value === -1 ? " bad" : ""}"><b>${RESULT_NAMES[value]}</b><span>${steps}</span>${value >= 4 ? "<span>한 번 더 던지기!</span>" : ""}</div></div>`;
+    m.later(() => tossEl.firstElementChild?.classList.add("out"), 2100);
+    m.later(() => { if (!tossing) tossEl.innerHTML = ""; }, 2500);
   }
 
   /** 서 있는 말 하나 (발끝이 x, y): 자리 색 받침 위에 캐릭터 */
@@ -304,24 +349,23 @@ export function create(m) {
     const moving = mine && game.phase === "move" && !targeting;
     parts.push(`<defs>
       <linearGradient id="ywood" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F3D29B"/><stop offset="1" stop-color="#DDB06C"/></linearGradient></defs>`);
-    // 판 바탕: 두께가 있는 마름모
-    const [T, R, B, L] = [proj(4, 4), proj(96, 4), proj(96, 96), proj(4, 96)];
+    // 판 바탕: 두께가 있는 사각형 (앞면이 보임)
+    const [TL, TR, BR, BL] = [proj(4, 4), proj(96, 4), proj(96, 96), proj(4, 96)];
     const d = 7, pt = (p, dy = 0) => `${p[0]},${p[1] + dy}`;
-    parts.push(`<polygon class="yb-side-l" points="${pt(L)} ${pt(B)} ${pt(B, d)} ${pt(L, d)}"/><polygon class="yb-side-r" points="${pt(B)} ${pt(R)} ${pt(R, d)} ${pt(B, d)}"/>`);
-    parts.push(`<polygon class="yb-top" points="${pt(T)} ${pt(R)} ${pt(B)} ${pt(L)}"/>`);
+    parts.push(`<polygon class="yb-side-l" points="${pt(BL)} ${pt(BR)} ${pt(BR, d)} ${pt(BL, d)}"/>`);
+    parts.push(`<polygon class="yb-top" points="${pt(TL)} ${pt(TR)} ${pt(BR)} ${pt(BL)}"/>`);
     const inner = [proj(8, 8), proj(92, 8), proj(92, 92), proj(8, 92)];
     parts.push(`<polygon class="yb-inner" points="${inner.map((p) => pt(p)).join(" ")}"/>`);
     // 길
     parts.push(`<g class="yb-lines">`);
     for (const [a, b] of [[0, 5], [5, 10], [10, 15], [15, 0], [5, 15], [10, 0]]) parts.push(`<line x1="${SP[a][0]}" y1="${SP[a][1]}" x2="${SP[b][0]}" y2="${SP[b][1]}"/>`);
     parts.push(`</g>`);
-    // 가는 방향 화살표: 바깥 길(빨강)은 출발에서 오른쪽 위로 한 바퀴, 지름길(파랑)은 모서리에서 가운데로
+    // 가는 방향 화살표: 바깥 길(빨강)은 출발(오른쪽 아래)에서 위로 올라가 한 바퀴, 지름길(파랑)은 모서리에서 가운데로
     const arrow = (a, b, cls, size = 1.6) => {
       const [x1, y1] = SP[a], [x2, y2] = SP[b], ang = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
       return `<path class="yb-arrow ${cls}" d="M-1.6 -1.7 L1.8 0 L-1.6 1.7 L-0.7 0z" transform="translate(${(x1 + x2) / 2} ${(y1 + y2) / 2}) rotate(${ang}) scale(${size})"/>`;
     };
-    parts.push(arrow(0, 1, "main first", 2.6)); // 출발하자마자 가는 쪽은 크게
-    for (let k = 1; k < 19; k++) parts.push(arrow(k, k + 1, "main"));
+    for (let k = 0; k < 19; k++) parts.push(arrow(k, k + 1, "main"));
     parts.push(arrow(19, 0, "main"));
     for (const [a, b] of [[5, 20], [20, 21], [21, 22], [22, 23], [23, 24], [24, 15], [10, 25], [25, 26], [26, 22], [22, 27], [27, 28], [28, 0]]) parts.push(arrow(a, b, "short"));
     // 고른 말이 갈 수 있는 곳
@@ -331,7 +375,7 @@ export function create(m) {
     const order = Object.keys(SP).map(Number).sort((a, b) => SP[a][1] - SP[b][1]);
     for (const n of order) {
       const [x, y] = SP[n];
-      const rb = BIG.has(n) ? 4.6 : 3.2, rx = rb * SCALE, ry = rx * TILT, h = BIG.has(n) ? 3 : 2.2;
+      const rb = BIG.has(n) ? 4.6 : 3.2, rx = rb * SX, ry = rb * SY, h = BIG.has(n) ? 3 : 2.2;
       const cls = ["yb-tile"];
       if (n === 0) cls.push("start");
       else if (BIG.has(n)) cls.push("corner");
@@ -342,9 +386,11 @@ export function create(m) {
         <ellipse class="top" cx="${x}" cy="${y}" rx="${rx}" ry="${ry}"/>${n === 0 ? `<text x="${x}" y="${y + 1.3}" class="yb-label">출발</text>` : ""}</g>`);
     }
     for (const [n, t] of [[5, "지름길"], [10, "지름길"], [CENTER, "가운데"]]) parts.push(`<text x="${SP[n][0]}" y="${SP[n][1] + 1.2}" class="yb-corner-label">${t}</text>`);
-    { // 출발 · 골인 팻말 (판 앞쪽 모서리)
-      const [x, y] = SP[0];
-      parts.push(`<g class="yb-start-sign" transform="translate(${x} ${y + 10})"><rect x="-17" y="-4" width="34" height="8" rx="2.4"/><text y="1.5">출발 · 골인</text></g>`);
+    // 출발 칸 오른쪽 판 밖에 큰 ⬆ (처음 가는 쪽)
+    parts.push(`<g class="yb-go" transform="translate(${BR[0] + 9.5} ${SP[0][1] + 2})"><g class="yb-go-in"><path d="M0 -36 L8 -25 H3.2 V0 H-3.2 V-25 H-8Z"/></g><text y="8">출발</text></g>`);
+    { // 출발 · 골인 팻말 (판 앞면, 출발 칸 아래)
+      const [x] = SP[0];
+      parts.push(`<g class="yb-start-sign" transform="translate(${x - 8} ${BR[1] + 3.6})"><rect x="-15" y="-3.6" width="30" height="7.2" rx="2.2"/><text y="1.4">출발 · 골인</text></g>`);
     }
     for (const [node, owner] of Object.entries(game.bombs)) {
       const [x, y] = SP[node];
@@ -369,44 +415,56 @@ export function create(m) {
         const canMove = moving && own && destinations(idxs[0]).size > 0;
         const ring = moving && own && sel === idxs[0] ? "sel" : canMove && sel === null ? "can" : "";
         const pick = pickableFor(seat, true);
-        tokens.push([y, tokenSvg(x + off, y, seat, { sc: 0.88,
+        tokens.push([y, tokenSvg(x + off, y, seat, { sc: 0.78,
           cls: `${canMove ? "movable" : ""}${pick ? " pickable" : ""}${ring === "sel" ? " selected" : ""}`, data: `data-seat="${seat}" data-idx="${idxs[0]}"`,
           count: idxs.length, shield: game.players[seat].pieces[idxs[0]].shield >= game.turnNo, ring: pick ? "pick" : ring,
         })]);
       });
     }
-    // 대기 말: 자리마다 판 귀퉁이에
+    // 대기 말: 자리마다 판 위아래 띠에
     game.players.forEach((p, s) => {
       const [dx, dy] = DOCKS[s];
       const waiting = p.pieces.map((pc, i) => [pc, i]).filter(([pc]) => pc.node === START);
       const fin = game.finished(s);
       const turn = game.current === s && !game.over;
-      const right = s === 1 || s === 2;
-      tokens.push([dy - 30, `<g class="yb-dock${turn ? " on" : ""}"><rect x="${dx - 7}" y="${dy - 21}" width="${36 + 4}" height="26" rx="6" style="--pc:${PLAYER_COLORS[s]}"/>
-        <text x="${right ? dx + 31 : dx - 5}" y="${dy + 9.5}" class="yb-dock-name" text-anchor="${right ? "end" : "start"}" fill="${PLAYER_COLORS[s]}">${esc(p.name.slice(0, 6))} · 대기 ${waiting.length}${fin ? ` · 골인 ${fin}` : ""}</text></g>`]);
+      tokens.push([dy - 30, `<g class="yb-dock${turn ? " on" : ""}"><rect x="${dx - 6}" y="${dy - 17}" width="64" height="20" rx="5" style="--pc:${PLAYER_COLORS[s]}"/>
+        <text x="${dx + 30}" y="${dy - 9.5}" class="yb-dock-name" fill="${PLAYER_COLORS[s]}">${esc(p.name.slice(0, 6))}</text>
+        <text x="${dx + 30}" y="${dy - 4.6}" class="yb-dock-sub">남은 말 ${waiting.length}${fin ? ` · 골인 ${fin}` : ""}</text></g>`]);
       const rep = waiting.length ? waiting[0][1] : -1;
       waiting.forEach(([, i], k) => {
         const own = mine && s === game.current;
         const canMove = moving && own && destinations(rep).size > 0;
         const ring = own && moving && sel === rep ? (k === 0 ? "sel" : "") : canMove && sel === null && k === 0 ? "can" : "";
         const pick = pickableFor(s, false);
-        tokens.push([dy, tokenSvg(dx + k * 8.5, dy, s, {
-          sc: 0.74, cls: `${canMove ? "movable" : ""}${pick ? " pickable" : ""}`, data: `data-seat="${s}" data-idx="${rep}"`, ring: pick ? "pick" : ring,
+        tokens.push([dy, tokenSvg(dx + k * 7.6, dy, s, {
+          sc: 0.62, cls: `${canMove ? "movable" : ""}${pick ? " pickable" : ""}`, data: `data-seat="${s}" data-idx="${rep}"`, ring: pick ? "pick" : ring,
         })]);
       });
     });
     tokens.sort((a, b) => a[0] - b[0]).forEach(([, t]) => parts.push(t));
-    // 도착할 곳 말풍선 (결과 이름). 골인은 출발 칸 옆에
-    for (const [node, resIdx] of dests) {
-      const label = node === HOME ? `골인! ${resIdx.map((i) => RESULT_NAMES[game.pending[i]]).join("/")}` : resIdx.map((i) => RESULT_NAMES[game.pending[i]]).join("/");
-      const [x, y] = node === HOME ? [SP[0][0] + 20, SP[0][1] - 2] : SP[node];
-      const busy = node !== HOME && byNode[node];
-      const w = 6 + label.length * 4.2, top = y - (busy ? 24 : 8);
-      parts.push(`<g class="yb-dest" data-dest="${resIdx[0]}" transform="translate(${x} ${top})"><g class="yb-dest-in">
-        <path d="M${-w / 2} -9 h${w} a2.5 2.5 0 0 1 2.5 2.5 v3 a2.5 2.5 0 0 1 -2.5 2.5 h${-(w / 2 - 2)} l-2 2.6 l-2 -2.6 h${-(w / 2 - 2)} a2.5 2.5 0 0 1 -2.5 -2.5 v-3 a2.5 2.5 0 0 1 2.5 -2.5z"/>
-        <text y="-3.6">${esc(label)}</text></g></g>`);
+    // 도착할 곳 말풍선 (결과 이름). 골인은 출발 칸 위. 겹치면 위로 비켜 쌓고 칸까지 점선
+    const bubbles = [...dests].map(([node, resIdx]) => {
+      const names = resIdx.map((i) => RESULT_NAMES[game.pending[i]]).join("/");
+      const label = node === HOME ? `골인! ${names}` : names;
+      const [x, y] = SP[node === HOME ? 0 : node];
+      const busy = byNode[node === HOME ? 0 : node];
+      return { res: resIdx[0], label, x, y, w: 7 + label.length * 4.4, top: y - (busy ? 20 : 6) };
+    }).sort((a, b) => b.top - a.top);
+    const placed = [];
+    for (const b of bubbles) {
+      while (placed.some((o) => Math.abs(o.x - b.x) < (o.w + b.w) / 2 + 1.5 && Math.abs(o.top - b.top) < 11)) b.top -= 11;
+      placed.push(b);
     }
-    boardEl.innerHTML = `<svg viewBox="0 0 200 150">${parts.join("")}</svg>`;
+    for (const b of placed) {
+      if (b.top < b.y - 22) parts.push(`<line class="yb-dest-lead" x1="${b.x}" y1="${b.top + 1}" x2="${b.x}" y2="${b.y - 2}"/>`);
+    }
+    for (const b of placed) {
+      const w = b.w;
+      parts.push(`<g class="yb-dest" data-dest="${b.res}" transform="translate(${b.x} ${b.top})"><g class="yb-dest-in">
+        <path d="M${-w / 2} -9 h${w} a2.5 2.5 0 0 1 2.5 2.5 v3 a2.5 2.5 0 0 1 -2.5 2.5 h${-(w / 2 - 2)} l-2 2.6 l-2 -2.6 h${-(w / 2 - 2)} a2.5 2.5 0 0 1 -2.5 -2.5 v-3 a2.5 2.5 0 0 1 2.5 -2.5z"/>
+        <text y="-3.6">${esc(b.label)}</text></g></g>`);
+    }
+    boardEl.innerHTML = `<svg viewBox="0 0 200 170">${parts.join("")}</svg>`;
     boardEl.classList.toggle("upside", game.upside !== null && game.upside === game.current && m.controls(game.current));
   }
 
@@ -418,7 +476,7 @@ export function create(m) {
       const turn = !game.over && !m.result && game.current === i;
       const skinBtn = m.controls(i) && !m.result ? `<button class="skin-btn" data-skin="${i}" title="말 캐릭터 고르기" aria-label="${esc(m.seats[i].name)} 말 캐릭터 고르기"><svg viewBox="-9 -26 18 28">${tokenSvg(0, 0, i)}</svg>말</button>` : "";
       const extra = skinBtn;
-      const flags = [`대기 ${waiting}`, `도착 ${fin}/${pieces}`];
+      const flags = [`남은 말 ${waiting}`, `도착 ${fin}/${pieces}`];
       if (game.abilitiesOn) flags.push(`카드 ${p.hand.length}`);
       if (p.ward) flags.push("어쩔티비 준비");
       if (p.resigned) flags.push("기권");
@@ -430,17 +488,22 @@ export function create(m) {
     drawBoard();
     // 던지기 버튼과 남은 결과
     const mine = myTurn();
-    throwBtn.disabled = game.over || !mine || game.phase !== "throw" || tossing;
+    throwBtn.disabled = game.over || !mine || game.phase !== "throw" || tossing || !allPicked();
     throwBtn.innerHTML = game.over ? "게임 끝" : !mine ? `${esc(p.name)} 님 차례` : game.phase === "throw" ? `윷 던지기${game.throws > 1 ? ` ×${game.throws}` : ""} <kbd>Space</kbd>` : "말을 옮겨요";
-    resultsEl.innerHTML = game.pending.map((r) => `<span class="res-chip${r === -1 ? " back" : ""}">${RESULT_NAMES[r]}</span>`).join("");
+    const can = sel !== null ? destinations(sel) : new Map();
+    const usable = new Set([...can.values()].flat());
+    resultsEl.innerHTML = game.pending.map((r, i) => usable.has(i)
+      ? `<button class="res-chip go${r === -1 ? " back" : ""}" data-res="${i}" title="고른 말을 ${RESULT_NAMES[r]}만큼 옮기기">${RESULT_NAMES[r]} ▶</button>`
+      : `<span class="res-chip${r === -1 ? " back" : ""}">${RESULT_NAMES[r]}</span>`).join("");
     // 안내
     if (game.over || m.result) hintEl.textContent = m.result ? m.result.title : "";
     else if (targeting) {
       const t = targeting.def.target;
       hintEl.textContent = `「${targeting.def.name}」 ${t === "oppPiece" ? "상대 말을 눌러요" : t === "ownPiece" ? "내 말을 눌러요" : t === "node" ? "폭탄을 놓을 빈칸을 눌러요" : targeting.own === undefined ? "먼저 내 말을 눌러요" : "바꿀 상대 말을 눌러요"} · 카드를 다시 누르면 취소`;
     } else if (!mine) hintEl.textContent = `${p.name} 님 차례${game.phase === "move" ? " · 말 옮기는 중" : ""}`;
+    else if (!allPicked()) hintEl.textContent = `모두 말을 고르면 시작해요 (${picked.size}/${game.players.length})`;
     else if (game.phase === "throw") hintEl.textContent = game.pending.length ? "한 번 더 던져요!" : `윷을 던져요${game.abilitiesOn ? " (능력 카드는 한 차례에 한 장)" : ""}`;
-    else hintEl.textContent = sel !== null ? "말풍선이 뜬 칸을 눌러 옮겨요 · 다른 말을 눌러 바꾸기" : "옮길 말을 눌러요 (기다리는 말은 판 귀퉁이에)";
+    else hintEl.textContent = sel !== null ? "말풍선이 뜬 칸을 눌러 옮겨요 · 다른 말을 눌러 바꾸기" : "옮길 말을 눌러요 (남은 말은 판 위아래에) · 아래 결과 버튼으로도 옮길 수 있어요";
     // 능력 카드
     if (game.abilitiesOn) {
       const showHand = m.mode === "local" ? p.hand : (m.mySeats.length ? game.players[m.mySeats[0]].hand : []);
@@ -455,6 +518,7 @@ export function create(m) {
     logEl.innerHTML = game.log.slice(-9).map((l) => `<div class="yl yl-${l.kind}">${esc(l.text)}</div>`).join("");
     logEl.scrollTop = logEl.scrollHeight;
     m.setTopActions(m.mySeats.length && !game.over && !m.result ? [{ label: "기권", onClick: resignMine }] : []);
+    promptPick();
   }
 
   async function resignMine() {
@@ -462,5 +526,5 @@ export function create(m) {
     if (await confirmBox("기권", `${m.seats[seat].name} 님, 정말 기권할까요?`, "기권", "계속")) m.submit({ type: "resign" }, seat);
   }
 
-  return { el: root, sideEl: side, apply, resign, render, destroy: () => document.removeEventListener("keydown", onKey) };
+  return { el: root, sideEl: side, apply, resign, render, destroy: () => { picking?.close(); document.removeEventListener("keydown", onKey); } };
 }

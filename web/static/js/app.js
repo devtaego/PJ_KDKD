@@ -766,7 +766,7 @@ function waitingScreen() {
           <div class="link">${esc(link)}${r.settings.private === "1" ? ` <span class="pill">비공개 · 코드로만 들어와요</span>` : ""}</div></div>
         <div class="actions"><button class="btn small" data-k="qr">QR 크게 보기</button><button class="btn small" data-k="share">링크 보내기</button></div></div>
       ${playerPanel}${queuePanel}
-      <div class="card"><div class="sec-title">게임 설정${isHost ? "" : ` <span class="muted">방장이 정해요</span>`}</div><div class="settings"></div>
+      <div class="card ${r.game === "yut" ? "yut-wait-card" : ""}"><div class="sec-title">${r.game === "yut" ? "윷놀이 대기실" : `게임 설정${isHost ? "" : ` <span class="muted">방장이 정해요</span>`}`}</div><div class="settings"></div>
         <div class="row start-row" style="justify-content:flex-end;margin-top:6px"></div></div>`;
     if (r.game !== "yut") main.querySelector(".pl").innerHTML = players.map((x) => personHtml(x, { extra: tag(x), cls: x.online ? "" : "off" })).join("") || `<div class="empty">아직 아무도 없어요</div>`;
     if (queue.length) main.querySelector(".qu").innerHTML = queue.map((x, k) => personHtml(x, { extra: tag(x), cls: x.online ? "" : "off", sub: `${k + 1}번째 대기${x.intro ? " · " + x.intro : ""}` })).join("");
@@ -787,9 +787,6 @@ function waitingScreen() {
       settings.appendChild(option("시간", isHost ? segment(Object.entries(chess.TIME_MODES).map(([k, v]) => [k, v[0]]), s.time || "none", change("time")) : el(`<div>${esc(chess.TIME_MODES[s.time]?.[0] || "무제한")}</div>`)));
       settings.appendChild(option("방장의 색", isHost ? segment([["w", "백"], ["b", "흑"], ["random", "무작위"]], s.color || "w", change("color")) : el(`<div>${{ w: "백", b: "흑", random: "무작위" }[s.color] || "백"}</div>`)));
     } else if (r.game === "yut") {
-      settings.appendChild(option("모드", isHost ? segment(Object.entries(yut.MODES), s.chaos || "chaos", change("chaos")) : el(`<div>${yut.MODES[s.chaos] || "막장"}</div>`)));
-      settings.appendChild(option("말 개수", isHost ? segment([["2", "2개"], ["3", "3개"], ["4", "4개"]], s.pieces || "3", change("pieces")) : el(`<div>${esc(s.pieces || "3")}개</div>`)));
-      settings.appendChild(option("팀 (4명일 때)", isHost ? segment([["", "개인전"], ["1", "2:2 팀전"]], s.team || "", change("team")) : el(`<div>${s.team === "1" ? "2:2 팀전" : "개인전"}</div>`)));
       const teamMode = s.team === "1";
       const teamB = roomTeamB(r, players);
       const roster = el(`<section class="yut-room-setup" aria-label="윷놀이 준비">
@@ -906,7 +903,7 @@ function waitingScreen() {
       settings.appendChild(option("규칙", isHost ? segment([["33", "쌍삼 금지"], ["free", "자유룰"]], s.rule || "33", change("rule")) : el(`<div>${s.rule === "free" ? "자유룰" : "쌍삼 금지"}</div>`)));
       settings.appendChild(option("방장의 돌", isHost ? segment([["b", "흑"], ["w", "백"], ["random", "무작위"]], s.color || "b", change("color")) : el(`<div>${{ b: "흑", w: "백", random: "무작위" }[s.color] || "흑"}</div>`)));
     }
-    if (isHost) settings.appendChild(option("방 공개", segment([["", "열린 방 목록에 보이기"], ["1", "비공개 (코드로만)"]], s.private || "", change("private"))));
+    if (isHost && r.game !== "yut") settings.appendChild(option("방 공개", segment([["", "열린 방 목록에 보이기"], ["1", "비공개 (코드로만)"]], s.private || "", change("private"))));
 
     main.querySelectorAll("[data-kick]").forEach((b) => {
       b.onclick = async () => {

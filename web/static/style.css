@@ -972,6 +972,55 @@ table.odds td { vertical-align: middle; }
   .hand-track .ability-card { flex-basis: min(76vw, 190px); }
 }
 
+/* 윷놀이 방은 준비 중심으로, 플레이 화면은 판과 시작 카드가 한 화면에 보이도록 */
+.yut-wait-card { border-color: color-mix(in srgb, var(--mint) 38%, var(--edge)); }
+.yut-wait-card > .sec-title { font-size: 19px; }
+.yut-screen .game-layout { min-height: 0; align-items: start; }
+.yut-screen .board-wrap { --yw: min(100%, clamp(280px, calc((100dvh - 470px) * 200 / 208), 760px)); gap: 7px; }
+.yut-screen .yut-stage { width: var(--yw); flex: none; }
+.yut-screen .yut-panel { width: var(--yw); gap: 6px; }
+.yut-screen .yut-turn-status { min-height: 30px; padding: 3px 8px; font-size: 14px; }
+.yut-screen .yut-throw { min-height: 72px; gap: 8px; padding: 5px 8px; }
+.yut-screen .yut-throw .btn { padding: 7px 14px; font-size: 18px; }
+.yut-screen .sticks { height: 58px; }
+.yut-screen .stick { height: 54px; }
+.yut-screen .yut-hint { min-height: 16px; font-size: 13px; line-height: 1.2; }
+.yut-screen .hand-header { min-height: 18px; }
+.yut-screen .hand-header strong { font-size: 13px; }
+.yut-screen .hand-header span { font-size: 11px; }
+.yut-screen .hand-track { display: grid; grid-template-columns: repeat(var(--hand-count, 4), minmax(0, 1fr)); gap: clamp(4px, .8vw, 9px); width: 100%; overflow: visible; padding: 3px 2px 7px; }
+.yut-screen .hand-track .ability-card { width: 100%; min-width: 0; min-height: 80px; padding: 6px 7px; gap: 2px; }
+.yut-screen .hand-track .ac-tier { font-size: 9px; padding: 1px 5px; }
+.yut-screen .hand-track .ac-name { font-size: clamp(10px, calc(var(--yw) * .027), 16px); line-height: 1.12; }
+.yut-screen .hand-track .ac-desc { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: clamp(8px, calc(var(--yw) * .018), 11px); line-height: 1.2; }
+.deal-modal { width: min(760px, 100%); }
+.deal-popup { display: grid; gap: 12px; }
+.deal-popup .hand-track { display: grid; grid-template-columns: repeat(var(--hand-count, 4), minmax(0, 1fr)); gap: 8px; width: 100%; overflow: visible; padding: 4px 0 8px; }
+.deal-popup .hand-track .ability-card { width: 100%; min-width: 0; padding: 8px; }
+.deal-caption,.deal-result-label { margin: 0; text-align: center; }
+.deal-result-label { min-height: 22px; color: var(--gold); font-weight: 700; }
+.deal-roulette-cards { min-width: 0; }
+.deal-roulette-card { pointer-events: none; min-height: 125px !important; }
+.deal-roulette-card.rolling { animation: deal-roll .2s ease both; animation-delay: var(--deal-delay, 0ms); }
+.deal-roulette-card.revealed { animation: deal-reveal .55s cubic-bezier(.2, 1.4, .4, 1) both; animation-delay: var(--deal-delay, 0ms); }
+@keyframes deal-roll { from { transform: translateY(-9px) rotate(-3deg); opacity: .55; } to { transform: translateY(0) rotate(0); opacity: 1; } }
+@keyframes deal-reveal { from { transform: translateY(14px) scale(.88); opacity: .3; } to { transform: translateY(0) scale(1); opacity: 1; } }
+@media (max-width: 900px) {
+  .yut-screen .board-wrap { --yw: min(100%, clamp(280px, calc((100dvh - 470px) * 200 / 208), 680px)); }
+}
+@media (max-width: 640px) {
+  .yut-screen .board-wrap { --yw: min(100%, clamp(250px, calc((100dvh - 430px) * 200 / 208), 520px)); }
+  .yut-screen .hand-track { gap: 4px; }
+  .yut-screen .hand-track .ability-card { min-height: 76px; padding: 5px; }
+  .yut-screen .hand-track .ac-name { font-size: 11px; }
+  .yut-screen .hand-track .ac-desc { font-size: 8px; }
+  .deal-popup .hand-track { gap: 4px; }
+  .deal-popup .hand-track .ability-card { padding: 5px 3px; min-height: 82px !important; }
+  .deal-popup .hand-track .ac-name { font-size: 10px; }
+  .deal-popup .hand-track .ac-desc { display: none; }
+  .deal-modal .deal-roulette-card { min-height: 100px !important; }
+}
+
 /* ================================================================ 타이틀 화면과 같은 느낌으로 (모든 화면)
    - 뒤에는 타이틀의 픽셀 장면을 은은하게 (색 막을 덮어 글씨가 잘 보이게)
    - 판 · 창은 타이틀 이름표처럼 굵은 테두리 + 아래로 떨어지는 그림자

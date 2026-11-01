@@ -59,9 +59,10 @@ export function create(m) {
   let selOwner = null; // 고른 말의 주인 (팀전에서 내 말이 다 들어오면 같은 팀 말을 옮김)
   let targeting = null; // { hand, def, own? }
   let tossing = false;
-  let dealing = game.abilitiesOn && !m.replaying;
+  let dealing = game.abilitiesOn && !m.replaying && (m.mode === "local" || m.mySeats.length > 0);
   let dealStarted = false;
   let dealInterval = null;
+  let dealModalClose = null;
   // 지금 움직이는 말 { seat, node, count, victims }: 그동안 옮긴 말만 숨기고(도착 칸에 원래 있던 내 말은 그대로),
   // 잡힌 말은 잡는 말이 도착할 때까지 그 칸에 남겨 둠. 유령 말이 길을 따라 콩콩
   let anim = null;
@@ -557,24 +558,44 @@ export function create(m) {
   function renderHand() {
     if (!game.abilitiesOn) { handEl.innerHTML = ""; return; }
     const showHand = visibleHand();
-    if (dealing && (showHand.length || m.mode === "local")) {
-      const count = showHand.length || START_HAND[mode];
-      const pool = Object.keys(ABILITY_BY_ID);
-      handEl.innerHTML = `<div class="hand-track">${Array.from({ length: count }, (_, i) => {
-        const id = pool[Math.floor(Math.random() * pool.length)];
-        const d = ABILITY_BY_ID[id];
-        return `<div class="ability-card deal-spin tier-${d.tier}" style="--tier:${TIERS[d.tier].color};--deal-delay:${i * 70}ms"><span class="ac-tier">뽑는 중</span><span class="ac-name">${esc(d.name)}</span><span class="ac-desc">${esc(d.desc)}</span></div>`;
-      }).join("")}</div><div class="hand-deal-caption" aria-live="polite">카드를 섞고 있어요…</div>`;
-      return;
-    }
     if (!showHand.length) { handEl.innerHTML = `<div class="muted hand-empty">표시할 능력 카드가 없어요</div>`; return; }
     const mine = myTurn();
-    handEl.innerHTML = `<div class="hand-track">${showHand.map((id, i) => {
+    handEl.innerHTML = `<div class="hand-track" style="--hand-count:${showHand.length}">${showHand.map((id, i) => {
       const d = ABILITY_BY_ID[id];
       const usable = mine && !game.usedAbility && (m.mode === "local" || m.mySeats[0] === game.current);
       return `<button class="ability-card tier-${d.tier}${targeting?.hand === i ? " on" : ""}" data-hand="${i}" ${usable ? "" : "disabled"} style="--tier:${TIERS[d.tier].color};--deal-delay:${i * 100}ms">
         <span class="ac-tier">${TIERS[d.tier].name}</span><span class="ac-name">${esc(d.name)}</span><span class="ac-desc">${esc(d.desc)}</span></button>`;
     }).join("")}</div>`;
+  }
+
+  function startCardRoulette() {
+    const body = el(`<div class="deal-popup"><p class="muted deal-caption">시작 능력 카드 ${START_HAND[mode]}장을 뽑아요</p><div class="deal-roulette-cards" aria-live="polite"></div><p class="deal-result-label"></p></div>`);
+    const cards = body.querySelector(".deal-roulette-cards");
+    const caption = body.querySelector(".deal-result-label");
+    const pool = Object.keys(ABILITY_BY_ID);
+    const close = modal("시작 능력 카드 룰렛", body, { closable: false });
+    dealModalClose = close;
+    body.closest(".modal")?.classList.add("deal-modal");
+    const draw = (reveal = false) => {
+      const actual = visibleHand();
+      const ids = reveal && actual.length ? actual : Array.from({ length: START_HAND[mode] }, () => pool[Math.floor(Math.random() * pool.length)]);
+      cards.innerHTML = `<div class="hand-track" style="--hand-count:${ids.length}">${ids.map((id, i) => {
+        const def = ABILITY_BY_ID[id];
+        return `<div class="ability-card deal-roulette-card tier-${def.tier}${reveal ? " revealed" : " rolling"}" style="--tier:${TIERS[def.tier].color};--deal-delay:${i * 90}ms">
+          <span class="ac-tier">${reveal ? TIERS[def.tier].name : "추첨 중"}</span><span class="ac-name">${esc(def.name)}</span><span class="ac-desc">${esc(def.desc)}</span></div>`;
+      }).join("")}</div>`;
+      caption.textContent = reveal ? "이번 판에 사용할 카드가 정해졌어요!" : "카드를 섞고 있어요…";
+      body.classList.toggle("revealed", reveal);
+    };
+    draw();
+    dealInterval = setInterval(() => draw(), 105);
+    m.later(() => {
+      clearInterval(dealInterval); dealInterval = null;
+      draw(true);
+      m.later(() => {
+        close(); dealModalClose = null; dealing = false; render();
+      }, 1150);
+    }, 2050);
   }
 
   function render() {
@@ -609,8 +630,7 @@ export function create(m) {
     promptPick();
     if (dealing && !dealStarted) {
       dealStarted = true;
-      dealInterval = setInterval(() => { if (dealing) renderHand(); }, 120);
-      m.later(() => { dealing = false; clearInterval(dealInterval); dealInterval = null; render(); }, 1900);
+      m.later(startCardRoulette, 80);
     }
   }
 
@@ -619,5 +639,5 @@ export function create(m) {
     if (await confirmBox("기권", `${m.seats[seat].name} 님, 정말 기권할까요?`, "기권", "계속")) m.submit({ type: "resign" }, seat);
   }
 
-  return { el: root, sideEl: side, apply, resign, render, destroy: () => { clearInterval(dealInterval); picking?.close(); document.removeEventListener("keydown", onKey); } };
+  return { el: root, sideEl: side, apply, resign, render, destroy: () => { clearInterval(dealInterval); dealModalClose?.(); dealModalClose = null; picking?.close(); document.removeEventListener("keydown", onKey); } };
 }

@@ -294,7 +294,7 @@ label.field > span { display: block; color: var(--muted); font-size: 14px; margi
 
 /* 야추 */
 .yacht-table {
-  width: 100%; border-radius: 26px; padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 10px;
+  position: relative; width: 100%; border-radius: 26px; padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 10px;
   background: repeating-linear-gradient(176deg, #C98F55 0 7px, #B9824A 7px 11px, #D19A60 11px 19px); /* 나무 테이블 */
   box-shadow: inset 0 0 0 3px rgba(110, 63, 30, 0.6), 0 12px 30px rgba(0, 0, 0, 0.4);
 }
@@ -353,6 +353,22 @@ label.field > span { display: block; color: var(--muted); font-size: 14px; margi
 .die.blank { opacity: 0.25; }
 @keyframes tumble { 0% { transform: translate(var(--dx), -40px) rotate(var(--rot)); } 60% { transform: translate(0, 6px) rotate(-12deg); } 100% { transform: none; } }
 .held-label { color: #4A2810; font-size: 15px; min-height: 18px; text-align: center; }
+.yacht-celebration-layer { position: absolute; inset: 0; z-index: 30; overflow: hidden; border-radius: inherit; pointer-events: none; opacity: 0; visibility: hidden; }
+.yacht-celebration-layer.show { opacity: 1; visibility: visible; }
+.yacht-celebration { position: absolute; left: 50%; top: 46%; z-index: 2; display: grid; justify-items: center; gap: 2px; min-width: 190px; padding: 17px 30px 18px; border: 2px solid rgba(255,245,193,.95); border-radius: 24px; background: linear-gradient(145deg, rgba(51,29,92,.96), rgba(131,42,133,.95) 58%, rgba(224,77,108,.94)); color: #fff; box-shadow: 0 0 0 5px rgba(255,211,91,.19), 0 0 45px rgba(255,119,180,.75), 0 14px 40px rgba(48,15,35,.5); text-align: center; transform: translate(-50%,-50%) scale(.35) rotate(-8deg); opacity: 0; }
+.yacht-celebration-layer.show .yacht-celebration { animation: yacht-win-pop .75s cubic-bezier(.16,1.3,.32,1) forwards, yacht-win-glow 1.1s .7s ease-in-out 2 alternate; }
+.yacht-celebration-kicker { color: #ffe88b; font-size: 10px; font-weight: 900; letter-spacing: .2em; }
+.yacht-celebration strong { color: #fff7bd; font-size: clamp(40px, 9vw, 66px); font-weight: 1000; line-height: 1.04; letter-spacing: .08em; -webkit-text-stroke: 1px rgba(255,255,255,.5); text-shadow: 0 3px #b53c89, 0 6px #762e91, 0 0 20px #ffe889, 0 0 42px #ff83c4; }
+.yacht-celebration-score { margin-top: 4px; padding: 5px 13px; border-radius: 999px; background: linear-gradient(90deg,#ffd65b,#fff1a8,#ffd65b); color: #55296d; font-size: 14px; font-weight: 900; box-shadow: 0 2px 12px rgba(255,222,91,.45); }
+.yacht-burst-ring { position: absolute; inset: -18px; border: 3px solid rgba(255,245,177,.9); border-radius: 30px; animation: yacht-ring 1.1s ease-out 2; }
+.yacht-confetti { position: absolute; left: 50%; top: 46%; z-index: 1; width: 9px; height: 17px; border-radius: 3px; background: var(--confetti); opacity: 0; transform: rotate(var(--angle)); }
+.yacht-celebration-layer.show .yacht-confetti { animation: yacht-confetti 1.15s var(--wait) cubic-bezier(.15,.75,.25,1) both; }
+.yacht-confetti.c0 { --confetti: #ffe25e; } .yacht-confetti.c1 { --confetti: #ff6ba9; } .yacht-confetti.c2 { --confetti: #8effcf; } .yacht-confetti.c3 { --confetti: #83d8ff; } .yacht-confetti.c4 { --confetti: #fff; } .yacht-confetti.c5 { --confetti: #c69bff; } .yacht-confetti.c6 { --confetti: #ff9a56; }
+@keyframes yacht-win-pop { 0% { opacity: 0; transform: translate(-50%,-50%) scale(.35) rotate(-8deg); } 62% { opacity: 1; transform: translate(-50%,-50%) scale(1.12) rotate(2deg); } 82% { transform: translate(-50%,-50%) scale(.96) rotate(-1deg); } 100% { opacity: 1; transform: translate(-50%,-50%) scale(1) rotate(0); } }
+@keyframes yacht-win-glow { to { box-shadow: 0 0 0 8px rgba(255,211,91,.22), 0 0 62px rgba(255,119,180,.95), 0 14px 40px rgba(48,15,35,.5); } }
+@keyframes yacht-ring { 0% { transform: scale(.82); opacity: .95; } 100% { transform: scale(1.14); opacity: 0; } }
+@keyframes yacht-confetti { 0% { opacity: 0; transform: translate(-50%,-50%) rotate(var(--angle)) scale(.3); } 14% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%,-50%) rotate(var(--angle)) translateY(calc(0px - var(--distance))) rotate(300deg) scale(.7); } }
+@media (prefers-reduced-motion: reduce) { .yacht-celebration-layer.show .yacht-celebration,.yacht-celebration-layer.show .yacht-confetti,.yacht-burst-ring { animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
 .cup-btn { position: relative; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .cup-btn.shaking { animation: shake 0.16s infinite; }
 @keyframes shake { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg) translateY(-3px); } }
@@ -439,6 +455,31 @@ table.rank th, table.rank td { padding: 7px 6px; text-align: center; border-bott
 table.rank th { color: var(--muted); font-weight: normal; font-size: 14px; }
 table.rank td:nth-child(2) { text-align: left; }
 .rules p { margin: 0 0 8px; line-height: 1.5; }
+.planning-modal { width: min(760px, 100%); }
+.planning-modal > h2 { margin-bottom: 16px; }
+.plan-hero { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 20px 22px; border-radius: 18px; background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 28%, var(--panel)), var(--panel)); }
+.plan-hero > div { min-width: 0; }
+.plan-kicker { color: var(--gold); font-size: 12px; font-weight: 900; letter-spacing: .08em; }
+.plan-hero h3 { margin: 7px 0; font-size: clamp(23px, 4vw, 32px); line-height: 1.2; }
+.plan-hero p { max-width: 390px; margin: 0; color: var(--muted); line-height: 1.55; }
+.plan-art { width: min(34%, 210px); min-width: 120px; height: auto; flex: none; }
+.plan-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.plan-point { display: flex; gap: 10px; align-items: flex-start; padding: 14px 12px; border: 1px solid var(--edge); border-radius: 15px; background: var(--surface); }
+.plan-number { display: grid; place-items: center; width: 29px; height: 29px; flex: none; border-radius: 10px; background: var(--accent); color: var(--on-accent); font-size: 12px; font-weight: 900; }
+.plan-point b { display: block; margin: 2px 0 5px; font-size: 15px; }
+.plan-point p, .plan-details p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.plan-footer { display: flex; justify-content: space-between; gap: 12px; margin-top: 15px; color: var(--muted); font-size: 13px; }
+.plan-footer a, .plan-details a { color: var(--gold); }
+.plan-details { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--divider); }
+.plan-details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.plan-details p { margin-top: 8px; }
+@media (max-width: 640px) {
+  .plan-hero { padding: 16px; }
+  .plan-art { width: 31%; min-width: 92px; }
+  .plan-grid { grid-template-columns: 1fr; }
+  .plan-point { padding: 12px; }
+  .plan-footer { flex-wrap: wrap; }
+}
 
 /* ================================================================ 다듬기: 모든 화면 공통 (테마 토큰으로 색만 바뀜) */
 /* 카드: 단색 대신 위가 살짝 밝은 그라데이션 + 얇은 테두리 */
@@ -753,15 +794,15 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
   font-size: clamp(16px, 2.6vw, 24px); color: #fff; padding: 4px 18px; border-radius: 999px; margin: 6px 0 14px;
   background: rgba(0, 0, 0, 0.42); border: 2px solid rgba(255, 255, 255, 0.6);
 }
-.title-menu { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.title-menu { width: min(390px, calc(100vw - 28px)); box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 24px; }
 .title-item {
-  border: 0; background: none; padding: 4px 26px; font-size: clamp(22px, 3.4vw, 34px); color: #FFFFFF; position: relative;
+  width: 100%; box-sizing: border-box; border: 0; background: none; padding: 4px 30px; font-size: clamp(22px, 3.4vw, 34px); color: #FFFFFF; position: relative;
   text-shadow: 3px 0 0 #1A1446, -3px 0 0 #1A1446, 0 3px 0 #1A1446, 0 -3px 0 #1A1446, 2px 2px 0 #1A1446, -2px -2px 0 #1A1446, 2px -2px 0 #1A1446, -2px 2px 0 #1A1446, 0 6px 0 rgba(0, 0, 0, 0.35);
   transition: transform 0.1s, color 0.1s;
 }
 .title-item.on { color: var(--gold); transform: scale(1.08); }
-.title-item.on::before { content: "▶"; position: absolute; left: -6px; top: 50%; transform: translateY(-50%); font-size: 0.7em; animation: nudge 0.6s ease-in-out infinite alternate; }
-@keyframes nudge { to { left: 2px; } }
+.title-item.on::before { content: "▶"; position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 0.7em; animation: nudge 0.6s ease-in-out infinite alternate; }
+@keyframes nudge { to { left: 14px; } }
 .title-hint { position: absolute; bottom: calc(12px + var(--safe-b)); font-size: 13px; color: rgba(255, 255, 255, 0.85); text-shadow: 0 1px 2px #000; }
 
 /* 말랑말랑: 노란 글자 + 갈색 테두리 (동화책 게임 느낌) */
@@ -778,7 +819,7 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
 [data-theme="arcade"] .title-logo b { color: #FFE600; }
 [data-theme="arcade"] .title-logo em { color: #FF2BD6; }
 [data-theme="arcade"] .title-item { color: #7CF7FF; text-shadow: 0 0 6px #00E5FF, 2px 2px 0 #07071A, -2px -2px 0 #07071A, 2px -2px 0 #07071A, -2px 2px 0 #07071A; }
-[data-theme="arcade"] .title-menu { background: rgba(7, 7, 26, 0.72); border: 2px solid #00E5FF; border-radius: 12px; padding: 10px 6px; box-shadow: 0 0 18px rgba(0, 229, 255, 0.45); }
+[data-theme="arcade"] .title-menu { background: rgba(7, 7, 26, 0.72); border: 2px solid #00E5FF; border-radius: 12px; padding: 10px 24px; box-shadow: 0 0 18px rgba(0, 229, 255, 0.45); }
 [data-theme="arcade"] .title-item.on { color: #FFE600; text-shadow: 0 0 10px #FFE600, 2px 2px 0 #07071A, -2px -2px 0 #07071A; }
 
 /* 첫 화면 위 '타이틀로' 버튼 */
@@ -931,18 +972,34 @@ table.odds td { vertical-align: middle; }
 .yut-team-column-head span { font-size: 12px; color: var(--muted); }
 .yut-team-members { display: grid; gap: 9px; min-height: 92px; align-content: start; }
 .yut-room-player { min-width: 0; padding: 10px; border: 1px solid var(--edge); border-radius: 14px; background: var(--surface); box-shadow: 0 3px 10px rgba(0,0,0,.12); }
-.teams .yut-room-player { cursor: grab; }
 .yut-room-player.dragging { opacity: .45; }
 .yut-player-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.team-drag-handle { display: grid; flex: 0 0 32px; place-items: center; width: 32px; height: 36px; padding: 0; border: 1px solid var(--edge); border-radius: 9px; background: var(--row); color: var(--muted); font-size: 20px; line-height: 1; cursor: grab; touch-action: none; }
+.team-drag-handle:active { cursor: grabbing; }
+.team-drag-handle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .yut-character-preview { display: grid; place-items: center; flex: 0 0 45px; height: 48px; border-radius: 12px; background: var(--row); }
 .yut-character-preview svg { width: 32px; height: 42px; }
 .yut-player-label { display: grid; gap: 2px; min-width: 0; flex: 1; }
 .yut-player-label strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.local-name-field { display: grid; gap: 2px; max-width: 150px; color: var(--muted); font-size: 10px; }
+.local-name-field input { width: 100%; min-width: 0; padding: 5px 7px; border: 1px solid var(--edge); border-radius: 7px; background: var(--row); color: var(--text); font: inherit; font-size: 13px; }
+.local-name-field input:focus { border-color: var(--accent); outline: 2px solid color-mix(in srgb, var(--accent) 30%, transparent); }
 .yut-picked-name,.yut-owner-note { color: var(--muted); font-size: 12px; }
 .yut-player-tags { display: flex; gap: 4px; flex-wrap: wrap; }
 .yut-player-tags .kick { padding: 2px 7px; font-size: 11px; }
-.yut-character-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
-.yut-character-choice { display: flex; align-items: center; gap: 5px; min-height: 38px; padding: 4px 8px; border: 1px solid var(--edge); border-radius: 10px; background: var(--row); color: var(--text); cursor: pointer; }
+.yut-character-picker { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 9px; }
+.yut-character-choice { display: flex; align-items: center; justify-content: center; gap: 5px; width: 100%; min-width: 0; min-height: 42px; padding: 4px 6px; border: 1px solid var(--edge); border-radius: 10px; background: var(--row); color: var(--text); cursor: pointer; }
+.yut-picker-controls { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.yut-character-choice.yut-character-default { grid-column: auto; justify-content: center; min-height: 52px; padding: 6px 10px; text-align: left; }
+.yut-character-choice.yut-random-choice { display: grid; grid-template-columns: auto auto; align-content: center; justify-content: center; min-width: 0; min-height: 52px; padding: 6px 10px; background: color-mix(in srgb, var(--gold) 18%, var(--row)); font-size: 19px; }
+.yut-character-choice.yut-random-choice span { font-size: 13px; font-weight: 800; }
+.yut-default-icon { display: grid; flex: 0 0 34px; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 18%, var(--row)); color: var(--accent); font-size: 24px; }
+.yut-character-choice .yut-default-icon { font-size: 24px; }
+.yut-default-copy { display: grid; gap: 2px; }
+.yut-default-copy strong { font-size: 13px; }
+.yut-default-copy small { color: var(--muted); font-size: 11px; }
+.yut-character-picker > .yut-owner-note { grid-column: 1 / -1; }
+.yut-character-preview .yut-character-none { display: grid; place-items: center; width: 32px; height: 38px; border: 2px dashed color-mix(in srgb, var(--muted) 55%, transparent); border-radius: 50% 50% 42% 42%; color: var(--muted); font-size: 21px; font-weight: 900; }
 .yut-character-choice svg { width: 17px; height: 25px; }
 .yut-character-choice span { font-size: 12px; }
 .yut-character-choice.selected { border-color: var(--gold); box-shadow: 0 0 0 2px color-mix(in srgb, var(--gold) 40%, transparent); }
@@ -973,8 +1030,30 @@ table.odds td { vertical-align: middle; }
 }
 
 /* 윷놀이 방은 준비 중심으로, 플레이 화면은 판과 시작 카드가 한 화면에 보이도록 */
-.yut-wait-card { border-color: color-mix(in srgb, var(--mint) 38%, var(--edge)); }
-.yut-wait-card > .sec-title { font-size: 19px; }
+.yut-lobby-screen .wait-grid { grid-template-columns: minmax(0, 1fr) minmax(300px, 340px); gap: 18px; }
+.yut-lobby { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.yut-lobby-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; border: 2px solid var(--edge); border-radius: 20px; background: linear-gradient(135deg, var(--surface-hi), var(--surface)); box-shadow: var(--shadow); }
+.yut-lobby-intro { min-width: 0; }
+.yut-lobby-eyebrow { color: var(--mint); font-size: 11px; font-weight: 800; letter-spacing: .16em; }
+.yut-lobby-intro h2 { margin: 3px 0; font-size: clamp(22px, 2.5vw, 30px); }
+.yut-lobby-intro p { margin: 0; color: var(--muted); font-size: 14px; }
+.yut-lobby-invite { display: flex; align-items: center; gap: 8px; flex: none; }
+.yut-lobby-invite > div { display: grid; gap: 1px; margin-right: 4px; }
+.yut-lobby-invite > div span { color: var(--muted); font-size: 11px; }
+.yut-lobby-invite > div strong { font-size: 22px; letter-spacing: .1em; }
+.local-yut-summary { display: flex; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+.local-yut-summary span { padding: 7px 10px; border-radius: 999px; background: var(--row); box-shadow: inset 0 0 0 1px var(--edge); color: var(--text); font-size: 12px; white-space: nowrap; }
+.yut-lobby-roster > .yut-room-setup { margin: 0; padding: 18px; border-width: 2px; }
+.yut-lobby-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border: 1px solid var(--edge); border-radius: 16px; background: var(--row); }
+.yut-lobby-count { display: flex; align-items: baseline; gap: 7px; white-space: nowrap; }
+.yut-lobby-count strong { font-size: 22px; }
+.yut-lobby-count span { color: var(--muted); font-size: 13px; }
+.yut-lobby-foot .start-row { flex-wrap: wrap; }
+.yut-lobby-foot .start-row .muted { flex-basis: 100%; text-align: right; }
+.yut-local-ready { margin: 2px 0 0; font-size: 13px; }
+.local-yut-start { min-width: 200px; }
+.yut-lobby .card { margin: 0; }
+.yut-lobby-screen .side-col .chat { height: min(720px, calc(100dvh - 160px)); }
 .yut-screen .game-layout { min-height: 0; align-items: start; }
 .yut-screen .board-wrap { --yw: min(100%, clamp(280px, calc((100dvh - 470px) * 200 / 208), 760px)); gap: 7px; }
 .yut-screen .yut-stage { width: var(--yw); flex: none; }
@@ -993,22 +1072,53 @@ table.odds td { vertical-align: middle; }
 .yut-screen .hand-track .ac-tier { font-size: 9px; padding: 1px 5px; }
 .yut-screen .hand-track .ac-name { font-size: clamp(10px, calc(var(--yw) * .027), 16px); line-height: 1.12; }
 .yut-screen .hand-track .ac-desc { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: clamp(8px, calc(var(--yw) * .018), 11px); line-height: 1.2; }
+.yut-screen .hand-track .ability-card { z-index: 0; }
+.yut-screen .hand-track .ability-card:hover,.yut-screen .hand-track .ability-card:focus-visible { z-index: 8; }
+.yut-screen .hand-track .ability-card::after { content: attr(data-tooltip); position: absolute; left: 50%; bottom: calc(100% + 9px); z-index: 9; width: min(300px, 76vw); padding: 10px 12px; border: 1px solid var(--gold); border-radius: 12px; background: rgba(24, 19, 53, .97); color: #fff; font-size: 13px; font-weight: 500; line-height: 1.5; text-align: left; white-space: normal; overflow-wrap: anywhere; box-shadow: 0 8px 22px rgba(0,0,0,.35); opacity: 0; visibility: hidden; pointer-events: none; transform: translate(-50%, 4px); transition: opacity .12s, transform .12s, visibility .12s; }
+.yut-screen .hand-track .ability-card:hover::after,.yut-screen .hand-track .ability-card:focus-visible::after { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
 .deal-modal { width: min(760px, 100%); }
 .deal-popup { display: grid; gap: 12px; }
+.deal-popup-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.deal-popup-head .deal-caption { flex: 1 1 auto; text-align: left; }
+.deal-skip { flex: 0 0 auto; white-space: nowrap; }
+.deal-skip kbd { margin-right: 5px; }
+.deal-skip:disabled { opacity: .72; cursor: default; }
 .deal-popup .hand-track { display: grid; grid-template-columns: repeat(var(--hand-count, 4), minmax(0, 1fr)); gap: 8px; width: 100%; overflow: visible; padding: 4px 0 8px; }
 .deal-popup .hand-track .ability-card { width: 100%; min-width: 0; padding: 8px; }
 .deal-caption,.deal-result-label { margin: 0; text-align: center; }
 .deal-result-label { min-height: 22px; color: var(--gold); font-weight: 700; }
 .deal-roulette-cards { min-width: 0; }
-.deal-roulette-card { pointer-events: none; min-height: 125px !important; }
-.deal-roulette-card.rolling { animation: deal-roll .2s ease both; animation-delay: var(--deal-delay, 0ms); }
-.deal-roulette-card.revealed { animation: deal-reveal .55s cubic-bezier(.2, 1.4, .4, 1) both; animation-delay: var(--deal-delay, 0ms); }
-@keyframes deal-roll { from { transform: translateY(-9px) rotate(-3deg); opacity: .55; } to { transform: translateY(0) rotate(0); opacity: 1; } }
-@keyframes deal-reveal { from { transform: translateY(14px) scale(.88); opacity: .3; } to { transform: translateY(0) scale(1); opacity: 1; } }
+.deal-card-slot { position: relative; min-width: 0; perspective: 700px; }
+.deal-roulette-card { position: relative; overflow: hidden; pointer-events: none; min-height: 125px !important; isolation: isolate; }
+.deal-roulette-card.rolling { animation: deal-roll .3s cubic-bezier(.2,.8,.3,1) both; }
+.deal-roulette-card.rolling::after { content: ""; position: absolute; inset: -60% -80%; z-index: -1; background: linear-gradient(105deg, transparent 42%, rgba(255,255,255,.32) 50%, transparent 58%); animation: deal-shine .8s linear infinite; }
+.deal-card-slot.stopped { animation: deal-slot-stop .48s cubic-bezier(.18,.85,.3,1.25) both; }
+.deal-card-slot.stopped::after { content: "✦"; position: absolute; top: -10px; right: -5px; z-index: 2; color: #fff2a6; font-size: 26px; text-shadow: 0 0 9px #ffd85a, 0 0 20px #ff8a3d; animation: deal-spark .65s ease-out both; pointer-events: none; }
+.deal-roulette-card.revealed { animation: deal-reveal .62s cubic-bezier(.18,.9,.28,1.3) both; box-shadow: 0 0 0 1px rgba(255,225,120,.8), 0 0 22px color-mix(in srgb, var(--tier) 65%, transparent), 0 0 42px rgba(255,213,91,.28); }
+.deal-popup.revealed .deal-result-label { animation: deal-result .45s ease both; }
+@keyframes deal-roll { from { transform: translateY(-7px) rotate(-2deg) scale(.96); opacity: .65; filter: brightness(.8); } to { transform: translateY(0) rotate(0) scale(1); opacity: 1; filter: brightness(1); } }
+@keyframes deal-shine { from { transform: translateX(-55%) rotate(10deg); } to { transform: translateX(55%) rotate(10deg); } }
+@keyframes deal-slot-stop { 0% { transform: translateY(-10px) scale(1.04); filter: brightness(1.7); } 55% { transform: translateY(4px) scale(.97); filter: brightness(1.25); } 100% { transform: translateY(0) scale(1); filter: brightness(1); } }
+@keyframes deal-spark { 0% { opacity: 0; transform: scale(.2) rotate(-35deg); } 45% { opacity: 1; transform: scale(1.35) rotate(14deg); } 100% { opacity: .9; transform: scale(1) rotate(0); } }
+@keyframes deal-reveal { from { transform: translateY(12px) rotateX(-16deg) scale(.86); opacity: .25; filter: brightness(1.8); } to { transform: translateY(0) rotateX(0) scale(1); opacity: 1; filter: brightness(1); } }
+@keyframes deal-result { from { opacity: 0; transform: translateY(7px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@media (prefers-reduced-motion: reduce) { .deal-roulette-card.rolling,.deal-card-slot.stopped,.deal-card-slot.stopped::after,.deal-roulette-card.revealed,.deal-popup.revealed .deal-result-label { animation-duration: .01ms !important; animation-iteration-count: 1 !important; } .deal-roulette-card.rolling::after { animation: none !important; } }
 @media (max-width: 900px) {
+  .yut-lobby-screen .wait-grid { grid-template-columns: 1fr; }
+  .yut-lobby-screen .side-col { order: 2; }
+  .yut-lobby-screen .side-col .chat { height: min(520px, calc(100dvh - 170px)); }
   .yut-screen .board-wrap { --yw: min(100%, clamp(280px, calc((100dvh - 470px) * 200 / 208), 680px)); }
 }
 @media (max-width: 640px) {
+  .yut-lobby-head { align-items: flex-start; flex-direction: column; padding: 14px; }
+  .yut-lobby-invite { width: 100%; flex-wrap: wrap; }
+  .yut-lobby-invite > div { margin-right: auto; }
+  .local-yut-summary { justify-content: flex-start; }
+  .yut-lobby-roster > .yut-room-setup { padding: 11px; }
+  .yut-lobby-foot { align-items: flex-start; flex-direction: column; }
+  .yut-lobby-foot .start-row { width: 100%; justify-content: stretch !important; }
+  .yut-lobby-foot .start-row .btn.big { flex: 1; }
+  .yut-lobby-foot .start-row .muted { text-align: left; }
   .yut-screen .board-wrap { --yw: min(100%, clamp(250px, calc((100dvh - 430px) * 200 / 208), 520px)); }
   .yut-screen .hand-track { gap: 4px; }
   .yut-screen .hand-track .ability-card { min-height: 76px; padding: 5px; }
@@ -1161,7 +1271,7 @@ html[data-theme] .yut-hint { color: var(--chip-text); text-shadow: 1px 1px 0 var
 .yb-shield { fill: rgba(124, 231, 255, 0.25); stroke: #7CE7FF; stroke-width: 0.6; stroke-dasharray: 1.2 0.8; }
 .yb-dock rect { fill: rgba(0, 0, 0, 0.28); stroke: var(--pc); stroke-width: 0.6; stroke-opacity: 0.6; }
 .yb-dock.on rect { fill: color-mix(in srgb, var(--pc) 30%, rgba(0, 0, 0, 0.3)); stroke-width: 1.1; stroke-opacity: 1; }
-.yb-dock-name { font-size: 3.6px; paint-order: stroke; stroke: rgba(20, 12, 40, 0.85); stroke-width: 0.9; }
+.yb-dock-name { font-size: 4px; paint-order: stroke; stroke: rgba(20, 12, 40, 0.85); stroke-width: 0.9; }
 .yb-dest { cursor: pointer; }
 .yb-dest-in { animation: dest-bob 0.7s ease-in-out infinite alternate; }
 .yb-dest path { fill: #FFD34D; stroke: #8A5A2B; stroke-width: 0.7; }
@@ -1185,40 +1295,27 @@ html[data-theme] .yut-hint { color: var(--chip-text); text-shadow: 1px 1px 0 var
 .yb-go-in { animation: go-up 0.8s ease-in-out infinite alternate; }
 @keyframes go-up { to { transform: translateY(-3px); } }
 .yb-corner-label { font-size: 2.6px; text-anchor: middle; fill: #8A5A2B; pointer-events: none; }
-.yb-start-sign { pointer-events: none; }
-.yb-start-sign rect { fill: #E8590C; stroke: #fff; stroke-width: 0.7; }
-.yb-start-sign text { font-size: 4.6px; text-anchor: middle; fill: #fff; }
+.yb-start-label { pointer-events: none; font-size: 3.6px; font-weight: 900; text-anchor: middle; dominant-baseline: middle; fill: #70451F; paint-order: stroke; stroke: rgba(255, 240, 205, .8); stroke-width: .55px; }
 /* 윷 던지기: 판 위로 크게 */
 .yut-toss { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 2; }
-/* 윷가락: 평평한 면 = 밝은 나무, 둥근 등 = 진한 나무 + × 무늬 (아래 끝은 반달 모양 단면) */
-.toss-row { display: flex; align-items: center; gap: clamp(14px, 2.6vw, 28px); padding: 16px 24px; border-radius: 22px; background: #FFFBF3; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35), inset 0 0 0 3px #E8D2B0; }
-.toss-row.out { animation: toss-out 0.4s ease forwards; }
-@keyframes toss-out { to { opacity: 0; transform: scale(0.92); } }
-.toss-sticks { display: flex; gap: clamp(4px, 0.8vw, 8px); align-items: flex-end; }
-.stick.big {
-  width: clamp(22px, 3.4vw, 38px); aspect-ratio: 30 / 132; height: auto; border: 0; border-radius: 0; background: none; box-shadow: none; display: block;
-  filter: drop-shadow(0 6px 5px rgba(60, 30, 10, 0.3)); animation: fly 0.85s cubic-bezier(.25, .7, .35, 1) var(--d) both;
-}
-.stick.big svg { width: 100%; height: 100%; display: block; }
-@keyframes fly {
-  0% { transform: translateY(180%) rotate(calc(var(--s) - 40deg)) scale(1.4); opacity: 0; }
-  15% { opacity: 1; }
-  55% { transform: translateY(-50%) rotate(calc(var(--s) + 500deg)) scale(1.15); }
-  82% { transform: translateY(6%) rotate(712deg) scale(1); }
-  100% { transform: translateY(0) rotate(720deg) scale(1); }
-}
-.toss-cap { display: flex; flex-direction: column; gap: 2px; color: #3B2412; opacity: 0; animation: cap-in 0.3s ease 0.8s forwards; white-space: nowrap; }
-.toss-cap b { font-weight: normal; font-size: clamp(30px, 5vw, 52px); line-height: 1; }
-.toss-cap span { font-size: clamp(15px, 2vw, 22px); }
-.toss-cap.good b { color: #E8590C; }
-.toss-cap.bad b { color: #C2255C; }
-@keyframes cap-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+.yut-physics-canvas { position: absolute; inset: 0; display: block; pointer-events: none; transition: opacity .4s ease; }
+.yut-physics-canvas.fade-out { opacity: 0; }
+.yut-stage.throw-impact .yut-board { animation: board-toss-impact .36s ease-out; }
+@keyframes board-toss-impact { 0%,100% { translate: 0 0; } 18% { translate: 2px 3px; } 38% { translate: -2px -1px; } 62% { translate: 1px 1px; } }
+.toss-result { position: absolute; z-index: 4; bottom: 5%; left: 50%; display: flex; flex-direction: column; gap: 2px; padding: 10px 18px; transform: translateX(-50%); border: 2px solid #E8D2B0; border-radius: 16px; color: #3B2412; background: rgba(255,251,243,.95); box-shadow: 0 6px 20px rgba(0,0,0,.32); text-align: center; white-space: nowrap; animation: toss-result-in .32s ease-out both; }
+.toss-result.out { animation: toss-result-out .3s ease-in forwards; }
+.toss-result b { font-weight: 900; font-size: clamp(36px, 5vw, 58px); line-height: 1; }
+.toss-result span { font-size: clamp(15px, 2vw, 22px); }
+.toss-result.good b { color: #E8590C; }
+.toss-result.bad b { color: #C2255C; }
+@keyframes toss-result-in { from { opacity: 0; transform: translate(-50%, 10px) scale(.9); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+@keyframes toss-result-out { to { opacity: 0; transform: translate(-50%, -8px) scale(.92); } }
 .yut-throw { gap: 18px; }
 .yut-result { display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .yut-result .res-chip { font-size: 16px; padding: 4px 12px; }
 
 .yb-dock-name { text-anchor: start; }
-.yb-dock-sub { font-size: 3px; text-anchor: start; fill: #fff; paint-order: stroke; stroke: rgba(20, 12, 40, 0.85); stroke-width: 0.8; }
+.yb-dock-sub { font-size: 3.6px; text-anchor: start; fill: #fff; paint-order: stroke; stroke: rgba(20, 12, 40, 0.85); stroke-width: 0.8; }
 .yb-dest-lead { stroke: #FFD34D; stroke-width: 0.7; stroke-dasharray: 1.4 1; pointer-events: none; }
 .res-chip.go { cursor: pointer; border: 0; animation: pulse 0.8s ease-in-out infinite alternate; }
 .skin-opt:disabled { opacity: 0.35; filter: grayscale(0.8); }
@@ -1256,6 +1353,7 @@ html[data-theme="arcade"] .logo { text-shadow: 0 0 8px #00E5FF, 0 0 18px #00E5FF
 .yut-ghost .yb-bob { animation: hop 0.15s ease-in-out infinite alternate; }
 @keyframes hop { to { transform: translateY(-3px); } }
 .yb-route { fill: none; stroke: #FFB800; stroke-width: 2.4; stroke-dasharray: 0.1 3.2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; filter: drop-shadow(0 0 0.8px #5B3A1A) drop-shadow(0 0 0.8px #5B3A1A); animation: route-run 0.8s linear infinite; }
+.yb-route.back { stroke: #62D8E8; animation-direction: reverse; }
 @keyframes route-run { to { stroke-dashoffset: -6.6; } }
 .yb-dest.hot path { fill: #FF6B6B; }
 .yb-dest.hot text { fill: #fff; }
@@ -1267,7 +1365,7 @@ html[data-theme="arcade"] .logo { text-shadow: 0 0 8px #00E5FF, 0 0 18px #00E5FF
 .yb-turn-tag { animation: dest-bob 0.7s ease-in-out infinite alternate; }
 
 /* 윷놀이: 자리 카드 · 판 · 아래 칸 너비를 판에 맞춰 한 줄로 */
-.yut-screen .board-wrap { --yw: min(100%, calc((100dvh - 310px) * 200 / 208), 820px); align-items: center; }
+.yut-screen .board-wrap { --yw: min(100%, calc((100dvh - 390px) * 200 / 208), 820px); align-items: center; }
 .yut-screen .yut-seats, .yut-screen .yut-stage, .yut-screen .yut-panel { width: var(--yw); }
 .yut-seats { display: grid !important; grid-template-columns: repeat(var(--n, 2), minmax(0, 1fr)); gap: 10px; padding-top: 8px; }
 .ys-card {
@@ -1332,3 +1430,105 @@ button.ys-char { cursor: pointer; box-shadow: inset 0 0 0 2px var(--gold); anima
 .team-tag { display: inline-block; color: #fff; padding: 1px 10px; border-radius: 999px; font-size: 14px; }
 .team-tag.t0 { background: #E8590C; }
 .team-tag.t1 { background: #1C7ED6; }
+
+@media (max-width: 640px) { .yut-screen .board-wrap { --yw: min(100%, calc((100dvh - 330px) * 200 / 208), 520px); } }
+
+/* ? ??? ?? ??? ?? ??? ???? ???? */
+.lobby-quick-find { display: grid; gap: 8px; margin-top: 14px; padding: 12px; border: 1px solid var(--edge); border-radius: 14px; background: color-mix(in srgb, var(--accent) 7%, var(--row)); }
+.lobby-quick-find > strong { font-size: 14px; }
+.lobby-quick-find .row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.lobby-quick-find .btn { min-height: 40px; white-space: normal; }
+.modal-back { padding: clamp(12px, 3vw, 24px); background: color-mix(in srgb, var(--overlay) 88%, #0a0716); }
+.modal { width: min(540px, 100%); padding: clamp(18px, 3vw, 26px); border: 1px solid var(--edge); border-radius: 22px; }
+.modal h2 { font-size: clamp(21px, 4vw, 27px); line-height: 1.2; }
+.modal-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.modal-actions .btn { min-height: 42px; }
+.yut-character-picker > .yut-picker-controls .yut-character-choice { min-height: 58px; }
+.yut-character-picker > .yut-character-choice { min-height: 62px; flex-direction: column; gap: 1px; padding: 4px 3px; }
+.yut-character-picker > .yut-character-choice svg { width: 25px; height: 34px; }
+.yut-character-picker > .yut-character-choice span { font-size: 11px; line-height: 1.1; }
+.yut-room-player { display: flex; flex-direction: column; min-height: 0; }
+.yut-room-player .yut-character-picker { flex: 1; align-content: start; }
+.yut-room-player .team-move-btn { min-height: 34px; margin-top: auto; }
+.yb-dock-sub { font-size: 3px; }
+@media (max-width: 640px) {
+  .lobby-quick-find .row { grid-template-columns: 1fr; }
+  .yut-character-picker > .yut-character-choice { min-height: 56px; }
+}
+
+/* ? ??? ?? ??? ? ?? ?? ?? ?? */
+.yut-room-player .team-move-btn { margin-top: 16px; }
+.local-yut-player .yut-character-picker { margin-bottom: 4px; }
+
+.yut-room-player .team-move-btn { position: relative; z-index: 2; flex: 0 0 auto; margin-top: 12px; pointer-events: auto; touch-action: manipulation; }
+.yut-character-picker, .yut-character-choice { position: relative; z-index: 1; pointer-events: auto; }
+.yb-piece.finished { filter: grayscale(1); opacity: .48; }
+.yb-dock-name { font-size: 5.4px; font-weight: 800; text-anchor: end; }
+.yb-turn-tag text { font-size: 5.8px; font-weight: 900; }
+.yb-turn-tag rect { stroke-width: .8; filter: drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 3px var(--pc)); }
+.yb-turn-tag { animation: yut-turn-glow 1s ease-in-out infinite alternate; }
+@keyframes yut-turn-glow { from { filter: brightness(1) drop-shadow(0 0 1px var(--pc)); } to { filter: brightness(1.25) drop-shadow(0 0 4px var(--pc)); } }
+
+/* 윷놀이 게임 화면: 판은 왼쪽, 참가자와 조작·기록·채팅은 오른쪽 */
+.yut-screen .game-layout { grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); gap: 14px; }
+.yut-screen .game-layout > .board-wrap { width: 100%; min-height: 0; }
+.yut-screen .board-wrap { --yw: min(100%, calc((100dvh - 110px) * 200 / 208), 900px); gap: 0; }
+.yut-screen .yut-stage { width: var(--yw); max-width: 100%; flex: none; }
+.yut-side-stack { display: grid; gap: 10px; min-width: 0; }
+.yut-player-card-list,.yut-control-card,.yut-log-card { min-width: 0; margin: 0; padding: 11px; }
+.yut-player-card-list h3 { margin: 0 0 8px; font-size: 15px; }
+.yut-player-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.yut-player-mini { display: flex; align-items: center; gap: 6px; position: relative; min-width: 0; min-height: 54px; padding: 6px; border: 1px solid var(--edge); border-left: 3px solid var(--pc); border-radius: 11px; background: var(--row); }
+.yut-player-mini.turn { border-color: var(--pc); box-shadow: 0 0 0 1px color-mix(in srgb, var(--pc) 45%, transparent); }
+.yut-mini-avatar { display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 36px; border-radius: 8px; background: var(--surface); }
+.yut-mini-avatar svg { width: 25px; height: 32px; }
+.yut-mini-info { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.yut-mini-info strong { overflow: hidden; color: var(--text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.yut-mini-info small { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.yut-mini-team,.yut-mini-turn { position: absolute; top: -6px; right: 5px; padding: 1px 5px; border-radius: 999px; background: var(--pc); color: #fff; font-size: 9px; line-height: 1.35; }
+.yut-mini-team + .yut-mini-turn { top: auto; right: 5px; bottom: -6px; }
+.yut-control-card .yut-panel { width: 100%; gap: 7px; }
+.yut-screen .yut-turn-status { min-height: 30px; padding: 4px 8px; font-size: 13px; }
+.yut-screen .yut-turn-status > span:last-child { font-size: 11px; }
+.yut-screen .yut-throw { min-height: 0; gap: 7px; padding: 6px; }
+.yut-screen .yut-throw .btn { min-height: 42px; padding: 6px 11px; font-size: 15px; }
+.yut-screen .sticks { height: 42px; }
+.yut-screen .stick { height: 40px; }
+.yut-screen .yut-hint { min-height: 0; font-size: 11px; line-height: 1.35; }
+.yut-screen .yut-log { max-height: 130px; overflow: auto; }
+.yut-screen .side > .chat { flex: 1 1 200px; min-height: 220px; }
+.yut-screen .side > .chat .chat-log { height: 180px; }
+@media (max-width: 900px) {
+  .yut-screen .game-layout { grid-template-columns: minmax(0, 1fr); }
+  .yut-screen .board-wrap { --yw: min(100%, calc((100dvh - 150px) * 200 / 208), 760px); }
+}
+@media (max-width: 520px) {
+  .yut-screen .game-layout { gap: 10px; }
+  .yut-player-cards { gap: 6px; }
+  .yut-player-mini { padding: 5px; }
+  .yut-screen .board-wrap { --yw: min(100%, calc((100dvh - 190px) * 200 / 208), 520px); }
+}
+.yut-screen .game-layout > .side { height: calc(100dvh - 102px); min-height: 0; gap: 8px; }
+.yut-screen .yut-side-stack { gap: 7px; flex: 0 0 auto; }
+.yut-screen .yut-player-card-list,.yut-screen .yut-control-card,.yut-screen .yut-log-card { padding: 8px; }
+.yut-screen .yut-player-card-list h3 { margin-bottom: 5px; }
+.yut-screen .yut-player-mini { min-height: 46px; padding: 4px 5px; }
+.yut-screen .yut-mini-avatar { flex-basis: 26px; width: 26px; height: 31px; }
+.yut-screen .yut-mini-avatar svg { width: 22px; height: 28px; }
+.yut-screen .yut-control-card .yut-panel { gap: 5px; }
+.yut-screen .yut-throw .btn { min-height: 36px; padding: 4px 9px; font-size: 14px; }
+.yut-screen .sticks { height: 34px; }
+.yut-screen .stick { height: 32px; }
+.yut-screen .hand-header { min-height: 14px; }
+.yut-screen .hand-track .ability-card { min-height: 58px; padding: 4px 5px; }
+.yut-screen .hand-track .ac-desc { -webkit-line-clamp: 1; }
+.yut-screen .yut-log { max-height: 64px; }
+.yut-screen .side > .chat { flex: 1 1 0; min-height: 150px; height: auto; }
+.yut-screen .side > .chat .chat-log { flex: 1 1 48px; height: auto; min-height: 48px; }
+.yut-screen .side > .chat .sticker-bar { flex: 0 0 auto; }
+.yut-screen .side > .chat .chat-form { flex: 0 0 auto; }
+@media (max-width: 900px) {
+  .yut-screen .game-layout > .side { height: auto; }
+  .yut-screen .side > .chat { flex: none; min-height: 250px; }
+  .yut-screen .side > .chat .chat-log { min-height: 90px; }
+}

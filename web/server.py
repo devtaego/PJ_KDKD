@@ -30,7 +30,8 @@ RANKING_FILE = os.environ.get("KIDK_RANKING_FILE", os.path.join(HERE, "ranking.j
 
 GAMES = {"chess": 2, "omok": 2, "yacht": 6, "yut": 4}  # 게임 -> 최대 플레이어 수
 SETTING_KEYS = {"time", "color", "rule", "private", "pieces", "chaos", "team", "tb"}  # 방 설정으로 받는 값
-FX_KINDS = {"teabag", "taunt", "shake"}  # 기록 없이 전달하는 효과
+FX_KINDS = {"teabag", "taunt", "shake"}
+YUT_SKINS = {"penguin", "tiger", "rabbit", "frog", "bear", "cat", "chick", "fox"}  # 기록 없이 전달하는 효과
 MAX_MSG = 100_000  # 메시지 하나 최대 크기 (프로필 사진 포함해도 충분)
 MAX_PHOTO = 60_000
 MAX_ACT = 2_000  # 게임 수 하나의 최대 크기 (보통 100바이트 안팎)
@@ -38,7 +39,9 @@ MAX_TEXT = 100
 MAX_LOG = 3000
 GRACE = 30  # 연결이 끊긴 사람의 자리를 지켜 주는 시간(초)
 RATE_WINDOW = 5  # 도배 막기: 이 시간(초) 동안
-RATE_ALL, RATE_CHAT = 60, 8  # 메시지 전체 / 채팅 · 효과 최대 개수
+RATE_ALL, RATE_CHAT = 60, 8  # 메시지 전체 / 채팅 효과 최대 개수
+RATE_CHAT_MESSAGES = 8  # 실제 채팅 메시지 최대 개수 (RATE_WINDOW 기준)
+RATE_REPEAT_MESSAGES = 5  # 같은 내용은 짧은 시간에 최대 5회
 MAX_PER_IP = int(os.environ.get("KIDK_MAX_PER_IP", 60))  # 한 주소(IP)당 동시 연결 (학교 와이파이는 반 전체가 같은 주소)
 MAX_CLIENTS, MAX_ROOMS = 1000, 300  # 서버 전체 상한 (무료 서버가 버틸 만큼)
 IDLE_LOBBY, IDLE_ROOM = 20 * 60, 45 * 60  # 이만큼(초) 아무것도 안 하면 연결을 끊어 서버가 잠들 수 있게 함
@@ -90,6 +93,7 @@ class Client:
         self.gone_at = None  # 연결이 끊긴 시각 (다시 들어오면 None)
         self.last_active = time.time()
         self.sent = {"all": [], "chat": []}  # 최근 보낸 메시지 시각 (도배 막기)
+        self.sent_chat = []
 
     def allow(self, kind, limit):
         now = time.time()
@@ -97,6 +101,17 @@ class Client:
         if len(times) >= limit:
             return False
         times.append(now)
+        return True
+
+    def allow_chat(self, text, sticker):
+        now = time.time()
+        key = (text.casefold(), sticker)
+        self.sent_chat = [(at, sent_key) for at, sent_key in self.sent_chat if now - at < RATE_WINDOW]
+        if sum(1 for _, sent_key in self.sent_chat if sent_key == key) >= RATE_REPEAT_MESSAGES:
+            return False
+        if len(self.sent_chat) >= RATE_CHAT_MESSAGES:
+            return False
+        self.sent_chat.append((now, key))
         return True
 
     def set_profile(self, p):
@@ -142,6 +157,7 @@ class Room:
         self.name = f"{random.choice(ROOM_ADJ)} {random.choice(ROOM_ANIMAL)} 방"
         self.host = host  # cid
         self.members = []  # [cid, role] 들어온 순서대로. role: player / spectator
+        self.yut_skins = {}  # cid -> character id; empty means unselected
         self.status = "waiting"  # waiting / playing / done
         self.log = []  # 이번 판의 수 (늦게 들어온 사람과 재접속한 사람이 다시 계산하는 재료)
         self.seq = 0
@@ -194,7 +210,8 @@ class Hub:
                 continue
             members.append({"cid": c.pid, "role": role, "online": c.gone_at is None,
                             "gone": int(c.gone_at * 1000) if c.gone_at else None,
-                            "streak": room.streak.get(cid, 0), **c.profile})
+                            "streak": room.streak.get(cid, 0),
+                            "yut_skin": room.yut_skins.get(cid, "") if room.game == "yut" else "", **c.profile})
         return {"id": room.id, "name": room.name, "game": room.game, "settings": room.settings,
                 "host": self.pid(room.host), "status": room.status, "members": members, "max": GAMES[room.game],
                 "queue": [self.pid(c) for c in room.queue], "grace": GRACE}
@@ -289,6 +306,7 @@ class Hub:
         if client.cid in room.queue:
             room.queue.remove(client.cid)
         room.streak.pop(client.cid, None)
+        room.yut_skins.pop(client.cid, None)
         if not room.members:
             del self.rooms[room.id]
             await self.send_rooms()
@@ -311,7 +329,13 @@ class Hub:
             pos = {p: i for i, p in enumerate(order)}
             if sorted(pos) == sorted(self.clients[c].pid for c in cids):
                 cids.sort(key=lambda c: pos[self.clients[c].pid])
-        return cids, [{"cid": self.clients[c].pid, **self.clients[c].profile} for c in cids]
+        seats = []
+        for cid in cids:
+            seat = {"cid": self.clients[cid].pid, **self.clients[cid].profile}
+            if room.game == "yut":
+                seat["yut_skin"] = room.yut_skins.get(cid, "")
+            seats.append(seat)
+        return cids, seats
 
     async def act(self, room, cid, a):
         """게임 수 하나를 순서(seq)와 서버 시각(at)을 붙여 방 전체에 보냄."""
@@ -336,7 +360,7 @@ class Hub:
     # ------------------------------------------------------------ 메시지 처리
     async def handle(self, client, msg):
         t = msg.get("t")
-        if not client.allow("all", RATE_ALL) or (t in ("chat", "fx") and not client.allow("chat", RATE_CHAT)):
+        if not client.allow("all", RATE_ALL) or (t == "fx" and not client.allow("chat", RATE_CHAT)):
             return  # 너무 빨리 보내면 버림
         if t == "ping":
             await client.send({"t": "pong", "c": msg.get("c"), "s": now_ms()})
@@ -382,13 +406,26 @@ class Hub:
         elif t == "chat":
             text = clean_text(msg.get("text"), MAX_TEXT)
             sticker = clean_text(msg.get("sticker"), 10)
-            if text or sticker:
+            if (text or sticker) and client.allow_chat(text, sticker):
                 await self.to_room(room, {"t": "chat", "from": client.pid, "name": client.profile["name"],
                                           "text": text, "sticker": sticker, "at": now_ms()})
         elif t == "fx":  # 도발 멘트 · 티배깅 · 컵 흔들기처럼 기록할 필요 없는 효과
             fx = clean_fx(msg.get("fx"))
             if fx:
                 await self.to_room(room, {"t": "fx", "from": client.pid, "fx": fx})
+        elif t == "yut_skin" and room.game == "yut" and room.status != "playing":
+            target = self.by_pid.get(str(msg.get("pid") or client.pid))
+            if target is None or target.room != room.id or room.role_of(target.cid) != "player":
+                return
+            if target is not client and client.cid != room.host:
+                return
+            skin = msg.get("skin")
+            if not isinstance(skin, str) or (skin and skin not in YUT_SKINS):
+                return
+            if skin and any(cid != target.cid and room.role_of(cid) == "player" and room.yut_skins.get(cid) == skin for cid, _ in room.members):
+                return
+            room.yut_skins[target.cid] = skin
+            await self.send_room(room)
         elif t == "settings" and client.cid == room.host and room.status != "playing":
             room.settings = clean_settings(msg.get("settings"))
             await self.send_room(room)
@@ -408,7 +445,10 @@ class Hub:
                     room.queue.remove(client.cid)  # 줄에서 빠지기
                 elif role == "player" and room.status != "playing":
                     room.set_role(client.cid, "spectator")
+                    room.yut_skins.pop(client.cid, None)
             elif role == "spectator" and client.cid not in room.queue:
+                if room.game == "yut":
+                    room.yut_skins[client.cid] = ""
                 room.queue.append(client.cid)
             self.fill_seats(room)
             await self.send_room(room)

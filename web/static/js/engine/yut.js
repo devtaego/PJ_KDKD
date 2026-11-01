@@ -9,7 +9,7 @@ import { ABILITIES, ABILITY_BY_ID, THROW_ODDS, START_HAND } from "../data/yut_ab
 export const START = -1; // 아직 판에 안 올라온 말
 export const HOME = 99; // 도착한 말
 export const CENTER = 22;
-export const RESULT_NAMES = { "-1": "빽도", 1: "도", 2: "개", 3: "걸", 4: "윷", 5: "모" };
+export const RESULT_NAMES = { 0: "낙", "-1": "빽도", 1: "도", 2: "개", 3: "걸", 4: "윷", 5: "모" };
 const LEVELS = [-1, 1, 2, 3, 4, 5]; // 손가락 꼬임 · 존버로 한 단계씩 오르내리는 순서
 
 const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
@@ -134,6 +134,19 @@ export class YutGame {
     this.events = [];
     const p = this.players[this.current];
     let r = rollRaw(mulberry(seed));
+    // 낙은 이동 결과가 아니며, 추가 던지기나 이미 쌓인 결과도 취소하고 차례를 넘긴다.
+    if (r === 0) {
+      p.shift = 0;
+      p.luck = false;
+      this.throws = 0;
+      this.pending = [];
+      this.lastThrow = 0;
+      this.say(`${p.name}: 낙! 차례를 넘깁니다.`, "bad");
+      this.event({ kind: "throw", value: 0, seat: this.current });
+      this.event({ kind: "nak" });
+      this.endTurn();
+      return true;
+    }
     if (p.shift) { // 손가락 꼬임 / 존버
       const i = Math.max(0, Math.min(LEVELS.length - 1, LEVELS.indexOf(r) + p.shift));
       r = LEVELS[i];
@@ -149,7 +162,7 @@ export class YutGame {
     this.lastThrow = r;
     if (r >= 4) this.throws++; // 윷 · 모는 한 번 더
     this.say(`${p.name}: ${RESULT_NAMES[r]}${r >= 4 ? " · 한 번 더!" : ""}`, r >= 4 ? "good" : "info");
-    this.event({ kind: "throw", value: r });
+    this.event({ kind: "throw", value: r, seat: this.current });
     if (this.throws === 0) this.phase = "move";
     this.prune();
     return true;
@@ -182,7 +195,11 @@ export class YutGame {
     if (piece.node === HOME) return null;
     if (r === -1) {
       if (!onBoard(piece.node)) return null;
-      return this.backOne(piece.node, piece.prev);
+      const back = this.backOne(piece.node, piece.prev);
+      // Backdo returning a piece to the start/finish corner from its first
+      // square completes the lap. Ability knockbacks use pushBack() instead
+      // and deliberately remain at START when they cross the corner.
+      return back === 0 && piece.prev === START ? HOME : back;
     }
     const path = pathFrom(piece.node);
     return r > path.length ? HOME : path[r - 1];
@@ -191,6 +208,15 @@ export class YutGame {
   backOne(node, prev) {
     if (prev !== null && prev !== undefined) return prev === START ? 0 : prev;
     return backDefault(node);
+  }
+
+  backPath(node, prev, steps = 1) {
+    const path = [];
+    for (let i = 0; i < steps; i++) {
+      node = this.backOne(node, i === 0 ? prev : null);
+      path.push(node);
+    }
+    return path;
   }
 
   move(pieceIdx, resIdx, seed, owner = this.current) {
@@ -202,6 +228,7 @@ export class YutGame {
     if (r === undefined || !piece) return false;
     const dest = this.destOf(piece, r);
     if (dest === null) return false;
+    const traversed = r === -1 ? this.backPath(piece.node, piece.prev) : pathFrom(piece.node).slice(0, r);
     this.events = [];
     const stack = piece.node === START ? [piece] : this.stackAt(owner, piece.node);
     let prev = null;
@@ -210,28 +237,35 @@ export class YutGame {
       prev = r >= 2 && r <= path.length ? path[r - 2] : piece.node;
     }
     this.pending.splice(resIdx, 1);
-    const parts = this.players.map((pl, s) => [s, stack.filter((q) => pl.pieces.includes(q)).length]).filter(([, k]) => k > 0);
-    this.event({ kind: "move", seat, from: piece.node, to: dest, count: stack.length, parts });
-    this.land(seat, stack, dest, prev, mulberry(seed), true);
+    const parts = this.players.map((pl, s) => {
+      const indices = stack.map((q) => pl.pieces.indexOf(q)).filter((i) => i >= 0);
+      return [s, indices.length, indices];
+    }).filter(([, k]) => k > 0);
+    this.event({ kind: "move", seat, from: piece.node, to: dest, count: stack.length, parts, traversed });
+    this.land(seat, stack, dest, prev, mulberry(seed), true, traversed);
     this.afterAction();
     return true;
   }
 
   /** 말 묶음을 칸에 내려놓음: 도착 · 폭탄 · 잡기 · 능력 칸 처리 */
-  land(seat, stack, node, prev, rng, fromMove) {
+  triggerBomb(seat, stack, node, step = null) {
+    if (node === HOME || this.bombs[node] === undefined) return false;
+    delete this.bombs[node];
+    for (const pc of stack) { pc.node = START; pc.prev = null; }
+    this.players[seat].captured += stack.length;
+    this.say(`펑! ${this.players[seat].name}의 말이 폭탄을 밟아 출발점으로`, "bad");
+    this.event({ kind: "boom", node, step });
+    return true;
+  }
+
+  land(seat, stack, node, prev, rng, fromMove, traversed = [node]) {
     const p = this.players[seat];
     for (const pc of stack) { pc.node = node; pc.prev = node === HOME ? null : prev; }
+    const bombNode = traversed.find((step) => step !== HOME && this.bombs[step] !== undefined);
+    if (bombNode !== undefined && this.triggerBomb(seat, stack, bombNode, traversed.indexOf(bombNode))) return;
     if (node === HOME) {
       this.say(`${p.name}의 말 ${stack.length}개 도착!`, "good");
       this.event({ kind: "home", seat, count: stack.length });
-      return;
-    }
-    if (this.bombs[node] !== undefined) { // 스불재 폭탄
-      delete this.bombs[node];
-      for (const pc of stack) { pc.node = START; pc.prev = null; }
-      p.captured += stack.length;
-      this.say(`펑! ${p.name}의 말이 폭탄을 밟아 출발점으로`, "bad");
-      this.event({ kind: "boom", node });
       return;
     }
     for (let s = 0; s < this.n; s++) { // 잡기 (같은 팀은 안 잡음)
@@ -402,8 +436,9 @@ export class YutGame {
       case "eojjeol": p.ward = true; break;
       case "isthisright": {
         const a = own[0].node, b = opp.node;
-        for (const pc of own) { pc.node = b; pc.prev = null; }
-        for (const pc of opp.stack) { pc.node = a; pc.prev = null; }
+        for (const pc of [...own, ...opp.stack]) { pc.node = START; pc.prev = null; }
+        this.land(seat, own, b, null, rng, false, [b]);
+        this.land(opp.seat, opp.stack, a, null, rng, false, [a]);
         break;
       }
       case "gazua":
@@ -411,7 +446,7 @@ export class YutGame {
           this.say("앞면! 5칸 전진!", "good");
           this.event({ kind: "coin", heads: true });
           const path = pathFrom(own[0].node);
-          this.land(seat, own, path.length < 5 ? HOME : path[4], path.length >= 5 ? path[3] : null, rng, false);
+          this.land(seat, own, path.length < 5 ? HOME : path[4], path.length >= 5 ? path[3] : null, rng, false, path.slice(0, 5));
         } else {
           this.say("뒷면… 출발점으로", "bad");
           this.event({ kind: "coin", heads: false });
@@ -424,7 +459,7 @@ export class YutGame {
         p.hand = [];
         if (n === 0) { this.say("버릴 카드가 없어서 영끌 실패…"); break; }
         const path = pathFrom(own[0].node), k = n * 3;
-        this.land(seat, own, k > path.length ? HOME : path[k - 1], k >= 2 && k <= path.length ? path[k - 2] : null, rng, false);
+        this.land(seat, own, k > path.length ? HOME : path[k - 1], k >= 2 && k <= path.length ? path[k - 2] : null, rng, false, path.slice(0, k));
         break;
       }
       case "party": {
@@ -434,19 +469,27 @@ export class YutGame {
           const j = Math.floor(rng() * (i + 1));
           [nodes[i], nodes[j]] = [nodes[j], nodes[i]];
         }
-        stacks.forEach((s, i) => { for (const pc of s.pieces) { pc.node = nodes[i]; pc.prev = null; } });
+        stacks.forEach((s) => { for (const pc of s.pieces) { pc.node = START; pc.prev = null; } });
+        stacks.forEach((s, i) => this.land(s.seat, s.pieces, nodes[i], null, rng, false, [nodes[i]]));
         break;
       }
-      case "quake":
-        for (const s of this.allStacks()) {
+      case "quake": {
+        const moves = this.allStacks().map((s) => {
           const k = 1 + Math.floor(rng() * 3), path = pathFrom(s.node);
-          const dest = k > path.length ? HOME : path[k - 1];
-          for (const pc of s.pieces) { pc.node = dest; pc.prev = null; }
-        }
+          return { ...s, path: path.slice(0, k), dest: k > path.length ? HOME : path[k - 1] };
+        });
+        for (const s of moves) for (const pc of s.pieces) { pc.node = START; pc.prev = null; }
+        for (const s of moves) this.land(s.seat, s.pieces, s.dest, null, rng, false, s.path);
         break;
-      case "assemble":
-        for (const s of this.allStacks()) for (const pc of s.pieces) { pc.node = CENTER; pc.prev = null; }
+      }
+      case "assemble": {
+        const stacks = this.allStacks();
+        const pieces = stacks.flatMap((s) => s.pieces);
+        for (const pc of pieces) { pc.node = START; pc.prev = null; }
+        if (pieces.length && this.bombs[CENTER] !== undefined) this.triggerBomb(stacks[0]?.seat ?? seat, pieces, CENTER);
+        else for (const pc of pieces) { pc.node = CENTER; pc.prev = null; }
         break;
+      }
       case "roulette": {
         const rolls = this.players.map((pl) => (pl.resigned ? 99 : rollRaw(rng)));
         const low = Math.min(...rolls);
@@ -471,20 +514,31 @@ export class YutGame {
 
   pushBack(stack, k) {
     let node = stack[0].node, prev = stack[0].prev;
+    const traversed = [];
     for (let i = 0; i < k && onBoard(node); i++) {
       node = node === 0 ? START : this.backOne(node, i === 0 ? prev : null);
+      traversed.push(node);
     }
+    const owner = this.players.findIndex((p) => p.pieces.includes(stack[0]));
+    const bombNode = traversed.find((step) => this.bombs[step] !== undefined);
+    if (bombNode !== undefined && this.triggerBomb(owner, stack, bombNode)) return;
     for (const pc of stack) { pc.node = node; pc.prev = null; }
+    // Being knocked all the way back to the start behaves like a capture,
+    // but it is never treated as reaching HOME.
+    if (node === START && owner >= 0) this.players[owner].captured += stack.length;
   }
 
   allStacks() {
     const out = [];
+    const seen = new Set();
     this.players.forEach((pl, s) => {
-      const seen = new Set();
       for (const pc of pl.pieces) {
-        if (!onBoard(pc.node) || seen.has(pc.node)) continue;
-        seen.add(pc.node);
-        out.push({ seat: s, node: pc.node, pieces: pl.pieces.filter((q) => q.node === pc.node) });
+        if (!onBoard(pc.node)) continue;
+        const key = `${this.team(s)}:${pc.node}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const pieces = this.players.flatMap((owner, i) => this.ally(s, i) ? owner.pieces.filter((q) => q.node === pc.node) : []);
+        out.push({ seat: s, node: pc.node, pieces });
       }
     });
     return out;

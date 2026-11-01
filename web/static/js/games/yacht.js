@@ -15,7 +15,9 @@ export function create(m) {
   let shakeStart = null; // 내가 흔들기 시작한 시각
   let tapTimer = null;
   let remoteShake = null; // 다른 사람이 흔드는 중이면 안전장치 타이머
-  let lastRec = null; // 방금 기록한 칸 (반짝 효과)
+  let lastRec = null;
+  let celebratedYacht = "";
+  let yachtFxTimer = null; // 방금 기록한 칸 (반짝 효과)
 
   m.root.classList.add("yacht-screen"); // 트레이 옆에 점수표가 오는 배치
   const root = el(`<div class="board-wrap" style="width:100%">
@@ -27,6 +29,7 @@ export function create(m) {
       <div class="tray-slot"></div>
       <div class="yacht-actions"><button class="btn big pink cup-btn"></button><div class="quick" aria-label="추천 기록"></div></div>
       <div class="held-label"></div>
+      <div class="yacht-celebration-layer" aria-live="polite"></div>
     </div></div>`);
   const side = el(`<div class="card score-card"><div class="row" style="justify-content:space-between;margin-bottom:8px"><h3 style="margin:0">점수표</h3><span class="muted round" style="font-size:14px"></span></div><div class="score-wrap"></div></div>`);
   const turnEl = root.querySelector(".turn");
@@ -58,7 +61,7 @@ export function create(m) {
       if (myTurn() && game.rolled && game.rollsLeft > 0 && !tray.isRolling()) m.submit({ type: "hold", i }, game.current);
     },
   });
-  tray.onSettled = () => render();
+  tray.onSettled = () => { render(); celebrateYachtRoll(); };
   root.querySelector(".tray-slot").appendChild(tray.el);
 
   // ------------------------------------------------------------ 컵: 꾹 눌러 흔들고 놓으면 던지기
@@ -111,7 +114,24 @@ export function create(m) {
   function roll(power) {
     tray.setShaking(false);
     if (!myTurn() || game.rollsLeft === 0) { render(); return; }
+    celebratedYacht = "";
     m.submit({ type: "roll", dice: [0, 1, 2, 3, 4].map(rollDie), power: Math.round(power * 100) / 100 }, game.current);
+  }
+
+  function celebrateYachtRoll() {
+    if (m.replaying || !game.rolled || !game.dice.length || !game.dice.every((die) => die === game.dice[0])) return;
+    const key = `${game.round}:${game.current}:${game.rollsLeft}:${game.dice.join("")}`;
+    if (celebratedYacht === key) return;
+    celebratedYacht = key;
+    const layer = root.querySelector(".yacht-celebration-layer");
+    if (!layer) return;
+    clearTimeout(yachtFxTimer);
+    layer.innerHTML = `<div class="yacht-celebration" role="status"><div class="yacht-burst-ring"></div><span class="yacht-celebration-kicker">FIVE OF A KIND</span><strong>\uC57C\uCD94!</strong><span class="yacht-celebration-score">50\uC810 \uC871\uBCF4</span></div>${Array.from({ length: 22 }, (_, i) => `<i class="yacht-confetti c${i % 7}" style="--i:${i};--angle:${i * 16.36}deg;--distance:${90 + (i % 5) * 17}px;--wait:${(i % 6) * 35}ms"></i>`).join("")}`;
+    layer.classList.remove("show");
+    void layer.offsetWidth;
+    layer.classList.add("show");
+    m.sfx("win");
+    yachtFxTimer = setTimeout(() => layer.classList.remove("show"), 2600);
   }
 
   const pickCat = (ev) => {
@@ -385,6 +405,7 @@ export function create(m) {
     destroy: () => {
       clearTimeout(tapTimer);
       clearTimeout(remoteShake);
+      clearTimeout(yachtFxTimer);
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keyup", onKeyUp);
       document.removeEventListener("pointerdown", outside);

@@ -33,7 +33,7 @@ export const ABILITIES = [
   { id: "missile", name: "킹받쥬 미사일", tier: "rare", target: "none", guard: true,
     desc: "가장 앞서 있는 상대 말을 자동으로 찾아 3칸 뒤로", shout: "1등 저격!", weight: { special: 5, chaos: 7 } },
   { id: "bomb", name: "스불재 폭탄", tier: "rare", target: "node",
-    desc: "빈칸에 폭탄 설치. 그 칸에서 멈춘 말은 출발점으로 (내 말도 예외 없음)", shout: "스스로 불러온 재앙~", weight: { special: 5, chaos: 7 } },
+    desc: "빈칸에 폭탄 설치. 그 칸에 도착하거나 지나친 말은 출발점으로 (내 말도 예외 없음)", shout: "스스로 불러온 재앙~", weight: { special: 5, chaos: 7 } },
   { id: "eojjeol", name: "어쩔티비", tier: "rare", target: "none",
     desc: "다음에 나를 노리는 공격 하나를 막고, 그 능력을 빼앗아 옴", shout: "어쩔티비~", weight: { special: 5, chaos: 6 } },
   { id: "isthisright", name: "이게 맞아?", tier: "rare", target: "swap", guard: true,
@@ -66,14 +66,18 @@ export function abilityOdds(mode) {
   return ABILITIES.filter((a) => a.weight[mode] > 0).map((a) => ({ ...a, pct: (a.weight[mode] / total) * 100 }));
 }
 
-// 윷 결과 확률 (실제 윷가락처럼 평평한 면이 나올 확률 0.6 기준, 빽도는 표시된 가락 하나만 평평할 때)
+// 가중치 기반 가상 결과 확률. 실제 윷가락 조합 확률을 그대로 계산하는 방식은 아님.
 export const THROW_ODDS = [
-  { v: -1, name: "빽도", p: 0.04 },
-  { v: 1, name: "도", p: 0.11 },
-  { v: 2, name: "개", p: 0.35 },
-  { v: 3, name: "걸", p: 0.35 },
-  { v: 4, name: "윷", p: 0.12 },
-  { v: 5, name: "모", p: 0.03 },
+  // 낙은 온라인 보드에서 가상으로 적용하는 게임 규칙 확률(3%).
+  // 제안된 6개 결과 비율(빽도·도·개·걸·윷·모 = 8:22:32:22:8:8)을
+  // 낙 3%를 제외한 97% 안에 비례 배분한다.
+  { v: 0, name: "낙", p: 0.03 },
+  { v: -1, name: "빽도", p: 0.0776 },
+  { v: 1, name: "도", p: 0.2134 },
+  { v: 2, name: "개", p: 0.3104 },
+  { v: 3, name: "걸", p: 0.2134 },
+  { v: 4, name: "윷", p: 0.0776 },
+  { v: 5, name: "모", p: 0.0776 },
 ];
 
 // 능력 카드는 게임을 시작할 때 한 번만 나눠 받음 (판 위에 카드 칸은 없음)

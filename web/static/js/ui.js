@@ -156,6 +156,7 @@ export class ChatPanel {
   /** onSend({text}|{sticker}) */
   constructor(onSend) {
     this.onSend = onSend;
+    this.recentSent = [];
     this.root = el(`<div class="card chat"><h3>채팅</h3><div class="chat-log" aria-live="polite"></div>
       <div class="sticker-bar"></div>
       <form class="chat-form"><input type="text" maxlength="100" placeholder="말 걸어 보기..." enterkeyhint="send" aria-label="채팅 입력"><button class="btn primary small">보내기</button></form></div>`);
@@ -163,7 +164,7 @@ export class ChatPanel {
     const bar = this.root.querySelector(".sticker-bar");
     for (const [sid, name] of STICKERS) {
       const b = el(`<button type="button" title="${esc(name)}" aria-label="${esc(name)} 스티커">${stickerSvg(sid, 30)}</button>`);
-      b.onclick = () => this.onSend({ sticker: sid });
+      b.onclick = () => this.submitMessage({ sticker: sid });
       bar.appendChild(b);
     }
     const form = this.root.querySelector("form");
@@ -172,9 +173,28 @@ export class ChatPanel {
       e.preventDefault();
       const text = input.value.trim();
       if (!text) return;
+      if (!this.submitMessage({ text })) return;
       input.value = "";
-      this.onSend({ text });
     };
+  }
+
+  submitMessage(message) {
+    const now = Date.now();
+    const key = message.text
+      ? `text:${message.text.replace(/\s+/g, " ").toLocaleLowerCase()}`
+      : `sticker:${message.sticker}`;
+    this.recentSent = this.recentSent.filter((item) => now - item.at < 5000);
+    if (this.recentSent.filter((item) => item.key === key).length >= 5) {
+      toast("같은 메시지는 잠시 쉬었다가 보내 주세요.");
+      return false;
+    }
+    if (this.recentSent.length >= 8) {
+      toast("메시지를 너무 빠르게 보내고 있어요. 잠시 기다려 주세요.");
+      return false;
+    }
+    this.recentSent.push({ at: now, key });
+    this.onSend(message);
+    return true;
   }
 
   add(name, { text = "", sticker = "" }) {

@@ -189,6 +189,23 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         for ws in (a, b):
             await ws.close()
 
+    async def test_yut_host_can_assign_character_to_player(self):
+        a, b, _ = await self.two_players("yut")
+        await self.until(a, "room")  # 방장 쪽에 남은 참가 알림을 먼저 비움
+        await b.send_json({"t": "yut_skin", "pid": self.pids["aaaaaaaa1"], "skin": "penguin"})
+        await b.send_json({"t": "ping", "c": 81})
+        self.assertEqual((await self.until(b, "pong"))["c"], 81)  # 참가자는 다른 사람 캐릭터를 지정할 수 없음
+
+        await a.send_json({"t": "yut_skin", "pid": self.pids["bbbbbbbb2"], "skin": "rabbit"})
+        changed = [(await self.until(ws, "room"))["room"] for ws in (a, b)]
+        for room in changed:
+            host = next(member for member in room["members"] if member["cid"] == self.pids["aaaaaaaa1"])
+            player = next(member for member in room["members"] if member["cid"] == self.pids["bbbbbbbb2"])
+            self.assertEqual(host["yut_skin"], "")
+            self.assertEqual(player["yut_skin"], "rabbit")
+        await a.close()
+        await b.close()
+
     async def test_host_can_act_only_for_offline_player(self):
         a, b, _ = await self.two_players("yacht")
         await self.start(a, b, "yacht")

@@ -476,6 +476,34 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
 .opt { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 10px; margin-bottom: 10px; }
 .opt > .label { margin: 0; }
 
+/* 윷놀이 팀 배정은 설정 항목과 분리해 플레이어별 선택 상태가 바로 보이게 */
+.team-assign { grid-column: 1 / -1; margin: 2px 0 14px; padding: 14px; border-radius: 16px; background: var(--input); box-shadow: inset 0 0 0 1px var(--edge); }
+.team-assign-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.team-assign-head > div:first-child { display: grid; gap: 3px; }
+.team-assign-head strong { font-size: 17px; color: var(--text); }
+.team-assign-head span { color: var(--muted); font-size: 13px; }
+.team-totals { display: flex; gap: 7px; flex-wrap: wrap; }
+.team-totals .team-count { border-radius: 999px; padding: 5px 10px; background: var(--row); box-shadow: inset 0 0 0 1px var(--edge); font-size: 13px; white-space: nowrap; }
+.team-count.team-a { color: #B94A0C; }
+.team-count.team-b { color: #1769AA; }
+.team-count b { font-size: 15px; }
+.team-players { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.team-player-row { min-width: 0; padding: 10px; border-radius: 13px; background: var(--row); box-shadow: inset 0 0 0 1px var(--edge); }
+.team-player-name { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; min-width: 0; }
+.team-player-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 15px; }
+.team-seat { display: inline-grid; place-items: center; width: 24px; height: 24px; flex: none; border-radius: 50%; color: var(--text); background: var(--card-hi); font-size: 12px; font-weight: 800; }
+.team-pick { display: flex; gap: 6px; }
+.team-pick-btn { flex: 1; min-width: 0; min-height: 40px; border: 1px solid var(--edge); border-radius: 10px; background: var(--input); color: var(--text); font-size: 14px; font-weight: 750; transition: background .15s, color .15s, box-shadow .15s; }
+.team-pick-btn:hover { filter: brightness(1.08); }
+.team-pick-btn.team-a[aria-pressed="true"] { border-color: #B94A0C; background: #B94A0C; color: #fff; box-shadow: 0 2px 7px rgba(185, 74, 12, .28); }
+.team-pick-btn.team-b[aria-pressed="true"] { border-color: #1769AA; background: #1769AA; color: #fff; box-shadow: 0 2px 7px rgba(23, 105, 170, .28); }
+.team-pick-btn:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.team-badge { display: inline-flex; align-items: center; min-height: 30px; padding: 3px 12px; border-radius: 999px; color: #fff; font-size: 14px; font-weight: 750; }
+.team-badge.team-a { background: #B94A0C; }
+.team-badge.team-b { background: #1769AA; }
+.team-status { margin: 10px 0 0; padding: 9px 10px; border-radius: 10px; background: var(--row); color: var(--muted); font-size: 13px; }
+.team-status.ready { color: var(--mint); font-weight: 700; }
+
 /* 목록 한 줄 (사람 · 방) */
 .person, .room-item { background: var(--row); box-shadow: inset 0 0 0 1px var(--edge); }
 .person .avatar { box-shadow: 0 0 0 2px var(--edge), 0 2px 6px rgba(0, 0, 0, 0.2); }
@@ -542,6 +570,8 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
   .side { order: 2; }
 }
 @media (max-width: 640px) {
+  .team-assign { padding: 11px; }
+  .team-players { grid-template-columns: 1fr; }
   .screen { padding: 12px 12px calc(20px + var(--safe-b)); }
   .games { grid-template-columns: 1fr; }
   .game-card { flex-direction: row; align-items: center; min-height: 0; padding: 12px 14px 12px 22px; gap: 12px; text-align: left; }

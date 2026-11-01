@@ -699,19 +699,52 @@ function waitingScreen() {
       settings.appendChild(option("모드", isHost ? segment(Object.entries(yut.MODES), s.chaos || "chaos", change("chaos")) : el(`<div>${yut.MODES[s.chaos] || "막장"}</div>`)));
       settings.appendChild(option("말 개수", isHost ? segment([["2", "2개"], ["3", "3개"], ["4", "4개"]], s.pieces || "3", change("pieces")) : el(`<div>${esc(s.pieces || "3")}개</div>`)));
       settings.appendChild(option("팀 (4명일 때)", isHost ? segment([["", "개인전"], ["1", "2:2 팀전"]], s.team || "", change("team")) : el(`<div>${s.team === "1" ? "2:2 팀전" : "개인전"}</div>`)));
-      if (s.team === "1") { // 팀 나누기: 방장이 사람마다 A · B (2명씩)
-        const tb = roomTeamB(r, players);
-        for (const p of players) {
-          const cur = tb.has(p.cid) ? "B" : "A";
-          settings.appendChild(option(p.name, isHost ? segment([["A", "A팀"], ["B", "B팀"]], cur, (v) => {
-            const next = new Set(roomTeamB(r, players));
-            if (v === "B") next.add(p.cid); else next.delete(p.cid);
-            s.tb = [...next].filter((c) => players.some((x) => x.cid === c)).join(",");
-            net.send({ t: "settings", settings: s });
-          }) : el(`<div class="team-tag t${cur === "A" ? 0 : 1}">${cur}팀</div>`)));
+      if (s.team === "1") {
+        const teamB = roomTeamB(r, players);
+        const teamCard = el(`<section class="team-assign" aria-label="팀 배정">
+          <div class="team-assign-head"><div><strong>팀 배정</strong><span>각 플레이어를 A팀 또는 B팀에 배정하세요</span></div>
+            <div class="team-totals"><span class="team-count team-a"><b data-team-count="A">0</b> / 2 A팀</span><span class="team-count team-b"><b data-team-count="B">0</b> / 2 B팀</span></div>
+          </div><div class="team-players"></div><p class="team-status" aria-live="polite"></p>
+        </section>`);
+        const rows = teamCard.querySelector(".team-players");
+        const status = teamCard.querySelector(".team-status");
+        const updateTeamSummary = () => {
+          const nB = players.filter((p) => teamB.has(p.cid)).length;
+          const nA = players.length - nB;
+          teamCard.querySelector('[data-team-count="A"]').textContent = nA;
+          teamCard.querySelector('[data-team-count="B"]').textContent = nB;
+          const ready = players.length === 4 && nA === 2 && nB === 2;
+          status.textContent = ready ? "팀 배정 완료 · 2:2로 시작할 수 있어요" : players.length < 4
+            ? `플레이어 ${players.length}/4명 · 4명이 모이면 팀을 나눌 수 있어요`
+            : "A팀과 B팀을 각각 2명씩 배정해 주세요";
+          status.classList.toggle("ready", ready);
+        };
+        for (const [i, p] of players.entries()) {
+          const cur = teamB.has(p.cid) ? "B" : "A";
+          const row = el(`<div class="team-player-row"><div class="team-player-name"><span class="team-seat">${i + 1}</span><strong>${esc(p.name)}</strong></div></div>`);
+          if (isHost) {
+            const choices = el(`<div class="team-pick" role="group" aria-label="${esc(p.name)} 팀 선택"></div>`);
+            for (const [team, label] of [["A", "A팀"], ["B", "B팀"]]) {
+              const button = el(`<button type="button" class="team-pick-btn team-${team.toLowerCase()}" aria-pressed="${cur === team}">${label}</button>`);
+              button.onclick = () => {
+                const next = teamB.has(p.cid) ? "B" : "A";
+                if (next === team) return;
+                if (team === "B") teamB.add(p.cid); else teamB.delete(p.cid);
+                s.tb = [...teamB].filter((cid) => players.some((player) => player.cid === cid)).join(",");
+                choices.querySelectorAll("button").forEach((choice) => choice.setAttribute("aria-pressed", String(choice === button)));
+                net.send({ t: "settings", settings: s });
+                updateTeamSummary();
+              };
+              choices.appendChild(button);
+            }
+            row.appendChild(choices);
+          } else {
+            row.appendChild(el(`<span class="team-badge ${cur === "A" ? "team-a" : "team-b"}">${cur}팀</span>`));
+          }
+          rows.appendChild(row);
         }
-        const nB = players.filter((p) => tb.has(p.cid)).length;
-        settings.appendChild(el(`<p class="muted" style="margin:0;font-size:13px">${players.length === 4 && nB === 2 ? "A팀 2명 · B팀 2명, 준비 완료!" : "4명이 모여 A팀 · B팀 2명씩 나뉘면 팀전으로 시작해요."}</p>`));
+        updateTeamSummary();
+        settings.appendChild(teamCard);
       }
     } else if (r.game === "omok") {
       settings.appendChild(option("규칙", isHost ? segment([["33", "쌍삼 금지"], ["free", "자유룰"]], s.rule || "33", change("rule")) : el(`<div>${s.rule === "free" ? "자유룰" : "쌍삼 금지"}</div>`)));

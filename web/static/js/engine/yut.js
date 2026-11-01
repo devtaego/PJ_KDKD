@@ -69,10 +69,12 @@ export function josa(word, withFinal, noFinal) {
 }
 
 export class YutGame {
-  /** names: 자리별 이름, opts: { pieces: 2~4, mode: basic / special / chaos, seed: 시작 카드 나눠 주기용 } */
-  constructor(names, { pieces = 3, mode = "special", seed = 1 } = {}) {
+  /** names: 자리별 이름, opts: { pieces: 2~4, mode: basic / special / chaos, seed: 시작 카드 나눠 주기용,
+   *  teams: 2:2 팀전 (4명일 때만, 자리 0 · 2가 A팀, 1 · 3이 B팀 → 팀이 번갈아 던짐) } */
+  constructor(names, { pieces = 3, mode = "special", seed = 1, teams = false } = {}) {
     this.mode = ["basic", "special", "chaos"].includes(mode) ? mode : "special";
     this.pieceCount = Math.min(4, Math.max(2, pieces | 0 || 3));
+    this.teams = !!teams && names.length === 4;
     this.players = names.map((name) => ({
       name, hand: [], captured: 0, luck: false, ward: false, shift: 0, resigned: false,
       pieces: Array.from({ length: this.pieceCount }, () => ({ node: START, prev: null, shield: 0 })),
@@ -88,6 +90,7 @@ export class YutGame {
     this.upside = null; // 화면 거꾸로 당한 자리
     this.over = false;
     this.winner = null;
+    this.winners = []; // 팀전이면 이긴 팀 두 사람
     this.log = [];
     this.events = []; // 방금 행동에서 일어난 일 (화면 연출용)
     this.lastThrow = null;
@@ -108,10 +111,16 @@ export class YutGame {
     return seat;
   }
   finished(seat) { return this.players[seat].pieces.filter((p) => p.node === HOME).length; }
+  /** 같은 편인지 (팀전이면 같은 팀, 아니면 자기 자신만) */
+  ally(a, b) { return a === b || (this.teams && a % 2 === b % 2); }
+  team(seat) { return this.teams ? seat % 2 : seat; }
   remainingOf(seat) { return this.players[seat].pieces.reduce((s, p) => s + remaining(p.node), 0); }
   shielded(piece) { return piece.shield >= this.turnNo; }
-  /** seat의 node 칸에 있는 말 묶음 (업힌 말 전부) */
-  stackAt(seat, node) { return this.players[seat].pieces.filter((p) => p.node === node && onBoard(node)); }
+  /** seat의 node 칸에 있는 말 묶음 (업힌 말 전부, 팀전이면 같은 팀 말도 함께 업혀 다님) */
+  stackAt(seat, node) {
+    if (!onBoard(node)) return [];
+    return this.players.flatMap((pl, s) => (this.ally(seat, s) ? pl.pieces.filter((p) => p.node === node) : []));
+  }
 
   say(text, kind = "info") {
     this.log.push({ text, kind });
@@ -146,8 +155,13 @@ export class YutGame {
     return true;
   }
 
+  /** seat가 옮길 수 있는 말의 주인들 (팀전에서 내 말이 다 들어왔으면 같은 팀 말을 대신 옮김) */
+  movers(seat) {
+    if (!this.teams || this.players[seat].pieces.some((p) => p.node !== HOME)) return [seat];
+    return this.players.map((_, i) => i).filter((i) => this.ally(seat, i));
+  }
   canUse(seat, r) {
-    const ps = this.players[seat].pieces;
+    const ps = this.movers(seat).flatMap((s) => this.players[s].pieces);
     return r === -1 ? ps.some((p) => onBoard(p.node)) : ps.some((p) => p.node !== HOME);
   }
 
@@ -179,23 +193,25 @@ export class YutGame {
     return backDefault(node);
   }
 
-  move(pieceIdx, resIdx, seed) {
+  move(pieceIdx, resIdx, seed, owner = this.current) {
     if (this.over || this.phase !== "move") return false;
     const seat = this.current;
+    if (!this.movers(seat).includes(owner)) return false;
     const r = this.pending[resIdx];
-    const piece = this.players[seat].pieces[pieceIdx];
+    const piece = this.players[owner].pieces[pieceIdx];
     if (r === undefined || !piece) return false;
     const dest = this.destOf(piece, r);
     if (dest === null) return false;
     this.events = [];
-    const stack = piece.node === START ? [piece] : this.stackAt(seat, piece.node);
+    const stack = piece.node === START ? [piece] : this.stackAt(owner, piece.node);
     let prev = null;
     if (r !== -1) {
       const path = pathFrom(piece.node);
       prev = r >= 2 && r <= path.length ? path[r - 2] : piece.node;
     }
     this.pending.splice(resIdx, 1);
-    this.event({ kind: "move", seat, from: piece.node, to: dest, count: stack.length });
+    const parts = this.players.map((pl, s) => [s, stack.filter((q) => pl.pieces.includes(q)).length]).filter(([, k]) => k > 0);
+    this.event({ kind: "move", seat, from: piece.node, to: dest, count: stack.length, parts });
     this.land(seat, stack, dest, prev, mulberry(seed), true);
     this.afterAction();
     return true;
@@ -218,8 +234,8 @@ export class YutGame {
       this.event({ kind: "boom", node });
       return;
     }
-    for (let s = 0; s < this.n; s++) { // 잡기
-      if (s === seat) continue;
+    for (let s = 0; s < this.n; s++) { // 잡기 (같은 팀은 안 잡음)
+      if (this.ally(seat, s)) continue;
       const victims = this.players[s].pieces.filter((pc) => pc.node === node && !this.shielded(pc));
       if (victims.length) {
         for (const pc of victims) { pc.node = START; pc.prev = null; }
@@ -245,10 +261,12 @@ export class YutGame {
 
   afterAction() {
     for (let s = 0; s < this.n; s++) {
-      if (!this.over && this.finished(s) === this.pieceCount) {
+      const mates = this.players.map((_, i) => i).filter((i) => this.ally(s, i));
+      if (!this.over && mates.every((i) => this.finished(i) === this.pieceCount)) {
         this.over = true;
         this.winner = s;
-        this.say(`${this.players[s].name} 모든 말 도착! 승리!`, "good");
+        this.winners = mates;
+        this.say(this.teams ? `${mates.map((i) => this.players[i].name).join(" · ")} 팀 모든 말 도착! 승리!` : `${this.players[s].name} 모든 말 도착! 승리!`, "good");
         return;
       }
     }
@@ -276,9 +294,14 @@ export class YutGame {
     this.players[seat].resigned = true;
     this.say(`${this.players[seat].name} 기권`, "bad");
     const alive = this.players.map((p, i) => i).filter((i) => !this.players[i].resigned);
-    if (alive.length === 1) {
+    if (this.teams) { // 팀전은 한 사람이라도 기권하면 그 팀이 짐
+      this.over = true;
+      this.winners = this.players.map((_, i) => i).filter((i) => !this.ally(seat, i));
+      this.winner = this.winners[0];
+    } else if (alive.length === 1) {
       this.over = true;
       this.winner = alive[0];
+      this.winners = [alive[0]];
     } else if (seat === this.current) {
       this.pending = [];
       this.throws = 0;
@@ -288,9 +311,10 @@ export class YutGame {
   }
 
   ranking() {
+    const won = (i) => this.winners.includes(i) || i === this.winner;
     return this.players.map((p, i) => i).sort((a, b) =>
       (this.players[a].resigned - this.players[b].resigned) ||
-      (a === this.winner ? -1 : b === this.winner ? 1 : 0) ||
+      (won(b) - won(a)) ||
       this.finished(b) - this.finished(a) || this.remainingOf(a) - this.remainingOf(b));
   }
 
@@ -306,7 +330,7 @@ export class YutGame {
     const rng = mulberry(seed);
     const oppStack = () => {
       const o = t?.opp;
-      if (!o || o.seat === seat || !this.players[o.seat]) return null;
+      if (!o || this.ally(seat, o.seat) || !this.players[o.seat]) return null;
       const pc = this.players[o.seat].pieces[o.idx];
       if (!pc || !onBoard(pc.node) || this.shielded(pc)) return null;
       return { seat: o.seat, stack: this.stackAt(o.seat, pc.node), node: pc.node };
@@ -478,7 +502,7 @@ export class YutGame {
   leadingOpponentStack(seat) {
     let best = null;
     for (let s = 0; s < this.n; s++) {
-      if (s === seat || this.players[s].resigned) continue;
+      if (this.ally(seat, s) || this.players[s].resigned) continue;
       const st = this.leadingStackOf(s);
       if (st && (!best || remaining(st.node) < remaining(best.node))) best = st;
     }

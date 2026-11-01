@@ -188,6 +188,38 @@ test("윷: 윷 + 빽도는 윷으로 말을 올린 뒤 빽도로 한 칸 뒤로 
   assert.equal(g.current, 1);
 });
 
+test("윷: 2:2 팀전 — 같은 팀은 업혀 함께 가고 안 잡으며, 둘 다 들어와야 승리", () => {
+  const g = new YutGame(["A1", "B1", "A2", "B2"], { pieces: 2, mode: "basic", teams: true });
+  assert.ok(g.teams && g.ally(0, 2) && !g.ally(0, 1));
+  g.players[2].pieces[0].node = 3; // A2 말이 3에
+  g.throw(seedFor(3));
+  g.move(0, 0, 1); // A1 새 말 → 3: 같은 팀이라 잡지 않고 업힘
+  assert.equal(g.players[2].pieces[0].node, 3);
+  assert.equal(g.current, 1);
+  g.throw(seedFor(2)); g.move(0, 0, 1); // B1 새 말 → 2
+  g.throw(seedFor(2)); g.move(0, 0, 1); // A2: 3에 있는 묶음(A1 말 + A2 말)을 옮김 → 5
+  assert.deepEqual([g.players[0].pieces[0].node, g.players[2].pieces[0].node], [5, 5]);
+  g.throw(seedFor(2)); g.move(0, 0, 1); // B2 새 말 → 2: 같은 팀 B1과 업힘
+  assert.equal(g.players[1].pieces[0].node, 2);
+  g.throw(seedFor(3)); g.move(1, 0, 1); // A1 새 말 → 3 (상대 없음)
+  g.throw(seedFor(1)); g.move(0, 0, 1); // B1: 2의 묶음 → 3: A1 말을 잡음
+  assert.equal(g.players[0].pieces[1].node, START);
+  // 내 말이 다 들어오면 같은 팀 말을 대신 옮김
+  const k = new YutGame(["A1", "B1", "A2", "B2"], { pieces: 2, mode: "basic", teams: true });
+  k.players[0].pieces.forEach((q) => { q.node = HOME; });
+  k.players[2].pieces[0].node = HOME; k.players[2].pieces[1].node = 19;
+  k.throw(seedFor(2));
+  assert.equal(k.phase, "move"); // 버려지지 않음
+  assert.ok(k.move(1, 0, 1, 2)); // A1이 A2의 말을 옮겨 골인
+  assert.ok(k.over);
+  assert.deepEqual([...k.winners].sort(), [0, 2]);
+  // 한 명이 기권하면 그 팀이 짐
+  const r = new YutGame(["A1", "B1", "A2", "B2"], { teams: true, mode: "basic" });
+  r.resign(1);
+  assert.ok(r.over);
+  assert.deepEqual(r.winners, [0, 2]);
+});
+
 test("윷: 능력 — 폭탄 · 어쩔티비 · 갓생 · 미사일", () => {
   const g = yutGame(2);
   g.players[0].hand = ["bomb", "missile"];

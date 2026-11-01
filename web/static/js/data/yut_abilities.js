@@ -45,7 +45,7 @@ export const ABILITIES = [
   { id: "yeongkkeul", name: "영끌", tier: "rare", target: "ownPiece",
     desc: "들고 있는 다른 능력을 모두 버리고, 버린 수 × 3칸만큼 이 말이 전진", shout: "영혼까지 끌어모아!", weight: { special: 3, chaos: 5 } },
 
-  // ---- 전설 (개막장 모드에서만)
+  // ---- 전설 (막장 모드에서만)
   { id: "party", name: "대환장 파티", tier: "legend", target: "none",
     desc: "판 위의 모든 말 위치를 무작위로 섞음", shout: "대환장 파티!!", weight: { special: 0, chaos: 3 } },
   { id: "quake", name: "지진 났다", tier: "legend", target: "none",

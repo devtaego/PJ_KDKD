@@ -8,7 +8,7 @@ import { esc } from "../art.js";
 import { CHARACTERS, CHAR_IDS, charSvg } from "./yut_chars.js";
 
 export const PLAYER_COLORS = ["#FF5C8A", "#4DABF7", "#FFC94D", "#3DDC97"];
-export const MODES = { basic: "기본", special: "특수능력", chaos: "개막장" };
+export const MODES = { basic: "기본", special: "특수능력", chaos: "막장" };
 
 /** 판의 칸 좌표 (위에서 내려다본 0~100 정사각형) */
 const POS = (() => {
@@ -50,10 +50,13 @@ function shade(hex, f) {
 export function create(m) {
   const pieces = Number(m.settings.pieces) || 3;
   const mode = MODES[m.settings.chaos] ? m.settings.chaos : "special";
-  const game = new YutGame(m.seats.map((s) => s.name), { pieces, mode, seed: Number(m.settings.seed) || 1 });
+  const game = new YutGame(m.seats.map((s) => s.name), { pieces, mode, seed: Number(m.settings.seed) || 1, teams: m.settings.team === "1" });
+  const TEAM_NAMES = ["A팀", "B팀"];
+  const teamOf = (i) => TEAM_NAMES[i % 2];
   // 말 캐릭터: 자리마다 다른 캐릭터로 시작, 자리 카드의 '말' 버튼으로 바꿈
   const skins = m.seats.map((_, i) => CHARACTERS[i % CHARACTERS.length].id);
-  let sel = null; // 고른 내 말 번호 (업힌 말은 맨 앞 번호)
+  let sel = null; // 고른 말 번호 (업힌 말은 맨 앞 번호)
+  let selOwner = null; // 고른 말의 주인 (팀전에서 내 말이 다 들어오면 같은 팀 말을 옮김)
   let targeting = null; // { hand, def, own? }
   let tossing = false;
   // 지금 움직이는 말 { seat, node, count, victims }: 그동안 옮긴 말만 숨기고(도착 칸에 원래 있던 내 말은 그대로),
@@ -94,7 +97,7 @@ export function create(m) {
   const hintEl = root.querySelector(".yut-hint");
   const handEl = root.querySelector(".hand");
   const logEl = side.querySelector(".yut-log");
-  side.querySelector(".mode-line").textContent = `${MODES[mode]} 모드 · 말 ${pieces}개씩${mode !== "basic" ? ` · 시작할 때 능력 카드 ${START_HAND[mode]}장` : ""}`;
+  side.querySelector(".mode-line").textContent = `${MODES[mode]} 모드${game.teams ? ` · 2:2 팀전 (A팀 ${m.seats[0].name} · ${m.seats[2].name} / B팀 ${m.seats[1].name} · ${m.seats[3].name})` : ""} · 말 ${pieces}개씩${mode !== "basic" ? ` · 시작할 때 능력 카드 ${START_HAND[mode]}장` : ""}`;
   side.querySelector(".odds-btn").onclick = () => showOdds(mode);
 
   const myTurn = () => !game.over && !m.result && m.controls(game.current);
@@ -103,10 +106,12 @@ export function create(m) {
   const cur = () => game.players[game.current];
   const firstWaiting = (s = game.current) => game.players[s].pieces.findIndex((q) => q.node === START);
 
+  const canMoveOwner = (s2) => game.movers(game.current).includes(s2);
   /** 이 말로 갈 수 있는 칸 → 쓸 결과 번호들 */
-  function destinations(idx) {
+  function destinations(idx, owner = game.current) {
     const out = new Map();
-    const pc = cur().pieces[idx];
+    if (!canMoveOwner(owner)) return out;
+    const pc = game.players[owner].pieces[idx];
     if (!pc) return out;
     game.pending.forEach((r, i) => {
       const d = game.destOf(pc, r);
@@ -114,23 +119,26 @@ export function create(m) {
     });
     return out;
   }
-  /** 옮길 수 있는 말 묶음 (칸마다 대표 번호 하나, 대기 말은 하나로) */
+  /** 옮길 수 있는 말 묶음 [주인, 대표 번호] (칸마다 하나, 대기 말은 주인마다 하나로) */
   function movableGroups() {
     const seen = new Set(), out = [];
-    cur().pieces.forEach((pc, i) => {
-      if (pc.node === HOME || seen.has(pc.node)) return;
-      seen.add(pc.node);
-      if (destinations(i).size) out.push(i);
-    });
+    for (const o of game.movers(game.current)) {
+      game.players[o].pieces.forEach((pc, i) => {
+        const key = pc.node === START ? `S${o}` : pc.node;
+        if (pc.node === HOME || seen.has(key)) return;
+        seen.add(key);
+        if (destinations(i, o).size) out.push([o, i]);
+      });
+    }
     return out;
   }
   /** 고른 말이 아직 쓸 수 있는지 보고, 고를 게 하나뿐이면 저절로 고름 */
   function fixSelection() {
-    if (!myTurn() || game.phase !== "move" || targeting) { sel = null; return; }
-    if (sel !== null && !destinations(sel).size) sel = null;
+    if (!myTurn() || game.phase !== "move" || targeting) { sel = null; selOwner = null; return; }
+    if (sel !== null && !destinations(sel, selOwner).size) sel = null;
     if (sel === null) {
       const g = movableGroups();
-      if (g.length === 1) sel = g[0];
+      if (g.length === 1) [selOwner, sel] = g[0];
     }
   }
 
@@ -138,7 +146,7 @@ export function create(m) {
   throwBtn.onclick = () => { if (myTurn() && game.phase === "throw" && !tossing && allPicked()) act({ type: "throw" }); };
   resultsEl.addEventListener("click", (e) => {
     const b = e.target.closest("[data-res]");
-    if (b && myTurn() && game.phase === "move" && sel !== null) act({ type: "move", piece: sel, res: +b.dataset.res });
+    if (b && myTurn() && game.phase === "move" && sel !== null) act({ type: "move", piece: sel, res: +b.dataset.res, owner: selOwner });
   });
   const onKey = (e) => {
     if (e.code !== "Space" || e.target.closest?.("input, textarea") || document.querySelector(".modal-back")) return;
@@ -166,29 +174,29 @@ export function create(m) {
     const seat = pc ? +pc.dataset.seat : null, idx = pc ? +pc.dataset.idx : null;
     if (targeting) {
       const tg = targeting.def.target;
-      if (tg === "oppPiece" && pc && seat !== game.current) act({ type: "ability", hand: targeting.hand, t: { opp: { seat, idx } } });
+      if (tg === "oppPiece" && pc && !game.ally(game.current, seat)) act({ type: "ability", hand: targeting.hand, t: { opp: { seat, idx } } });
       else if (tg === "ownPiece" && pc && seat === game.current) act({ type: "ability", hand: targeting.hand, t: { own: idx } });
       else if (tg === "node" && nd && !pc) act({ type: "ability", hand: targeting.hand, t: { node: +nd.dataset.node } });
       else if (tg === "swap") {
         if (targeting.own === undefined && pc && seat === game.current) { targeting.own = idx; render(); return; }
-        if (targeting.own !== undefined && pc && seat !== game.current) act({ type: "ability", hand: targeting.hand, t: { own: targeting.own, opp: { seat, idx } } });
+        if (targeting.own !== undefined && pc && !game.ally(game.current, seat)) act({ type: "ability", hand: targeting.hand, t: { own: targeting.own, opp: { seat, idx } } });
         else return;
       } else return;
       targeting = null;
       return;
     }
     if (game.phase !== "move") return;
-    if (dest && sel !== null) { act({ type: "move", piece: sel, res: +dest.dataset.dest }); return; }
-    if (pc && seat === game.current) {
-      if (sel === idx) { // 같은 말을 한 번 더 누르면, 갈 곳이 하나뿐일 때 바로 옮김
-        const ds = [...destinations(idx).values()];
-        if (ds.length === 1) act({ type: "move", piece: idx, res: ds[0][0] });
+    if (dest && sel !== null) { act({ type: "move", piece: sel, res: +dest.dataset.dest, owner: selOwner }); return; }
+    if (pc && canMoveOwner(seat)) {
+      if (sel === idx && selOwner === seat) { // 같은 말을 한 번 더 누르면, 갈 곳이 하나뿐일 때 바로 옮김
+        const ds = [...destinations(idx, seat).values()];
+        if (ds.length === 1) act({ type: "move", piece: idx, res: ds[0][0], owner: seat });
         return;
       }
-      if (destinations(idx).size) { sel = idx; m.sfx("click"); render(); }
+      if (destinations(idx, seat).size) { sel = idx; selOwner = seat; m.sfx("click"); render(); }
       return;
     }
-    if (nd && +nd.dataset.node === 0 && firstWaiting() >= 0) { sel = firstWaiting(); render(); }
+    if (nd && +nd.dataset.node === 0 && firstWaiting() >= 0) { sel = firstWaiting(); selOwner = game.current; render(); }
   });
 
   // 말 캐릭터 고르기 창: 시작할 때 한 번만 (꼭 골라야 해서 닫기 없음, 게임 중에는 못 바꿈)
@@ -234,10 +242,11 @@ export function create(m) {
     const sd = Number.isInteger(a.seed) ? a.seed : 0;
     let ok = false;
     if (a.type === "throw") ok = game.throw(sd);
-    else if (a.type === "move" && Number.isInteger(a.piece) && Number.isInteger(a.res)) ok = game.move(a.piece, a.res, sd);
+    else if (a.type === "move" && Number.isInteger(a.piece) && Number.isInteger(a.res)) ok = game.move(a.piece, a.res, sd, Number.isInteger(a.owner) ? a.owner : game.current);
     else if (a.type === "ability" && Number.isInteger(a.hand)) ok = game.use(a.hand, a.t || {}, sd);
     if (!ok) return;
     sel = null;
+    selOwner = null;
     targeting = null;
     if (!m.replaying) playEvents();
     if (game.over) end();
@@ -250,10 +259,12 @@ export function create(m) {
 
   function end() {
     const order = game.ranking();
-    const winners = game.winner !== null ? [game.winner] : [];
-    const losers = order.length > 1 ? [order[order.length - 1]].filter((i) => !winners.includes(i)) : [];
-    const scores = Object.fromEntries(order.map((i) => [i, `${game.finished(i)}/${pieces} 도착`]));
-    m.finish({ title: winners.length ? `${m.seats[winners[0]].name} 승리!` : "게임 끝", sub: `${MODES[mode]} 윷놀이`, winners, losers, order, scores, moves: game.turnNo });
+    const winners = game.winners.length ? game.winners : game.winner !== null ? [game.winner] : [];
+    const losers = game.teams ? order.filter((i) => !winners.includes(i))
+      : order.length > 1 ? [order[order.length - 1]].filter((i) => !winners.includes(i)) : [];
+    const scores = Object.fromEntries(order.map((i) => [i, `${game.teams ? `${teamOf(i)} · ` : ""}${game.finished(i)}/${pieces} 도착`]));
+    const title = !winners.length ? "게임 끝" : game.teams ? `${teamOf(winners[0])} (${winners.map((i) => m.seats[i].name).join(" · ")}) 승리!` : `${m.seats[winners[0]].name} 승리!`;
+    m.finish({ title, sub: `${MODES[mode]} 윷놀이${game.teams ? " · 2:2 팀전" : ""}`, winners, losers, order, scores, moves: game.turnNo });
   }
 
   // ------------------------------------------------------------ 연출
@@ -295,7 +306,6 @@ export function create(m) {
     }
   }
 
-  const cur0 = (s2) => game.players[s2];
   /** 말이 지나가는 칸들 (from에서 to까지, 골인이면 출발 칸까지) */
   function routeNodes(from, to) {
     const p = pathFrom(from), k = p.indexOf(to);
@@ -306,14 +316,16 @@ export function create(m) {
   /** 옮긴 말을 출발한 칸에서 도착한 칸까지 한 칸씩 콩콩 */
   function hopAlong(e) {
     const steps = routeNodes(e.from, e.to).map(posOf);
-    const start = e.from === START ? [DOCKS[e.seat][0], DOCKS[e.seat][1]] : posOf(e.from);
+    const mover = (e.parts && e.parts[0] && e.parts[0][0]) ?? e.seat; // 팀전에서 같은 팀 말을 옮겼으면 그 말의 주인
+    const start = e.from === START ? [DOCKS[mover][0], DOCKS[mover][1]] : posOf(e.from);
     // 잡힌 말: 지금은 이미 출발점(START)에 있지만, 도착 전까지 그 칸에 그려 둠
     const victims = game.events.filter((c) => c.kind === "catch" && c.node === e.to).map((c) => ({
       seat: c.victim, idxs: game.players[c.victim].pieces.map((q, i) => [q, i]).filter(([q]) => q.node === START).slice(-c.count).map(([, i]) => i),
     }));
-    const stacked = e.to !== HOME && cur0(e.seat).pieces.filter((q) => q.node === e.to).length > e.count;
-    anim = { seat: e.seat, node: e.to, count: e.count, victims };
-    ghostEl.innerHTML = `<g class="ghost" style="transform:translate(${start[0]}px,${start[1]}px)">${tokenSvg(0, 0, e.seat, { sc: 0.78, count: e.count })}</g>`;
+    const atDest = game.players.reduce((n, pl, s2) => n + (game.ally(e.seat, s2) ? pl.pieces.filter((q) => q.node === e.to).length : 0), 0);
+    const stacked = e.to !== HOME && atDest > e.count;
+    anim = { seat: e.seat, node: e.to, count: e.count, parts: e.parts || [[e.seat, e.count]], victims };
+    ghostEl.innerHTML = `<g class="ghost" style="transform:translate(${start[0]}px,${start[1]}px)">${tokenSvg(0, 0, mover, { sc: 0.78, count: e.count })}</g>`;
     const g = ghostEl.firstElementChild;
     steps.forEach(([x, y], i) => m.later(() => { g.style.transform = `translate(${x}px,${y}px)`; m.sfx("tick"); }, 60 + i * 150));
     m.later(() => { anim = null; ghostEl.innerHTML = ""; render(); if (stacked) shout("업었다!", "good"); }, 60 + steps.length * 150 + 120);
@@ -409,7 +421,7 @@ export function create(m) {
     for (const [a, b] of [[5, 20], [20, 21], [21, 22], [22, 23], [23, 24], [24, 15], [10, 25], [25, 26], [26, 22], [22, 27], [27, 28], [28, 0]]) parts.push(arrow(a, b, "short"));
     // 고른 말이 갈 수 있는 곳
     fixSelection();
-    const dests = sel !== null ? destinations(sel) : new Map();
+    const dests = sel !== null ? destinations(sel, selOwner) : new Map();
     // 칸 (뒤에서 앞 순서로)
     const order = Object.keys(SP).map(Number).sort((a, b) => SP[a][1] - SP[b][1]);
     for (const n of order) {
@@ -426,7 +438,7 @@ export function create(m) {
     }
     // 고른 말이 결과마다 지나갈 길
     if (sel !== null) {
-      const pc = cur().pieces[sel];
+      const pc = game.players[selOwner].pieces[sel];
       for (const [node] of dests) {
         const pts = [pc.node === START ? SP[0] : posOf(pc.node), ...routeNodes(pc.node, node).map(posOf)];
         parts.push(`<polyline class="yb-route" points="${pts.map((q) => q.join(",")).join(" ")}"/>`);
@@ -445,9 +457,9 @@ export function create(m) {
     }
     // 말 (판 위): 칸마다 주인별로 묶어서, 앞(아래)에 있는 말을 나중에 그림
     const tokens = [];
-    const pickableFor = (seat, onBoard) => targeting && ((targeting.def.target === "oppPiece" && seat !== game.current && onBoard) ||
+    const pickableFor = (seat, onBoard) => targeting && ((targeting.def.target === "oppPiece" && !game.ally(game.current, seat) && onBoard) ||
       (targeting.def.target === "ownPiece" && seat === game.current && (onBoard || ["gazua", "yeongkkeul"].includes(targeting.def.id))) ||
-      (targeting.def.target === "swap" && onBoard && (targeting.own === undefined ? seat === game.current : seat !== game.current)));
+      (targeting.def.target === "swap" && onBoard && (targeting.own === undefined ? seat === game.current : !game.ally(game.current, seat))));
     const byNode = {};
     game.players.forEach((p, s) => p.pieces.forEach((pc, i) => {
       if (pc.node === START || pc.node === HOME) return;
@@ -455,10 +467,11 @@ export function create(m) {
     }));
     const hiddenStart = new Set(); // 대기 자리에서 잠깐 빼고 판 위에 그리는 잡힌 말
     if (anim && anim.node !== HOME) {
-      const mineAt = byNode[anim.node]?.[anim.seat];
-      if (mineAt) { // 옮긴 말만 숨기고, 원래 있던 말은 남김
-        mineAt.splice(-anim.count);
-        if (!mineAt.length) delete byNode[anim.node][anim.seat];
+      for (const [s2, k] of anim.parts) { // 옮긴 말만 숨기고, 원래 있던 말은 남김
+        const at = byNode[anim.node]?.[s2];
+        if (!at) continue;
+        at.splice(-k);
+        if (!at.length) delete byNode[anim.node][s2];
       }
       for (const v of anim.victims) {
         if (!v.idxs.length) continue;
@@ -472,9 +485,9 @@ export function create(m) {
       list.forEach(([s, idxs], k) => {
         const seat = +s, [x, y] = SP[node];
         const off = list.length > 1 ? (k - (list.length - 1) / 2) * 6 : 0;
-        const own = mine && seat === game.current;
-        const canMove = moving && own && destinations(idxs[0]).size > 0;
-        const ring = moving && own && sel === idxs[0] ? "sel" : canMove && sel === null ? "can" : "";
+        const own = mine && canMoveOwner(seat);
+        const canMove = moving && own && destinations(idxs[0], seat).size > 0;
+        const ring = moving && own && sel === idxs[0] && selOwner === seat ? "sel" : canMove && sel === null ? "can" : "";
         const pick = pickableFor(seat, true);
         tokens.push([y, tokenSvg(x + off, y, seat, { sc: 0.78,
           cls: `${canMove ? "movable" : ""}${pick ? " pickable" : ""}${ring === "sel" ? " selected" : ""}`, data: `data-seat="${seat}" data-idx="${idxs[0]}"`,
@@ -489,14 +502,14 @@ export function create(m) {
       const fin = game.finished(s);
       const turn = game.current === s && !game.over;
       tokens.push([dy - 30, `<g class="yb-dock${turn ? " on" : ""}"><rect x="${dx - 6}" y="${dy - 17}" width="64" height="20" rx="5" style="--pc:${PLAYER_COLORS[s]}"/>
-        <text x="${dx + 30}" y="${dy - 9.5}" class="yb-dock-name" fill="${PLAYER_COLORS[s]}">${esc(p.name.slice(0, 6))}</text>
+        <text x="${dx + 30}" y="${dy - 9.5}" class="yb-dock-name" fill="${PLAYER_COLORS[s]}">${game.teams ? `${teamOf(s)} · ` : ""}${esc(p.name.slice(0, 6))}</text>
         <text x="${dx + 30}" y="${dy - 4.6}" class="yb-dock-sub">남은 말 ${waiting.length}${fin ? ` · 골인 ${fin}` : ""}</text>
         ${turn ? `<g transform="translate(${dx + 50} ${dy - 17})"><g class="yb-turn-tag"><rect x="-8" y="-3.4" width="16" height="6.8" rx="3.4" style="--pc:${PLAYER_COLORS[s]}"/><text y="1.3">차례!</text></g></g>` : ""}</g>`]);
       const rep = waiting.length ? waiting[0][1] : -1;
       waiting.forEach(([, i], k) => {
-        const own = mine && s === game.current;
-        const canMove = moving && own && destinations(rep).size > 0;
-        const ring = own && moving && sel === rep ? (k === 0 ? "sel" : "") : canMove && sel === null && k === 0 ? "can" : "";
+        const own = mine && canMoveOwner(s);
+        const canMove = moving && own && destinations(rep, s).size > 0;
+        const ring = own && moving && sel === rep && selOwner === s ? (k === 0 ? "sel" : "") : canMove && sel === null && k === 0 ? "can" : "";
         const pick = pickableFor(s, false);
         tokens.push([dy, tokenSvg(dx + k * 7.6, dy, s, {
           sc: 0.62, cls: `${canMove ? "movable" : ""}${pick ? " pickable" : ""}`, data: `data-seat="${s}" data-idx="${rep}"`, ring: pick ? "pick" : ring,
@@ -507,8 +520,8 @@ export function create(m) {
     // 도착할 곳 말풍선 (결과 이름). 골인은 출발 칸 위. 겹치면 위로 비켜 쌓고 칸까지 점선
     const bubbles = [...dests].map(([node, resIdx]) => {
       const names = resIdx.map((i) => RESULT_NAMES[game.pending[i]]).join("/");
-      const opp = node !== HOME && game.players.some((p, s2) => s2 !== game.current && p.pieces.some((q) => q.node === node && q.shield < game.turnNo));
-      const mineThere = node !== HOME && cur().pieces.some((q) => q.node === node);
+      const opp = node !== HOME && game.players.some((p, s2) => !game.ally(game.current, s2) && p.pieces.some((q) => q.node === node && q.shield < game.turnNo));
+      const mineThere = node !== HOME && game.players.some((p, s2) => game.ally(game.current, s2) && p.pieces.some((q) => q.node === node));
       const boom = node !== HOME && game.bombs[node] !== undefined;
       const tag = node === HOME ? "골인!" : boom ? "폭탄!" : opp ? "잡기!" : mineThere ? "업기" : "";
       const kind = node === HOME ? "home" : boom || opp ? "hot" : mineThere ? "stack" : "";
@@ -551,7 +564,7 @@ export function create(m) {
       return `<div class="ys-card${turn ? " turn" : ""}${p.resigned ? " out" : ""}" style="--pc:${PLAYER_COLORS[i]}">
         ${choose ? `<button class="ys-char" data-skin="${i}" title="말 캐릭터 고르기" aria-label="${esc(m.seats[i].name)} 말 캐릭터 고르기">` : `<div class="ys-char">`}<svg viewBox="-9 -25 18 27">${tokenSvg(0, 0, i)}</svg>${choose ? "</button>" : "</div>"}
         <div class="ys-info"><div class="ys-name">${esc(m.seats[i].name + me)}</div>
-          <div class="ys-stats"><span>남은 <b>${waiting}</b></span><span>골인 <b>${fin}/${pieces}</b></span>${game.abilitiesOn ? `<span>카드 <b>${p.hand.length}</b></span>` : ""}</div>
+          <div class="ys-stats">${game.teams ? `<span class="ys-team t${i % 2}">${teamOf(i)}</span>` : ""}<span>남은 <b>${waiting}</b></span><span>골인 <b>${fin}/${pieces}</b></span>${game.abilitiesOn ? `<span>카드 <b>${p.hand.length}</b></span>` : ""}</div>
           ${status ? `<div class="ys-status">${esc(status)}</div>` : ""}</div>
         ${turn ? `<span class="ys-turn">차례</span>` : ""}</div>`;
     }).join("");
@@ -562,7 +575,7 @@ export function create(m) {
     const mine = myTurn();
     throwBtn.disabled = game.over || !mine || game.phase !== "throw" || tossing || !allPicked();
     throwBtn.innerHTML = game.over ? "게임 끝" : !mine ? `${esc(p.name)} 님 차례` : game.phase === "throw" ? `윷 던지기${game.throws > 1 ? ` ×${game.throws}` : ""} <kbd>Space</kbd>` : "말을 옮겨요";
-    const can = sel !== null ? destinations(sel) : new Map();
+    const can = sel !== null ? destinations(sel, selOwner) : new Map();
     const usable = new Set([...can.values()].flat());
     resultsEl.innerHTML = game.pending.map((r, i) => usable.has(i)
       ? `<button class="res-chip go${r === -1 ? " back" : ""}" data-res="${i}" title="고른 말을 ${RESULT_NAMES[r]}만큼 옮기기">${RESULT_NAMES[r]} ▶</button>`

@@ -48,7 +48,8 @@ export function modal(title, body, { closable = true, onEscape = null } = {}) {
     if (all[all.length - 1] !== back || e.isComposing) return; // 맨 위 창만, 한글 입력 중에는 무시
     if (e.key === "Escape") {
       if (onEscape) { e.preventDefault(); onEscape(); } else if (closable) { e.preventDefault(); close(); }
-    } else if (e.key === "Enter" && !e.target.closest?.("button, textarea, select")) {
+    } else if (e.key === "Enter" && !(back.contains(e.target) && e.target.closest?.("button, textarea, select"))) {
+      // 창 안의 버튼에 초점이 있으면 그 버튼이 눌리게 두고, 창 뒤(방금 누른 게임 카드 등)에 초점이 있으면 막고 주 버튼을 누름
       const btns = [...back.querySelectorAll("[data-primary], .btn.primary, .btn.pink")].filter((b) => !b.disabled && b.offsetParent);
       const main = btns.find((b) => b.hasAttribute("data-primary")) || btns[btns.length - 1];
       if (main) { e.preventDefault(); main.click(); }
@@ -70,6 +71,10 @@ export function modal(title, body, { closable = true, onEscape = null } = {}) {
     }
   }
   document.body.appendChild(back);
+  // 창을 열면 초점을 창 안으로 (뒤에 있던 버튼이 엔터로 다시 눌리지 않게)
+  const dialog = back.firstElementChild;
+  dialog.tabIndex = -1;
+  dialog.focus({ preventScroll: true });
   return close;
 }
 
@@ -253,7 +258,8 @@ export function showResult(opts) {
   // 키보드: Enter = 한 판 더, Esc = 판 보기 (판 보는 중이면 Esc · Enter로 결과 다시 보기)
   const onKey = (e) => {
     if (!root.isConnected) { document.removeEventListener("keydown", onKey); return; }
-    if (document.querySelector(".modal-back") || e.isComposing || e.target.closest?.("input, textarea, button")) return;
+    if (document.querySelector(".modal-back") || e.isComposing || (root.contains(e.target) && e.target.closest?.("input, textarea, button"))) return;
+    if (!root.contains(e.target) && e.target.closest?.("input, textarea")) return; // 채팅 입력 중
     if (showAgain && (e.key === "Escape" || e.key === "Enter")) { e.preventDefault(); showAgain(); }
     else if (e.key === "Escape") { e.preventDefault(); look.click(); }
     else if (e.key === "Enter") {

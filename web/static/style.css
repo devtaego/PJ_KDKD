@@ -188,8 +188,6 @@ label.field > span { display: block; color: var(--muted); font-size: 14px; margi
 .game-card .gbody { display: flex; flex-direction: column; gap: 4px; align-items: center; }
 .game-card .gname { font-size: 26px; }
 .game-card .gdesc { color: var(--muted); font-size: 14px; line-height: 1.35; }
-.game-card .gmeta { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
-.game-card .gmeta span { font-size: 12px; padding: 2px 9px; border-radius: 999px; background: var(--panel); color: var(--muted); }
 .game-card .gplay { background: var(--tile); color: #fff; border-radius: 999px; padding: 8px 18px; font-size: 16px; box-shadow: var(--btn-depth); }
 .online-card { display: flex; flex-direction: column; gap: 10px; }
 .online-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
@@ -552,7 +550,6 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
   .game-card .gbody { align-items: flex-start; flex: 1; min-width: 0; }
   .game-card .gname { font-size: 22px; }
   .game-card .gdesc { font-size: 13px; }
-  .game-card .gmeta { justify-content: flex-start; }
   .game-card .gplay { margin: 0; padding: 8px 12px; font-size: 14px; flex: none; }
   .home { min-height: 0; }
   .home-head { margin-bottom: 12px; }
@@ -1141,3 +1138,36 @@ button.ys-char { cursor: pointer; box-shadow: inset 0 0 0 2px var(--gold); anima
   .ys-char { width: 34px; height: 42px; }
   .ys-name { font-size: 14px; }
 }
+
+/* 게임 고르기: 2 × 2 칸, 카드는 그림 상자 왼쪽 + 이름 · 한 줄 소개 · 인원 · 모드 오른쪽 */
+.games { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.game-card {
+  display: grid; grid-template-columns: clamp(72px, 7vw, 112px) minmax(0, 1fr); grid-template-rows: 1fr auto; column-gap: 14px; row-gap: 8px;
+  align-items: center; text-align: left; min-height: 0; padding: 18px 16px 14px 14px;
+}
+.game-card .gband { position: absolute; top: 0; left: 0; right: 0; height: 8px; margin: 0; }
+.game-card .gart { grid-row: 1 / span 2; align-self: center; aspect-ratio: 1; margin: 0; }
+.game-card .gbody { grid-column: 2; align-items: flex-start; }
+.game-card .gplay { grid-column: 2; justify-self: end; }
+.game-card .gdesc { font-size: 13.5px; line-height: 1.4; }
+.ginfo dd { word-break: keep-all; }
+.ginfo { display: grid; grid-template-columns: auto 1fr; gap: 3px 8px; margin: 6px 0 0; font-size: 13px; }
+.ginfo div { display: contents; }
+.ginfo dt { color: var(--muted); }
+.ginfo dt::after { content: ""; }
+.ginfo dd { margin: 0; color: var(--text); }
+@media (max-width: 640px) {
+  .games { grid-template-columns: 1fr; }
+  .game-card { grid-template-columns: 72px minmax(0, 1fr); padding: 14px 12px 12px 16px; column-gap: 12px; }
+  .game-card .gband { top: 0; bottom: 0; left: 0; right: auto; width: 8px; height: auto; }
+  .game-card .gart { width: 72px; height: 72px; }
+}
+.modal:focus { outline: none; }
+/* 게임 카드 그림은 언제나 상자 안에 (상자 크기에 맞춰 줄고 늘어남) */
+.game-card .gart .gicon { width: 76%; height: 76%; aspect-ratio: 1; max-width: none; margin: 0; }
+.game-card .gart .gicon svg { width: 100%; height: 100%; display: block; }
+@media (max-width: 640px) { .game-card .gart .gicon { width: 76%; height: 76%; } }
+
+.ys-stats .ys-team { color: #fff; box-shadow: none; }
+.ys-stats .ys-team.t0 { background: #E8590C; }
+.ys-stats .ys-team.t1 { background: #1C7ED6; }

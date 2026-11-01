@@ -13,7 +13,7 @@ import * as yacht from "./games/yacht.js";
 import * as yut from "./games/yut.js";
 
 const APP_VERSION = "2.2.0-web";
-const APP_SUB = "같은 기수, 키득키득";
+const APP_SUB = "처음 만난 우리, 한 판이면 친구";
 const DEVELOPER = "KDA 5기 송재혁";
 const REPO_URL = "https://github.com/devtaego/PJ_KDKD";
 const YUT_SOUND_URL = "https://www.youtube.com/watch?v=rLSAQLD6xos"; // 윷 던지는 소리 출처
@@ -104,7 +104,7 @@ function titleScreen() {
   };
   const items = [
     { label: () => "게임 시작", go: () => homeScreen() },
-    { label: () => "친구 방 들어가기", go: () => (profile.name ? lobbyScreen() : homeScreen(true)) },
+    { label: () => "방 목록", go: () => (profile.name ? lobbyScreen() : homeScreen(true)) },
     { label: () => "랭킹", go: () => rankingModal() },
     { label: () => `테마 ◀ ${themeName()} ▶`, go: () => cycleTheme(1), side: (d) => cycleTheme(d) },
     { label: () => "게임 설명", go: () => rulesPicker() },
@@ -136,9 +136,9 @@ function titleScreen() {
 
 // ---------------------------------------------------------------- 첫 화면
 const GAME_META = {
-  chess: { people: "1~2명", modes: "컴퓨터 · 온라인" },
-  yacht: { people: "1~6명", modes: "컴퓨터 · 여럿이" },
-  omok: { people: "1~2명", modes: "컴퓨터 · 온라인" },
+  chess: { people: "1~2명", modes: "컴퓨터 · 한 기기 · 온라인" },
+  omok: { people: "1~2명", modes: "컴퓨터 · 한 기기 · 온라인" },
+  yacht: { people: "1~6명", modes: "컴퓨터 · 한 기기 · 온라인" },
   yut: { people: "2~4명", modes: "한 기기 · 온라인" },
 };
 
@@ -148,7 +148,7 @@ function homeScreen(focusName = false) {
       <button class="icon-btn home-back" aria-label="타이틀 화면으로">←</button>
       <span class="home-sound"></span>
       <h1 class="logo" aria-label="KI득KI득"><span>K</span><span>I</span><b>득</b><span>K</span><span>I</span><em>득</em></h1>
-      <div class="tagline"><span class="tag-pill">${esc(APP_SUB)}</span><span class="muted">체스 · 오목 · 야추 · 윷놀이 아이스브레이킹 게임룸</span></div>
+      <div class="tagline"><span class="muted">체스 · 오목 · 야추 · 윷놀이 아이스브레이킹 게임룸</span></div>
     </header>
     <div class="home-grid">
       <aside class="card player-card">
@@ -222,7 +222,7 @@ function homeScreen(focusName = false) {
   const games = root.querySelector(".games");
   for (const g of ["chess", "omok", "yacht", "yut"]) {
     const meta = GAME_META[g];
-    const card = el(`<button class="game-card g-${g}"><span class="gband"></span><div class="gart"><div class="gicon">${GAME_ICONS[g]}</div></div><div class="gbody"><div class="gname">${GAME_NAMES[g]}</div><div class="gdesc">${GAME_DESC[g]}</div><div class="gmeta"><span>${meta.people}</span><span>${meta.modes}</span></div></div><span class="gplay">▶ 플레이</span></button>`);
+    const card = el(`<button class="game-card g-${g}"><span class="gband"></span><div class="gart"><div class="gicon">${GAME_ICONS[g]}</div></div><div class="gbody"><div class="gname">${GAME_NAMES[g]}</div><div class="gdesc">${GAME_DESC[g]}</div><dl class="ginfo"><div><dt>인원</dt><dd>${meta.people}</dd></div><div><dt>모드</dt><dd>${meta.modes}</dd></div></dl></div><span class="gplay">▶ 플레이</span></button>`);
     card.onclick = () => { if (!needName()) { play("click"); chooseMode(g); } };
     games.appendChild(card);
   }
@@ -263,7 +263,7 @@ function about() {
   const body = el(`<div class="rules">
     <p><b>KI득KI득</b> v${APP_VERSION} — ${esc(APP_SUB)}</p>
     <p>새 기수가 처음 만났을 때 어색함 없이 친해질 수 있도록 만든 미니게임 모음이에요. 체스 · 오목 · 야추 다이스는 컴퓨터와, 한 기기에서, 또는 온라인으로 함께 해요.</p>
-    <p><b>윷놀이</b>는 2~4명이 한 기기나 온라인으로 해요. 시작할 때 각자 동물 캐릭터 말을 고르고, 밈 이름이 붙은 능력 카드(특수능력 3장 · 개막장 4장)로 판을 뒤집어요. 카드별 확률은 게임 화면의 '확률표'에서 볼 수 있어요.</p>
+    <p><b>윷놀이</b>는 2~4명이 한 기기나 온라인으로 해요. 시작할 때 각자 동물 캐릭터 말을 고르고, 밈 이름이 붙은 능력 카드(특수능력 3장 · 막장 4장)로 판을 뒤집어요. 카드별 확률은 게임 화면의 '확률표'에서 볼 수 있어요.</p>
     <p>만든 사람: ${esc(DEVELOPER)}</p>
     <p class="muted">글꼴: 주아체 (SIL Open Font License 1.1) · 기물 · 주사위 · 캐릭터 · 윷판 · 윷가락 · 스티커는 모두 코드로 직접 그렸어요. 채팅은 서버를 거쳐 전달되고 따로 저장하지 않아요.</p>
     <p class="muted">윷 던지는 소리: <a href="${YUT_SOUND_URL}" target="_blank" rel="noopener" style="color:var(--gold)">「[무료효과음] 프로가 직접 만드는 윷놀이 소리 SoundEffects / Yutnori」 (YouTube)</a>에서 가져왔어요.</p>
@@ -297,7 +297,11 @@ function chooseMode(game) {
     if (game === "yut") {
       body.appendChild(option("모드", segment(Object.entries(yut.MODES), o.chaos, (v) => { o.chaos = v; })));
       body.appendChild(option("말 개수", segment([["2", "2개 (빨리)"], ["3", "3개"], ["4", "4개 (길게)"]], o.pieces, (v) => { o.pieces = v; })));
-      if (o.mode === "local") body.appendChild(option("같이 하는 사람 수 (나 포함)", segment([2, 3, 4].map((n) => [n, `${n}명`]), Math.min(4, o.people), (v) => { o.people = v; })));
+      if (o.mode === "local") body.appendChild(option("같이 하는 사람 수 (나 포함)", segment([2, 3, 4].map((n) => [n, `${n}명`]), Math.min(4, o.people), (v) => { o.people = v; draw(); })));
+      if (o.mode === "online" || Number(o.people) === 4) { // 팀전은 4명일 때만 (1 · 3번 자리 A팀, 2 · 4번 자리 B팀)
+        body.appendChild(option("팀", segment([["", "개인전"], ["1", "2:2 팀전"]], o.team || "", (v) => { o.team = v; })));
+        if (o.mode === "online") body.appendChild(el(`<p class="muted" style="margin:-4px 0 8px;font-size:13px">팀전은 4명이 모였을 때만 돼요. 자리 1 · 3번이 A팀, 2 · 4번이 B팀이에요.</p>`));
+      }
     }
     if (game !== "yacht" && game !== "yut" && o.mode === "local") {
       const f = el(`<label class="field"><span>같이 하는 친구 이름</span><input type="text" maxlength="12"></label>`);
@@ -327,7 +331,7 @@ function chooseMode(game) {
       close();
       if (o.mode === "online") {
         const base = game === "chess" ? { time: o.time, color: o.color } : game === "omok" ? { rule: o.rule, color: o.color }
-          : game === "yut" ? { pieces: o.pieces, chaos: o.chaos } : {};
+          : game === "yut" ? { pieces: o.pieces, chaos: o.chaos, team: o.team || "" } : {};
         createRoom(game, { ...base, private: o.private || "" });
       }
       else startLocal(game, o);
@@ -367,7 +371,7 @@ function startLocal(game, o) {
     seats = meFirst ? [me, other] : [other, me];
     mySeats = o.mode === "local" ? [0, 1] : [meFirst ? 0 : 1];
   }
-  const settings = game === "chess" ? { time: o.time } : game === "omok" ? { rule: o.rule } : game === "yut" ? { pieces: o.pieces, chaos: o.chaos } : {};
+  const settings = game === "chess" ? { time: o.time } : game === "omok" ? { rule: o.rule } : game === "yut" ? { pieces: o.pieces, chaos: o.chaos, team: Number(o.people) === 4 ? o.team || "" : "" } : {};
   const begin = () => {
     if (match) { match.destroy(); match = null; }
     match = new Match({
@@ -665,8 +669,9 @@ function waitingScreen() {
       settings.appendChild(option("시간", isHost ? segment(Object.entries(chess.TIME_MODES).map(([k, v]) => [k, v[0]]), s.time || "none", change("time")) : el(`<div>${esc(chess.TIME_MODES[s.time]?.[0] || "무제한")}</div>`)));
       settings.appendChild(option("방장의 색", isHost ? segment([["w", "백"], ["b", "흑"], ["random", "무작위"]], s.color || "w", change("color")) : el(`<div>${{ w: "백", b: "흑", random: "무작위" }[s.color] || "백"}</div>`)));
     } else if (r.game === "yut") {
-      settings.appendChild(option("모드", isHost ? segment(Object.entries(yut.MODES), s.chaos || "chaos", change("chaos")) : el(`<div>${yut.MODES[s.chaos] || "개막장"}</div>`)));
+      settings.appendChild(option("모드", isHost ? segment(Object.entries(yut.MODES), s.chaos || "chaos", change("chaos")) : el(`<div>${yut.MODES[s.chaos] || "막장"}</div>`)));
       settings.appendChild(option("말 개수", isHost ? segment([["2", "2개"], ["3", "3개"], ["4", "4개"]], s.pieces || "3", change("pieces")) : el(`<div>${esc(s.pieces || "3")}개</div>`)));
+      settings.appendChild(option("팀 (4명일 때)", isHost ? segment([["", "개인전"], ["1", "2:2 팀전"]], s.team || "", change("team")) : el(`<div>${s.team === "1" ? "2:2 팀전 (1 · 3번 A팀, 2 · 4번 B팀)" : "개인전"}</div>`)));
     } else if (r.game === "omok") {
       settings.appendChild(option("규칙", isHost ? segment([["33", "쌍삼 금지"], ["free", "자유룰"]], s.rule || "33", change("rule")) : el(`<div>${s.rule === "free" ? "자유룰" : "쌍삼 금지"}</div>`)));
       settings.appendChild(option("방장의 돌", isHost ? segment([["b", "흑"], ["w", "백"], ["random", "무작위"]], s.color || "b", change("color")) : el(`<div>${{ b: "흑", w: "백", random: "무작위" }[s.color] || "흑"}</div>`)));
@@ -721,7 +726,7 @@ function startRoomGame(r) {
     }
   }
   const settings = r.game === "chess" ? { time: r.settings.time || "none" } : r.game === "omok" ? { rule: r.settings.rule || "33" }
-    : r.game === "yut" ? { pieces: r.settings.pieces || "3", chaos: r.settings.chaos || "chaos" } : {};
+    : r.game === "yut" ? { pieces: r.settings.pieces || "3", chaos: r.settings.chaos || "chaos", team: r.settings.team === "1" && order.length === 4 ? "1" : "" } : {};
   net.send({ t: "act", a: { type: "start", game: r.game, settings, order } });
 }
 

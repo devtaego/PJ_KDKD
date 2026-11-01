@@ -53,16 +53,19 @@ export function create(m) {
   const game = new YutGame(m.seats.map((s) => s.name), { pieces, mode, seed: Number(m.settings.seed) || 1, teams: m.settings.team === "1" });
   const TEAM_NAMES = ["A팀", "B팀"];
   const teamOf = (i) => TEAM_NAMES[i % 2];
-  // 말 캐릭터: 자리마다 다른 캐릭터로 시작, 자리 카드의 '말' 버튼으로 바꿈
-  const skins = m.seats.map((_, i) => CHARACTERS[i % CHARACTERS.length].id);
+  // 온라인은 대기실에서 미리 고른 말을 사용하고, 한 기기 모드는 게임 시작 때 직접 고름
+  const skins = m.seats.map((s, i) => CHAR_IDS.has(s.avatar) ? s.avatar : CHARACTERS[i % CHARACTERS.length].id);
   let sel = null; // 고른 말 번호 (업힌 말은 맨 앞 번호)
   let selOwner = null; // 고른 말의 주인 (팀전에서 내 말이 다 들어오면 같은 팀 말을 옮김)
   let targeting = null; // { hand, def, own? }
   let tossing = false;
+  let dealing = game.abilitiesOn && !m.replaying;
+  let dealStarted = false;
+  let dealInterval = null;
   // 지금 움직이는 말 { seat, node, count, victims }: 그동안 옮긴 말만 숨기고(도착 칸에 원래 있던 내 말은 그대로),
   // 잡힌 말은 잡는 말이 도착할 때까지 그 칸에 남겨 둠. 유령 말이 길을 따라 콩콩
   let anim = null;
-  const picked = new Set(); // 말을 고른 자리
+  const picked = new Set(m.mode === "online" ? m.seats.flatMap((s, i) => CHAR_IDS.has(s.avatar) ? [i] : []) : []);
   let picking = null; // 지금 열린 고르기 창 { seat, close }
   const pickSent = {}; // 자리 -> 고른 걸 보낸 시각 (온라인에서 답이 오기 전에 창이 다시 뜨지 않게)
   const allPicked = () => game.players.every((p, i) => picked.has(i) || p.resigned || m.offline.has(i));
@@ -70,7 +73,6 @@ export function create(m) {
 
   m.root.classList.add("yut-screen");
   const root = el(`<div class="board-wrap" style="width:100%">
-    <div class="seat-strip yut-seats"></div>
     <div class="yut-stage">
       <div class="yut-board" role="img" aria-label="윷판"></div>
       <svg class="yut-ghost" viewBox="0 0 200 208" aria-hidden="true"></svg>
@@ -84,11 +86,11 @@ export function create(m) {
         <div class="yut-result"><span class="muted">나온 결과</span><div class="results"></div></div>
       </div>
       <div class="yut-hint"></div>
+      ${game.abilitiesOn ? `<div class="hand-header"><strong>시작 능력 카드</strong><span>카드는 한 줄로 넘겨 볼 수 있어요</span></div>` : ""}
       <div class="hand"></div>
     </div></div>`);
   const side = el(`<div class="card yut-log-card"><div class="row" style="justify-content:space-between;margin-bottom:6px"><h3 style="margin:0">진행 상황</h3><button class="btn ghost small odds-btn">확률표</button></div>
     <div class="muted mode-line" style="font-size:13px;margin-bottom:6px"></div><div class="yut-log"></div></div>`);
-  const seatsEl = root.querySelector(".yut-seats");
   const boardEl = root.querySelector(".yut-board");
   const fxEl = root.querySelector(".yut-fx");
   const tossEl = root.querySelector(".yut-toss");
@@ -217,13 +219,6 @@ export function create(m) {
     done = () => { close(); picking = null; };
     picking = { seat: s, close: done };
   }
-  seatsEl.addEventListener("click", (e) => {
-    const b = e.target.closest("[data-skin]");
-    if (!b) return;
-    const s = +b.dataset.skin;
-    if (!m.controls(s) || m.result || picked.has(s)) return; // 한 번 고르면 끝까지 그 캐릭터
-    openPicker(s, true);
-  });
   /** 아직 말을 안 고른 내 자리가 있으면 고르기 창을 띄움 (한 기기면 자리 순서대로) */
   function promptPick() {
     if (m.replaying || game.over || m.result || picking) return;
@@ -504,9 +499,10 @@ export function create(m) {
       const waiting = p.pieces.map((pc, i) => [pc, i]).filter(([pc, i]) => pc.node === START && !hiddenStart.has(`${s}:${i}`));
       const fin = game.finished(s);
       const turn = game.current === s && !game.over;
-      tokens.push([dy - 30, `<g class="yb-dock${turn ? " on" : ""}"><rect x="${dx - 6}" y="${dy - 17}" width="64" height="20" rx="5" style="--pc:${PLAYER_COLORS[s]}"/>
-        <text x="${dx + 30}" y="${dy - 9.5}" class="yb-dock-name" fill="${PLAYER_COLORS[s]}">${game.teams ? `${teamOf(s)} · ` : `${s + 1}P · `}출발</text>
-        <text x="${dx + 30}" y="${dy - 4.6}" class="yb-dock-sub">말 대기</text>
+      tokens.push([dy - 30, `<g class="yb-dock${turn ? " on" : ""}"><rect x="${dx - 8}" y="${dy - 18}" width="72" height="22" rx="5" style="--pc:${PLAYER_COLORS[s]}"/>
+        <g transform="translate(${dx + 3} ${dy - 4}) scale(.42)">${charSvg(skins[s])}</g>
+        <text x="${dx + 13}" y="${dy - 10}" class="yb-dock-name" fill="${PLAYER_COLORS[s]}">${esc(m.seats[s].name.slice(0, 6))}</text>
+        <text x="${dx + 13}" y="${dy - 4.5}" class="yb-dock-sub">${game.teams ? `${teamOf(s)} · ` : `${s + 1}P · `}대기${waiting} · 도착${fin}/${pieces}</text>
         ${turn ? `<g transform="translate(${dx + 50} ${dy - 17})"><g class="yb-turn-tag"><rect x="-8" y="-3.4" width="16" height="6.8" rx="3.4" style="--pc:${PLAYER_COLORS[s]}"/><text y="1.3">차례!</text></g></g>` : ""}</g>`]);
       const rep = waiting.length ? waiting[0][1] : -1;
       waiting.forEach(([, i], k) => {
@@ -553,32 +549,43 @@ export function create(m) {
     ghostEl.classList.toggle("upside", flip);
   }
 
+  function visibleHand() {
+    const player = cur();
+    return m.mode === "local" ? player.hand : (m.mySeats.length ? game.players[m.mySeats[0]].hand : []);
+  }
+
+  function renderHand() {
+    if (!game.abilitiesOn) { handEl.innerHTML = ""; return; }
+    const showHand = visibleHand();
+    if (dealing && (showHand.length || m.mode === "local")) {
+      const count = showHand.length || START_HAND[mode];
+      const pool = Object.keys(ABILITY_BY_ID);
+      handEl.innerHTML = `<div class="hand-track">${Array.from({ length: count }, (_, i) => {
+        const id = pool[Math.floor(Math.random() * pool.length)];
+        const d = ABILITY_BY_ID[id];
+        return `<div class="ability-card deal-spin tier-${d.tier}" style="--tier:${TIERS[d.tier].color};--deal-delay:${i * 70}ms"><span class="ac-tier">뽑는 중</span><span class="ac-name">${esc(d.name)}</span><span class="ac-desc">${esc(d.desc)}</span></div>`;
+      }).join("")}</div><div class="hand-deal-caption" aria-live="polite">카드를 섞고 있어요…</div>`;
+      return;
+    }
+    if (!showHand.length) { handEl.innerHTML = `<div class="muted hand-empty">표시할 능력 카드가 없어요</div>`; return; }
+    const mine = myTurn();
+    handEl.innerHTML = `<div class="hand-track">${showHand.map((id, i) => {
+      const d = ABILITY_BY_ID[id];
+      const usable = mine && !game.usedAbility && (m.mode === "local" || m.mySeats[0] === game.current);
+      return `<button class="ability-card tier-${d.tier}${targeting?.hand === i ? " on" : ""}" data-hand="${i}" ${usable ? "" : "disabled"} style="--tier:${TIERS[d.tier].color};--deal-delay:${i * 100}ms">
+        <span class="ac-tier">${TIERS[d.tier].name}</span><span class="ac-name">${esc(d.name)}</span><span class="ac-desc">${esc(d.desc)}</span></button>`;
+    }).join("")}</div>`;
+  }
+
   function render() {
-    // 자리 카드: 도착 수 · 대기 말 · 카드 수, 내 자리는 '말' 버튼으로 캐릭터 바꾸기
-    seatsEl.style.setProperty("--n", game.players.length);
-    seatsEl.innerHTML = game.players.map((p, i) => {
-      const waiting = p.pieces.filter((q) => q.node === START).length;
-      const fin = game.finished(i);
-      const turn = !game.over && !m.result && game.current === i;
-      const off = m.offline.has(i), left = off ? m.secondsLeft(i) : null;
-      const status = p.resigned ? "기권" : off ? (left !== null ? `연결 끊김 · ${left}초` : "연결 끊김") : !picked.has(i) ? "말 고르는 중…" : p.ward ? "어쩔티비 준비" : "";
-      const me = m.controls(i) && m.mode !== "local" ? " (나)" : "";
-      const choose = m.controls(i) && !m.result && !picked.has(i);
-      return `<div class="ys-card${turn ? " turn" : ""}${p.resigned ? " out" : ""}" style="--pc:${PLAYER_COLORS[i]}">
-        ${choose ? `<button class="ys-char" data-skin="${i}" title="말 캐릭터 고르기" aria-label="${esc(m.seats[i].name)} 말 캐릭터 고르기">` : `<div class="ys-char">`}<svg viewBox="-9 -25 18 27">${tokenSvg(0, 0, i)}</svg>${choose ? "</button>" : "</div>"}
-        <div class="ys-info"><div class="ys-name">${esc(m.seats[i].name + me)}</div>
-          <div class="ys-stats">${game.teams ? `<span class="ys-team t${i % 2}">${teamOf(i)}</span>` : ""}<span>남은 <b>${waiting}</b></span><span>골인 <b>${fin}/${pieces}</b></span>${game.abilitiesOn ? `<span>카드 <b>${p.hand.length}</b></span>` : ""}</div>
-          ${status ? `<div class="ys-status">${esc(status)}</div>` : ""}</div>
-        ${turn ? `<span class="ys-turn">차례</span>` : ""}</div>`;
-    }).join("");
 
     const p = cur();
     turnStatusEl.innerHTML = `<b style="color:${PLAYER_COLORS[game.current]}">${esc(p.name)}</b> ${game.teams ? `<span class="ys-team t${game.current % 2}">${teamOf(game.current)}</span>` : ""} 차례 <span>${game.phase === "move" ? `말 이동 · 남은 결과 ${game.pending.length}개` : game.throws > 1 ? `추가로 ${game.throws}번 던질 수 있어요` : "윷 던지기"}</span>`;
     drawBoard();
     // 던지기 버튼과 남은 결과
     const mine = myTurn();
-    throwBtn.disabled = game.over || !mine || game.phase !== "throw" || tossing || !allPicked();
-    throwBtn.innerHTML = game.over ? "게임 끝" : !mine ? `${esc(p.name)} 님 차례` : game.phase === "throw" ? `${game.throws > 1 ? "한 번 더 던지기" : "윷 던지기"}${game.throws > 1 ? ` ×${game.throws}` : ""} <kbd>Space</kbd>` : "말을 움직여요";
+    throwBtn.disabled = game.over || dealing || !mine || game.phase !== "throw" || tossing || !allPicked();
+    throwBtn.innerHTML = game.over ? "게임 끝" : dealing ? "카드 섞는 중…" : !mine ? `${esc(p.name)} 님 차례` : game.phase === "throw" ? `${game.throws > 1 ? "한 번 더 던지기" : "윷 던지기"}${game.throws > 1 ? ` ×${game.throws}` : ""} <kbd>Space</kbd>` : "말을 움직여요";
     const can = sel !== null ? destinations(sel, selOwner) : new Map();
     const usable = new Set([...can.values()].flat());
     resultsEl.innerHTML = game.pending.map((r, i) => usable.has(i)
@@ -586,6 +593,7 @@ export function create(m) {
       : `<span class="res-chip${r === -1 ? " back" : ""}">${RESULT_NAMES[r]}</span>`).join("");
     // 안내
     if (game.over || m.result) hintEl.textContent = m.result ? m.result.title : "";
+    else if (dealing) hintEl.textContent = "시작 능력 카드를 뽑고 있어요. 잠시만 기다려 주세요.";
     else if (targeting) {
       const t = targeting.def.target;
       hintEl.textContent = `「${targeting.def.name}」 ${t === "oppPiece" ? "상대 말을 눌러요" : t === "ownPiece" ? "내 말을 눌러요" : t === "node" ? "폭탄을 놓을 빈칸을 눌러요" : targeting.own === undefined ? "먼저 내 말을 눌러요" : "바꿀 상대 말을 눌러요"} · 카드를 다시 누르면 취소`;
@@ -593,21 +601,17 @@ export function create(m) {
     else if (!allPicked()) hintEl.textContent = `모두 말을 고르면 시작해요 (${picked.size}/${game.players.length})`;
     else if (game.phase === "throw") hintEl.textContent = game.pending.length ? `윷·모가 나왔어요! 한 번 더 던져요 (${game.throws}회 남음) · 결과 ${game.pending.length}개는 다음에 옮겨요` : `윷을 던져요${game.abilitiesOn ? " (능력 카드는 한 차례에 한 장)" : ""}`;
     else hintEl.textContent = sel !== null ? `선택한 말로 결과 ${game.pending.length}개 중 하나를 옮겨요 · 말풍선 또는 아래 결과 버튼 누르기` : "옮길 말을 눌러요. 갈 수 있는 칸의 결과 말풍선이나 아래 결과 버튼을 누르면 이동해요.";
-    // 능력 카드
-    if (game.abilitiesOn) {
-      const showHand = m.mode === "local" ? p.hand : (m.mySeats.length ? game.players[m.mySeats[0]].hand : []);
-      handEl.innerHTML = showHand.length ? showHand.map((id, i) => {
-        const d = ABILITY_BY_ID[id];
-        const usable = mine && !game.usedAbility && (m.mode === "local" || m.mySeats[0] === game.current);
-        return `<button class="ability-card tier-${d.tier}${targeting?.hand === i ? " on" : ""}" data-hand="${i}" ${usable ? "" : "disabled"} style="--tier:${TIERS[d.tier].color}">
-          <span class="ac-tier">${TIERS[d.tier].name}</span><span class="ac-name">${esc(d.name)}</span><span class="ac-desc">${esc(d.desc)}</span></button>`;
-      }).join("") : `<div class="muted hand-empty">능력 카드를 다 썼어요</div>`;
-    } else handEl.innerHTML = "";
+    renderHand();
     // 기록
     logEl.innerHTML = game.log.slice(-9).map((l) => `<div class="yl yl-${l.kind}">${esc(l.text)}</div>`).join("");
     logEl.scrollTop = logEl.scrollHeight;
     m.setTopActions(m.mySeats.length && !game.over && !m.result ? [{ label: "기권", onClick: resignMine }] : []);
     promptPick();
+    if (dealing && !dealStarted) {
+      dealStarted = true;
+      dealInterval = setInterval(() => { if (dealing) renderHand(); }, 120);
+      m.later(() => { dealing = false; clearInterval(dealInterval); dealInterval = null; render(); }, 1900);
+    }
   }
 
   async function resignMine() {
@@ -615,5 +619,5 @@ export function create(m) {
     if (await confirmBox("기권", `${m.seats[seat].name} 님, 정말 기권할까요?`, "기권", "계속")) m.submit({ type: "resign" }, seat);
   }
 
-  return { el: root, sideEl: side, apply, resign, render, destroy: () => { picking?.close(); document.removeEventListener("keydown", onKey); } };
+  return { el: root, sideEl: side, apply, resign, render, destroy: () => { clearInterval(dealInterval); picking?.close(); document.removeEventListener("keydown", onKey); } };
 }

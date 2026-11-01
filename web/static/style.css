@@ -12,7 +12,7 @@
   --card: #2F2A52;
   --card-hi: #3A3466;
   --text: #F3F1FF;
-  --muted: #9F9AC8;
+  --muted: #B8B4D7;
   --accent: #7C5CFF;
   --pink: #FF5C8A;
   --mint: #3DDC97;
@@ -579,7 +579,7 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
   .game-card .gicon { width: 60px; height: 60px; flex: none; margin: 0; aspect-ratio: auto; }
   .game-card .gbody { align-items: flex-start; flex: 1; min-width: 0; }
   .game-card .gname { font-size: 22px; }
-  .game-card .gdesc { font-size: 13px; }
+  .game-card .gdesc { font-size: 14px; }
   .game-card .gplay { margin: 0; padding: 8px 12px; font-size: 14px; flex: none; }
   .home { min-height: 0; }
   .home-head { margin-bottom: 12px; }
@@ -620,7 +620,7 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
   --card-hi: #FFE3EC;
   --surface: rgba(255, 255, 255, 0.92);
   --text: #5B3E58;
-  --muted: #A3879E;
+  --muted: #80677E;
   --accent: #FF8FB1;
   --pink: #FF7AA2;
   --mint: #7ED9B8;
@@ -678,7 +678,7 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
   --card-hi: #1E1E4F;
   --surface: rgba(15, 15, 43, 0.9);
   --text: #EFFFFF;
-  --muted: #8AA4C8;
+  --muted: #A9BEDC;
   --accent: #00C8E0;
   --pink: #FF2BD6;
   --mint: #39FF9F;
@@ -908,6 +908,69 @@ table.odds td { vertical-align: middle; }
 .yut-shout small { font-size: 15px; -webkit-text-stroke: 0; background: #1A1446; color: #fff; padding: 2px 12px; border-radius: 999px; text-shadow: none; }
 .yut-shout.tier-legend small { background: linear-gradient(90deg, #FF5C8A, #FFB547); }
 .yut-shout.tier-rare small { background: #2F8FE0; }
+
+/* 윷 대기실: 팀 이동과 말 선택을 한 화면에서 읽기 쉽게 정리 */
+.yut-room-setup { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; padding: 16px; border: 1px solid var(--edge); border-radius: 18px; background: linear-gradient(145deg, var(--surface-hi), var(--surface)); }
+.yut-setup-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.yut-setup-head > div:first-child { display: flex; flex-direction: column; gap: 4px; }
+.yut-setup-head > div:first-child strong { font-size: 19px; }
+.yut-setup-head > div:first-child span { color: var(--muted); font-size: 13px; }
+.team-totals { display: flex; gap: 8px; }
+.team-count { padding: 7px 11px; border-radius: 999px; background: var(--row); box-shadow: inset 0 0 0 1px var(--edge); font-size: 13px; }
+.team-count b { font-size: 16px; }
+.team-count.team-a { color: #ff8bab; }
+.team-count.team-b { color: #76c5ff; }
+.yut-roster-board { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.yut-roster-board.teams { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.yut-team-column { min-width: 0; padding: 12px; border: 2px dashed var(--edge); border-radius: 16px; background: color-mix(in srgb, var(--row) 70%, transparent); transition: background .15s, border-color .15s, transform .15s; }
+.yut-team-column.team-a { --team-accent: #ff7399; }
+.yut-team-column.team-b { --team-accent: #58adf5; }
+.yut-team-column.drop-over { border-color: var(--team-accent, var(--accent)); background: color-mix(in srgb, var(--team-accent, var(--accent)) 16%, var(--row)); transform: scale(1.01); }
+.yut-team-column-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; color: var(--team-accent, var(--text)); }
+.yut-team-column-head strong { font-size: 17px; }
+.yut-team-column-head span { font-size: 12px; color: var(--muted); }
+.yut-team-members { display: grid; gap: 9px; min-height: 92px; align-content: start; }
+.yut-room-player { min-width: 0; padding: 10px; border: 1px solid var(--edge); border-radius: 14px; background: var(--surface); box-shadow: 0 3px 10px rgba(0,0,0,.12); }
+.teams .yut-room-player { cursor: grab; }
+.yut-room-player.dragging { opacity: .45; }
+.yut-player-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.yut-character-preview { display: grid; place-items: center; flex: 0 0 45px; height: 48px; border-radius: 12px; background: var(--row); }
+.yut-character-preview svg { width: 32px; height: 42px; }
+.yut-player-label { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.yut-player-label strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.yut-picked-name,.yut-owner-note { color: var(--muted); font-size: 12px; }
+.yut-player-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.yut-player-tags .kick { padding: 2px 7px; font-size: 11px; }
+.yut-character-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.yut-character-choice { display: flex; align-items: center; gap: 5px; min-height: 38px; padding: 4px 8px; border: 1px solid var(--edge); border-radius: 10px; background: var(--row); color: var(--text); cursor: pointer; }
+.yut-character-choice svg { width: 17px; height: 25px; }
+.yut-character-choice span { font-size: 12px; }
+.yut-character-choice.selected { border-color: var(--gold); box-shadow: 0 0 0 2px color-mix(in srgb, var(--gold) 40%, transparent); }
+.yut-character-choice:disabled { opacity: .4; cursor: not-allowed; filter: grayscale(1); }
+.team-move-btn { width: 100%; margin-top: 9px; padding: 7px 10px; border: 0; border-radius: 9px; background: color-mix(in srgb, var(--team-accent) 23%, var(--row)); color: var(--text); font-weight: 700; cursor: pointer; }
+.team-status,.yut-skin-status { margin: 0; color: var(--muted); font-size: 13px; }
+.team-status.ready,.yut-skin-status.ready { color: #39b77a; font-weight: 700; }
+.yut-start-note { flex: 1 1 100%; text-align: right; }
+
+/* 능력 카드는 한 줄로 넘겨 보고, 시작 시 뽑는 연출을 명확히 표시 */
+.hand-header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.hand-header strong { font-size: 15px; }
+.hand-header span,.hand-deal-caption { color: var(--muted); font-size: 12px; }
+.hand { display: block; min-width: 0; width: 100%; }
+.hand-track { display: flex; gap: 10px; width: 100%; overflow-x: auto; overflow-y: hidden; padding: 7px 4px 12px; scroll-snap-type: x proximity; scrollbar-width: thin; }
+.hand-track .ability-card { flex: 0 0 clamp(148px, 31%, 190px); width: auto; min-width: 0; scroll-snap-align: start; }
+.hand-deal-caption { padding: 0 4px 4px; text-align: center; }
+.ability-card.deal-spin { animation: card-deal .34s ease both; animation-delay: var(--deal-delay, 0ms); }
+@keyframes card-deal { from { transform: translateY(-16px) rotate(-5deg) scale(.92); opacity: .35; } to { transform: translateY(0) rotate(0) scale(1); opacity: 1; } }
+.yb-dock rect { fill: color-mix(in srgb, var(--surface) 90%, transparent); stroke: var(--pc); stroke-width: 1; }
+.yb-dock.on rect { stroke-width: 2; filter: drop-shadow(0 0 2px var(--pc)); }
+.yb-dock-sub { fill: var(--text); font-size: 3.2px; }
+@media (max-width: 640px) {
+  .yut-room-setup { padding: 11px; }
+  .yut-roster-board.teams { grid-template-columns: 1fr; }
+  .yut-team-members { min-height: 68px; }
+  .hand-track .ability-card { flex-basis: min(76vw, 190px); }
+}
 
 /* ================================================================ 타이틀 화면과 같은 느낌으로 (모든 화면)
    - 뒤에는 타이틀의 픽셀 장면을 은은하게 (색 막을 덮어 글씨가 잘 보이게)
@@ -1194,7 +1257,7 @@ button.ys-char { cursor: pointer; box-shadow: inset 0 0 0 2px var(--gold); anima
 .game-card .gart { grid-row: 1 / span 2; align-self: center; aspect-ratio: 1; margin: 0; }
 .game-card .gbody { grid-column: 2; align-items: flex-start; }
 .game-card .gplay { grid-column: 2; justify-self: end; }
-.game-card .gdesc { font-size: 13.5px; line-height: 1.4; }
+.game-card .gdesc { font-size: 15px; line-height: 1.45; }
 .ginfo dd { word-break: keep-all; }
 .ginfo { display: grid; grid-template-columns: auto 1fr; gap: 3px 8px; margin: 6px 0 0; font-size: 13px; }
 .ginfo div { display: contents; }

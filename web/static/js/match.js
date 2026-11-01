@@ -44,6 +44,13 @@ export class Match {
     this.root.querySelector(".topbar .icon-btn").onclick = () => this.exit();
     this.root.querySelector(".topbar").appendChild(soundButton());
     this.root.querySelector('[data-k="rules"]').onclick = () => showRules(this.game);
+    this.onEscape = (e) => {
+      if (e.key !== "Escape" || e.repeat || e.isComposing || this.result || !this.root.isConnected || document.querySelector(".modal-back")) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      this.exit();
+    };
+    document.addEventListener("keydown", this.onEscape);
     this.chat = new ChatPanel((m) => this.sendChat(m));
     this.side.appendChild(this.chat.root);
     if (this.online) this.root.querySelector(".net-dot").hidden = false;
@@ -274,6 +281,7 @@ export class Match {
   }
 
   destroy() {
+    document.removeEventListener("keydown", this.onEscape);
     clearInterval(this.offlineTick);
     for (const id of this.timers) clearTimeout(id);
     this.timers.clear();

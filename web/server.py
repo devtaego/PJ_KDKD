@@ -14,6 +14,7 @@ import json
 import os
 import random
 import secrets
+import sys
 import time
 from urllib.parse import urlparse
 
@@ -24,8 +25,14 @@ from aiohttp import WSMsgType, web
 from ranking_store import make_store
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-STATIC = os.path.join(HERE, "static")
-FONTS = os.path.join(os.path.dirname(HERE), "fonts")
+if getattr(sys, "frozen", False):
+    # PyInstaller stores web assets and fonts as data files under the bundle root.
+    BUNDLE_ROOT = sys._MEIPASS
+    STATIC = os.path.join(BUNDLE_ROOT, "web", "static")
+    FONTS = os.path.join(BUNDLE_ROOT, "fonts")
+else:
+    STATIC = os.path.join(HERE, "static")
+    FONTS = os.path.join(os.path.dirname(HERE), "fonts")
 RANKING_FILE = os.environ.get("KIDK_RANKING_FILE", os.path.join(HERE, "ranking.json"))
 
 GAMES = {"chess": 2, "omok": 2, "yacht": 6, "yut": 4}  # 게임 -> 최대 플레이어 수

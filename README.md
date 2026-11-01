@@ -119,20 +119,19 @@ KDA(키움 산하 교육기관) 새 기수가 처음 만났을 때 어색함 없
 - 친구 초대는 대기실의 **링크 보내기**(단톡방) 또는 **QR 크게 보기**(교실 화면).
 - 데스크톱판 첫 화면의 **웹판** 버튼으로도 열 수 있어요.
 
-### 데스크톱판 (같은 와이파이 전용)
+### 로컬 네트워크판 (웹판 UI, 같은 Wi-Fi 전용)
 
-`release` 폴더에 있어요.
+`release` 폴더의 로컬 네트워크판은 웹판과 같은 화면 · 게임 · 대기실을 사용하고, 서버만 실행한 컴퓨터에서 열어요. 방과 랭킹 데이터는 해당 컴퓨터에 저장되며 Render나 Supabase는 사용하지 않아요.
 
 | 파일 | 설명 |
 | --- | --- |
-| `release/windows/KI득KI득.exe` | **추천** — 게임 3종이 모두 들어 있는 게임룸 |
-| `release/windows/Chess.exe`, `Yacht.exe`, `Omok.exe` | 게임 하나만 따로 실행 |
-| `release/mac/KI득KI득_mac.zip` | 맥용 (압축을 풀고 `KI득KI득 실행.command` 더블클릭) |
+| `release/windows/KI득KI득.exe` | **Windows 추천** — 실행하면 브라우저에서 웹판이 열리고, 같은 Wi-Fi 기기에서 접속할 주소가 표시돼요 |
+| `release/mac/KI득KI득_mac.zip` | **Mac** — 압축을 풀고 `로컬 네트워크판 실행.command`를 실행해요 |
 
-- **Windows**: SmartScreen 경고가 뜨면 `추가 정보 → 실행`, 방화벽 창이 뜨면 **개인 네트워크 허용**
-- **Mac**: Python 3이 필요해요. '확인되지 않은 개발자' 경고가 뜨면 우클릭 → 열기
-- 같이 하기: 모두 같은 와이파이에서 한 사람이 **네트워크 → 방 만들기**, 나머지는 **참가하기**에서 열린 방을 눌러요
-  (UDP 50010으로 방을 찾고, 게임은 TCP 50007 체스 · 50008 야추 · 50009 오목)
+- 서버를 켜는 컴퓨터에서 방을 만들고, 화면에 표시된 주소를 친구에게 공유해요. 참가 기기는 같은 Wi-Fi에서 그 주소를 열면 돼요.
+- Windows 방화벽이 물으면 **개인 네트워크만 허용**하세요. 서버 창을 닫으면 방도 종료돼요.
+- Mac은 Python 3이 필요하고, 처음 실행할 때 서버 라이브러리를 설치하려면 인터넷 연결이 필요해요. 실행 중인 터미널 창을 닫으면 서버가 종료돼요.
+- `Chess.exe`, `Yacht.exe`, `Omok.exe`와 개별 Mac zip은 기존 Tkinter 단독 게임판으로, 웹판과 화면 및 기능이 다른 구버전 배포물이에요.
 
 ---
 
@@ -238,6 +237,17 @@ python hub/make_mac_zip.py
 ```
 
 깨끗한 가상환경에서 빌드해야 exe가 약 21MB로 작게 나와요.
+
+### 로컬 네트워크 웹판 배포물 만들기
+
+Windows 실행 파일은 웹 화면 · 정적 파일과 aiohttp 서버를 함께 묶어요. Mac zip은 같은 웹 소스와 실행 스크립트를 담고, Mac에서 첫 실행 때 필요한 라이브러리를 설치해요.
+
+```powershell
+python -m venv .venv-build
+.\.venv-build\Scripts\python.exe -m pip install pyinstaller -r web/requirements.txt
+.\web\build-local-windows.ps1
+python web/make_mac_zip.py
+```
 
 ---
 

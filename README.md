@@ -11,15 +11,15 @@ KDA(키움 산하 교육기관) 새 기수가 처음 만났을 때 어색함 없
 - **데스크톱판 (v1)**: exe 하나로 같은 와이파이 안에서 해요.
 - 만든 사람: **KDA 5기 송재혁** · 개발 과정과 고민: [DEVLOG.md](DEVLOG.md)
 
-<p align="center"><img src="docs/images/title-night.jpg" alt="타이틀 화면: 별이 반짝이는 픽셀 도시 위의 KI득KI득 로고와 메뉴" width="720"></p>
+<p align="center"><img src="docs/images/title-current.png" alt="최신 타이틀 화면: 네 개 메뉴, 플레이어, 소리와 테마 선택" width="720"></p>
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/images/home.jpg" alt="첫 화면: 프로필과 게임 고르기"></td>
+    <td width="50%"><img src="docs/images/home-current.png" alt="최신 게임 고르기 화면: 체스, 오목, 야추 다이스, 윷놀이"></td>
     <td width="50%"><img src="docs/images/yacht.jpg" alt="야추 다이스: 트레이와 점수표"></td>
   </tr>
   <tr>
-    <td align="center">첫 화면 — 플레이어 카드를 꾸미고 게임 고르기</td>
+    <td align="center">게임 고르기 — 네 게임과 플레이어 프로필</td>
     <td align="center">야추 다이스 — 컵을 흔들어 던지고, 항목 이름을 누르면 예시 주사위 설명</td>
   </tr>
   <tr>
@@ -31,12 +31,12 @@ KDA(키움 산하 교육기관) 새 기수가 처음 만났을 때 어색함 없
     <td align="center">오목 — 쌍삼 금지 / 자유룰, 컴퓨터 난이도 3단계</td>
   </tr>
   <tr>
-    <td><img src="docs/images/waiting-room.jpg" alt="대기실: 대기 줄과 연승"></td>
-    <td><img src="docs/images/result.jpg" alt="결과 화면: 티배깅과 질문 카드"></td>
+    <td><img src="docs/images/yut-online-current.png" alt="윷놀이 온라인 대기실: 방장이 팀과 캐릭터를 선택"></td>
+    <td><img src="docs/images/result-current.png" alt="최신 결과 화면: 움직이는 왕관, 티배깅, 아이스브레이킹 질문 카드"></td>
   </tr>
   <tr>
-    <td align="center">대기실 — 방 코드 · 대기 줄 · 연승 표시</td>
-    <td align="center">결과 화면 — 이긴 사람만 쓰는 티배깅 + 진 사람 질문 카드</td>
+    <td align="center">윷놀이 대기실 — 캐릭터를 미리 고르고 A · B팀을 배정</td>
+    <td align="center">결과 — 티배깅 연출과 모두가 대화하는 질문 카드</td>
   </tr>
 </table>
 
@@ -52,7 +52,7 @@ KDA(키움 산하 교육기관) 새 기수가 처음 만났을 때 어색함 없
 | 사람이 많을 때 | 꽉 찬 방에 들어가면 **대기 줄**에 서요. 진 사람은 줄 맨 뒤로, 이긴 사람은 계속 — **연승**이 쌓여요 |
 | 모르는 사람 없이 우리끼리 | 방을 **비공개**로 만들면 목록에 안 보이고 코드로만 들어와요. 이상한 사람은 방장이 **내보내기** |
 | 교실에서 한 번에 | 대기실의 **QR 크게 보기**를 빔프로젝터에 띄우면 다들 폰 카메라로 찍고 바로 들어와요 |
-| 분위기 바꾸기 | 타이틀 화면에서 **테마** 고르기(◀ ▶): 밤하늘 · 말랑말랑(귀여운 파스텔) · 오락실(네온) |
+| 분위기 바꾸기 | 화면 오른쪽 위 **팔레트 버튼**을 눌러 미리보기와 함께 밤하늘 · 말랑말랑 · 오락실 테마 선택 |
 | 누가 제일 잘하나 | **랭킹**: 이 기기 기록 + 우리 반(온라인) 기록 |
 
 ### 게임
@@ -77,21 +77,21 @@ KDA(키움 산하 교육기관) 새 기수가 처음 만났을 때 어색함 없
 
 ### 타이틀 화면과 테마
 
-게임을 켜면 픽셀 아트 장면 위에 큰 로고와 메뉴가 뜨는 **타이틀 화면**이 먼저 나와요. 마우스 · 터치로 고르거나, 키보드 ↑ ↓ 로 ▶ 커서를 옮기고 Enter, 테마는 ◀ ▶.
-장면은 테마마다 다르고 모두 코드로 직접 그렸어요 (작게 그려서 크게 늘린 도트).
+게임을 켜면 픽셀 아트 장면 위에 큰 로고와 메뉴가 뜨는 **타이틀 화면**이 먼저 나와요. 마우스 · 터치로 고르거나, 키보드 ↑ ↓ 로 ▶ 커서를 옮기고 Enter를 눌러요. 소리 옆 🎨 팔레트 버튼을 누르면 예시가 있는 테마 선택 창이 열려요.
+밤하늘 · 말랑말랑 · 오락실 장면은 테마마다 다르고 모두 코드로 직접 그렸어요 (작게 그려서 크게 늘린 도트). 고른 테마는 게임 선택 화면과 대기실에도 이어져요.
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/images/title-pastel.jpg" alt="말랑말랑 타이틀: 햇살 아래 언덕 위 학교"></td>
-    <td width="50%"><img src="docs/images/title-arcade.jpg" alt="오락실 타이틀: 네온 해와 달리는 격자 바닥"></td>
+    <td width="50%"><img src="docs/images/title-pastel-current.png" alt="말랑말랑 타이틀: 햇살 아래 언덕 위 학교"></td>
+    <td width="50%"><img src="docs/images/title-arcade-current.png" alt="오락실 타이틀: 네온 해와 달리는 격자 바닥"></td>
   </tr>
   <tr>
     <td align="center">말랑말랑 — 구름이 흘러가는 언덕 위 학교, 동화책 같은 노란 로고</td>
     <td align="center">오락실 — 줄무늬 네온 해와 앞으로 달려오는 격자 바닥</td>
   </tr>
   <tr>
-    <td><img src="docs/images/theme-pastel.jpg" alt="말랑말랑 테마의 게임 고르기 화면"></td>
-    <td><img src="docs/images/theme-arcade.jpg" alt="오락실 테마의 게임 고르기 화면"></td>
+    <td><img src="docs/images/home-pastel-current.png" alt="말랑말랑 테마의 최신 게임 고르기 화면"></td>
+    <td><img src="docs/images/home-arcade-current.png" alt="오락실 테마의 최신 게임 고르기 화면"></td>
   </tr>
 </table>
 
@@ -118,14 +118,6 @@ KDA(키움 산하 교육기관) 새 기수가 처음 만났을 때 어색함 없
 - 폰에서는 브라우저 메뉴의 **홈 화면에 추가**를 누르면 앱처럼 쓸 수 있어요.
 - 친구 초대는 대기실의 **링크 보내기**(단톡방) 또는 **QR 크게 보기**(교실 화면).
 - 데스크톱판 첫 화면의 **웹판** 버튼으로도 열 수 있어요.
-
-<p align="center">
-  <img src="docs/images/mobile-title.jpg" alt="폰 타이틀 화면 (말랑말랑 테마)" width="240">
-  &nbsp;
-  <img src="docs/images/mobile-home.jpg" alt="폰 게임 고르기 (말랑말랑 테마)" width="240">
-  &nbsp;
-  <img src="docs/images/mobile-yacht.jpg" alt="폰 화면의 야추 다이스" width="240">
-</p>
 
 ### 데스크톱판 (같은 와이파이 전용)
 

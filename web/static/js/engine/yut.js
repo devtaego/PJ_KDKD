@@ -153,9 +153,11 @@ export class YutGame {
 
   /** 쓸 수 없는 결과(말이 없는데 빽도 등)는 버리고, 다 썼으면 차례를 넘김 */
   prune() {
-    if (this.over) return;
+    if (this.over || this.throws > 0) return; // 아직 더 던질 수 있으면 다 던진 뒤에 판단
     const before = this.pending.length;
-    this.pending = this.pending.filter((r) => this.canUse(this.current, r));
+    // 빽도는 지금 판 위에 말이 없어도, 다른 결과(윷 · 모 등)로 말을 먼저 올리면 쓸 수 있으니 남겨 둠
+    const canEnter = this.pending.some((r) => r > 0 && this.canUse(this.current, r));
+    this.pending = this.pending.filter((r) => this.canUse(this.current, r) || (r === -1 && canEnter));
     if (this.pending.length < before) this.say("움직일 말이 없어 결과를 버려요");
     if (this.throws === 0 && this.pending.length === 0) this.endTurn();
   }
@@ -223,7 +225,7 @@ export class YutGame {
         for (const pc of victims) { pc.node = START; pc.prev = null; }
         this.players[s].captured += victims.length;
         this.say(`${josa(p.name, "이", "가")} ${this.players[s].name}의 말 ${victims.length}개를 잡았다!${fromMove ? " 한 번 더!" : ""}`, "good");
-        this.event({ kind: "catch", seat, victim: s, node });
+        this.event({ kind: "catch", seat, victim: s, node, count: victims.length });
         if (fromMove) { this.throws++; this.phase = "throw"; }
       }
     }

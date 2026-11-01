@@ -180,7 +180,7 @@ label.field > span { display: block; color: var(--muted); font-size: 14px; margi
 .game-card .gband { align-self: stretch; height: 10px; margin: 0 -14px 6px; background: var(--tile); }
 .game-card:hover { transform: translateY(-5px); box-shadow: 0 0 0 3px var(--tile), var(--shadow); }
 .game-card .gicon { width: clamp(84px, 9vw, 116px); aspect-ratio: 1; margin-top: 8px; animation: float 3.2s ease-in-out infinite; }
-.game-card.g-yacht .gicon { animation-delay: 0.4s; } .game-card.g-omok .gicon { animation-delay: 0.8s; }
+.game-card.g-omok .gicon { animation-delay: 0.4s; } .game-card.g-yacht .gicon { animation-delay: 0.8s; } .game-card.g-yut .gicon { animation-delay: 1.2s; }
 @keyframes float { 50% { transform: translateY(-6px) rotate(-2deg); } }
 .game-card:hover .gicon { animation: wiggle 0.5s ease-in-out; }
 @keyframes wiggle { 25% { transform: rotate(-8deg) scale(1.06); } 75% { transform: rotate(8deg) scale(1.06); } }
@@ -784,7 +784,7 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
 .yut-seats .person.turn { box-shadow: inset 4px 0 0 var(--pc), inset 0 0 0 2px var(--gold), 0 0 14px rgba(255, 201, 77, 0.2); }
 .yut-dots { display: flex; gap: 3px; }
 .yut-dots i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid; display: block; }
-.yut-stage { position: relative; width: min(100%, calc((100dvh - 300px) * 20 / 17), 820px); aspect-ratio: 20 / 17; }
+.yut-stage { position: relative; width: min(100%, calc((100dvh - 300px) * 200 / 208), 820px); aspect-ratio: 200 / 208; }
 .yut-board { width: 100%; height: 100%; transition: transform 0.6s cubic-bezier(.5, -0.3, .3, 1.4); }
 .yut-board.upside { transform: rotate(180deg); }
 .yut-board svg { width: 100%; height: 100%; display: block; overflow: visible; }
@@ -796,7 +796,6 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
 .yb-node.pickable { stroke: #FF5C8A; stroke-width: 1.2; cursor: crosshair; }
 @keyframes pulse { to { opacity: 0.55; } }
 .yb-star { font-size: 4.2px; text-anchor: middle; fill: #B5652A; pointer-events: none; }
-.yb-label { font-size: 3.2px; text-anchor: middle; fill: #6B3E26; }
 .yb-piece { cursor: default; transition: transform 0.25s ease; }
 .yb-piece.movable, .yb-piece.pickable { cursor: pointer; }
 .yb-piece.movable .yb-token { stroke: #fff; stroke-width: 0.9; }
@@ -991,7 +990,6 @@ html[data-theme] .yut-hint { color: var(--chip-text); text-shadow: 1px 1px 0 var
 .yb-tile.dest .top { fill: #7CE7FF; stroke: #1C8FB0; stroke-width: 0.9; }
 .yb-tile.dest, .yb-tile.pickable { cursor: pointer; }
 .yb-tile.pickable .top { stroke: #FF2E2E; stroke-width: 0.9; }
-.yb-label { font-size: 3.4px; text-anchor: middle; fill: #fff; paint-order: stroke; stroke: #8E2440; stroke-width: 0.7; pointer-events: none; }
 .yb-piece { cursor: default; }
 .yb-piece.movable, .yb-piece.pickable { cursor: pointer; }
 .yb-hit { fill: transparent; }
@@ -1032,7 +1030,6 @@ html[data-theme] .yut-hint { color: var(--chip-text); text-shadow: 1px 1px 0 var
 .yb-go path { fill: #E8590C; stroke: #fff; stroke-width: 1.2; stroke-linejoin: round; }
 .yb-go-in { animation: go-up 0.8s ease-in-out infinite alternate; }
 @keyframes go-up { to { transform: translateY(-3px); } }
-.yb-go text { font-size: 4.2px; text-anchor: middle; fill: #fff; paint-order: stroke; stroke: #B23E08; stroke-width: 1; }
 .yb-corner-label { font-size: 2.6px; text-anchor: middle; fill: #8A5A2B; pointer-events: none; }
 .yb-start-sign { pointer-events: none; }
 .yb-start-sign rect { fill: #E8590C; stroke: #fff; stroke-width: 0.7; }
@@ -1097,3 +1094,50 @@ html[data-theme="pastel"] .logo {
 }
 html[data-theme="pastel"] .logo b { color: #FF9EC0; }
 html[data-theme="arcade"] .logo { text-shadow: 0 0 8px #00E5FF, 0 0 18px #00E5FF, 0 4px 0 #FF2BD6; filter: drop-shadow(0 0 2px #07071A) drop-shadow(0 0 2px #07071A); }
+
+/* 윷판 다듬기: 움직이는 말 · 갈 길 · 말풍선 종류 · 차례 표시 */
+.yut-ghost { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; transition: transform 0.6s cubic-bezier(.5, -0.3, .3, 1.4); }
+.yut-ghost.upside { transform: rotate(180deg); }
+.yut-ghost .ghost { transition: transform 0.14s ease-in-out; }
+.yut-ghost .yb-bob { animation: hop 0.15s ease-in-out infinite alternate; }
+@keyframes hop { to { transform: translateY(-3px); } }
+.yb-route { fill: none; stroke: #FFB800; stroke-width: 2.4; stroke-dasharray: 0.1 3.2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; filter: drop-shadow(0 0 0.8px #5B3A1A) drop-shadow(0 0 0.8px #5B3A1A); animation: route-run 0.8s linear infinite; }
+@keyframes route-run { to { stroke-dashoffset: -6.6; } }
+.yb-dest.hot path { fill: #FF6B6B; }
+.yb-dest.hot text { fill: #fff; }
+.yb-dest.stack path { fill: #9BE58A; }
+.yb-dest.home path { fill: #FF8FA3; }
+.yb-dest.home text { fill: #fff; }
+.yb-turn-tag rect { fill: var(--pc); stroke: #fff; stroke-width: 0.5; }
+.yb-turn-tag text { font-size: 3.6px; text-anchor: middle; fill: #fff; paint-order: stroke; stroke: rgba(20, 12, 40, 0.6); stroke-width: 0.5; }
+.yb-turn-tag { animation: dest-bob 0.7s ease-in-out infinite alternate; }
+
+/* 윷놀이: 자리 카드 · 판 · 아래 칸 너비를 판에 맞춰 한 줄로 */
+.yut-screen .board-wrap { --yw: min(100%, calc((100dvh - 310px) * 200 / 208), 820px); align-items: center; }
+.yut-screen .yut-seats, .yut-screen .yut-stage, .yut-screen .yut-panel { width: var(--yw); }
+.yut-seats { display: grid !important; grid-template-columns: repeat(var(--n, 2), minmax(0, 1fr)); gap: 10px; padding-top: 8px; }
+.ys-card {
+  position: relative; display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 6px; min-width: 0; border-radius: 14px;
+  background: linear-gradient(180deg, var(--surface-hi), var(--surface)); box-shadow: inset 0 4px 0 var(--pc), inset 0 0 0 1px var(--edge), 0 4px 10px rgba(0, 0, 0, 0.18);
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+.ys-card.turn { transform: translateY(-2px); box-shadow: inset 0 4px 0 var(--pc), 0 0 0 2px var(--pc), 0 0 18px color-mix(in srgb, var(--pc) 50%, transparent); }
+.ys-card.out { opacity: 0.5; filter: grayscale(0.6); }
+.ys-char { width: 42px; height: 52px; flex: none; border: 0; padding: 0; border-radius: 12px; background: radial-gradient(circle at 50% 78%, color-mix(in srgb, var(--pc) 40%, transparent), transparent 70%); }
+button.ys-char { cursor: pointer; box-shadow: inset 0 0 0 2px var(--gold); animation: pulse 0.8s ease-in-out infinite alternate; }
+.ys-char svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.ys-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ys-name { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ys-stats { display: flex; gap: 4px; flex-wrap: wrap; }
+.ys-stats span { font-size: 11.5px; padding: 1px 7px; border-radius: 999px; background: var(--row); color: var(--muted); box-shadow: inset 0 0 0 1px var(--edge); }
+.ys-stats b { color: var(--text); font-weight: normal; }
+.ys-status { font-size: 11.5px; color: var(--gold); }
+.ys-turn { position: absolute; top: -9px; right: 10px; background: var(--pc); color: #fff; font-size: 12px; padding: 1px 9px; border-radius: 999px; box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); }
+.yb-trim { fill: rgba(122, 72, 30, 0.45); pointer-events: none; }
+.yb-grain { fill: none; stroke: rgba(150, 95, 45, 0.16); stroke-width: 0.5; pointer-events: none; }
+.yb-tile .ring { fill: none; stroke: rgba(138, 90, 43, 0.45); stroke-width: 0.5; pointer-events: none; }
+@media (max-width: 640px) {
+  .yut-seats { grid-template-columns: 1fr 1fr; }
+  .ys-char { width: 34px; height: 42px; }
+  .ys-name { font-size: 14px; }
+}

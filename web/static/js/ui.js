@@ -38,10 +38,24 @@ export function toast(text, ms = 2200) {
 }
 
 /** 가운데 창. body는 요소. 닫는 함수를 돌려줌 */
-export function modal(title, body, { closable = true } = {}) {
+/** 창 띄우기. Esc = 닫기(닫을 수 있는 창이면), Enter = 주 버튼(data-primary 또는 마지막 색 버튼) 누르기 */
+export function modal(title, body, { closable = true, onEscape = null } = {}) {
   const back = el(`<div class="modal-back"><div class="modal" role="dialog" aria-modal="true"><h2>${esc(title)}</h2></div></div>`);
   back.firstElementChild.appendChild(body);
-  const close = () => back.remove();
+  const onKey = (e) => {
+    if (!back.isConnected) { document.removeEventListener("keydown", onKey); return; }
+    const all = document.querySelectorAll(".modal-back");
+    if (all[all.length - 1] !== back || e.isComposing) return; // 맨 위 창만, 한글 입력 중에는 무시
+    if (e.key === "Escape") {
+      if (onEscape) { e.preventDefault(); onEscape(); } else if (closable) { e.preventDefault(); close(); }
+    } else if (e.key === "Enter" && !e.target.closest?.("button, textarea, select")) {
+      const btns = [...back.querySelectorAll("[data-primary], .btn.primary, .btn.pink")].filter((b) => !b.disabled && b.offsetParent);
+      const main = btns.find((b) => b.hasAttribute("data-primary")) || btns[btns.length - 1];
+      if (main) { e.preventDefault(); main.click(); }
+    }
+  };
+  const close = () => { back.remove(); document.removeEventListener("keydown", onKey); };
+  document.addEventListener("keydown", onKey);
   if (closable) {
     back.addEventListener("click", (e) => { if (e.target === back) close(); });
     const inline = body.querySelector(".modal-actions"); // 본문에 버튼 줄이 있으면 '닫기'를 그 줄 맨 앞에
@@ -62,8 +76,8 @@ export function modal(title, body, { closable = true } = {}) {
 export function confirmBox(title, text, yes = "좋아요", no = "아니요") {
   return new Promise((resolve) => {
     const body = el(`<div><p>${esc(text)}</p><div class="row" style="justify-content:flex-end"><button class="btn ghost">${esc(no)}</button><button class="btn primary">${esc(yes)}</button></div></div>`);
-    const close = modal(title, body, { closable: false });
     const [n, y] = body.querySelectorAll("button");
+    const close = modal(title, body, { closable: false, onEscape: () => n.click() }); // Esc = 아니요, Enter = 좋아요
     n.onclick = () => { close(); resolve(false); };
     y.onclick = () => { close(); resolve(true); };
   });
@@ -219,10 +233,12 @@ export function showResult(opts) {
     actions.appendChild(again);
   }
   const look = el(`<button class="btn ghost">판 보기</button>`);
+  let showAgain = null; // '판 보기' 중일 때 결과를 다시 여는 함수
   look.onclick = () => {
     root.style.display = "none";
     const back = el(`<button class="btn primary" style="position:fixed;right:16px;bottom:calc(16px + var(--safe-b));z-index:41">결과 다시 보기</button>`);
-    back.onclick = () => { root.style.display = ""; back.remove(); };
+    showAgain = () => { root.style.display = ""; back.remove(); showAgain = null; };
+    back.onclick = showAgain;
     document.body.appendChild(back);
     api.cleanup.push(() => back.remove());
   };
@@ -234,6 +250,18 @@ export function showResult(opts) {
   }
   card.appendChild(actions);
   document.body.appendChild(root);
+  // 키보드: Enter = 한 판 더, Esc = 판 보기 (판 보는 중이면 Esc · Enter로 결과 다시 보기)
+  const onKey = (e) => {
+    if (!root.isConnected) { document.removeEventListener("keydown", onKey); return; }
+    if (document.querySelector(".modal-back") || e.isComposing || e.target.closest?.("input, textarea, button")) return;
+    if (showAgain && (e.key === "Escape" || e.key === "Enter")) { e.preventDefault(); showAgain(); }
+    else if (e.key === "Escape") { e.preventDefault(); look.click(); }
+    else if (e.key === "Enter") {
+      const again = actions.querySelector(".btn.primary:not(:disabled)");
+      if (again) { e.preventDefault(); again.click(); }
+    }
+  };
+  document.addEventListener("keydown", onKey);
 
   if (opts.myKind === "win") {
     play("win");
@@ -250,7 +278,7 @@ export function showResult(opts) {
   const api = {
     root,
     cleanup: [],
-    close() { root.remove(); api.cleanup.forEach((f) => f()); },
+    close() { root.remove(); document.removeEventListener("keydown", onKey); api.cleanup.forEach((f) => f()); },
     bubble(key, text) { popAt(podium.querySelector(`[data-key="${CSS.escape(key)}"] .avatar`), { text }); },
     teabag(fromKey, toKey) {
       const stop = teabag(podium, fromKey, toKey);

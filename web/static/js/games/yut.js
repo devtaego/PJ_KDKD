@@ -1,9 +1,8 @@
 // 윷놀이 화면: 2~4명, 한 기기 또는 온라인 (컴퓨터 대전 없음)
-// 판은 앞에서 비스듬히 내려다본 두꺼운 사각형(출발은 오른쪽 아래), 말은 서 있는 캐릭터. 대기 말은 판 위아래에 두고 눌러서 올림
+// 판은 위에서 내려다본 정사각형(출발은 오른쪽 아래), 말은 서 있는 캐릭터. 대기 말은 판 위아래에 두고 눌러서 올림
 // 윷은 판 위로 크게 던져서 떨어지고, 아래에는 결과만 작게
-import { YutGame, START, HOME, CENTER, RESULT_NAMES } from "../engine/yut.js";
+import { YutGame, START, HOME, CENTER, RESULT_NAMES, pathFrom } from "../engine/yut.js";
 import { ABILITY_BY_ID, TIERS, START_HAND, abilityOdds, THROW_ODDS } from "../data/yut_abilities.js";
-import { seatCard } from "../match.js";
 import { el, confirmBox, modal } from "../ui.js";
 import { esc } from "../art.js";
 import { CHARACTERS, CHAR_IDS, charSvg } from "./yut_chars.js";
@@ -31,13 +30,13 @@ const POS = (() => {
   p[27] = lerp(c, p[0], 1 / 3); p[28] = lerp(c, p[0], 2 / 3);
   return p;
 })();
-// 화면 좌표: 사각형 그대로 두고 세로만 눌러서 앞에서 비스듬히 내려다본 느낌
-const SX = 1.75, SY = 1.15, CX = 100, CY = 88;
+// 화면 좌표: 위에서 내려다본 정사각형 그대로 (가로세로 같은 배율)
+const SX = 1.5, SY = 1.5, CX = 100, CY = 104;
 const proj = (x, y) => [CX + (x - 50) * SX, CY + (y - 50) * SY];
 const SP = Object.fromEntries(Object.entries(POS).map(([n, [x, y]]) => [n, proj(x, y)]));
 const BIG = new Set([0, 5, 10, 15, CENTER]);
 // 대기 말 자리 (판 위아래 띠): 0 왼쪽 아래, 1 오른쪽 아래, 2 오른쪽 위, 3 왼쪽 위
-const DOCKS = [[10, 166], [132, 166], [132, 24], [10, 24]];
+const DOCKS = [[10, 202], [132, 202], [132, 24], [10, 24]];
 // 윷가락 4개의 평평한 면 개수 (빽도는 표시가 있는 첫 가락만 평평)
 const FLATS = { "-1": [1, 0, 0, 0], 1: [0, 1, 0, 0], 2: [1, 1, 0, 0], 3: [1, 1, 1, 0], 4: [1, 1, 1, 1], 5: [0, 0, 0, 0] };
 
@@ -57,6 +56,9 @@ export function create(m) {
   let sel = null; // 고른 내 말 번호 (업힌 말은 맨 앞 번호)
   let targeting = null; // { hand, def, own? }
   let tossing = false;
+  // 지금 움직이는 말 { seat, node, count, victims }: 그동안 옮긴 말만 숨기고(도착 칸에 원래 있던 내 말은 그대로),
+  // 잡힌 말은 잡는 말이 도착할 때까지 그 칸에 남겨 둠. 유령 말이 길을 따라 콩콩
+  let anim = null;
   const picked = new Set(); // 말을 고른 자리
   let picking = null; // 지금 열린 고르기 창 { seat, close }
   const pickSent = {}; // 자리 -> 고른 걸 보낸 시각 (온라인에서 답이 오기 전에 창이 다시 뜨지 않게)
@@ -68,6 +70,7 @@ export function create(m) {
     <div class="seat-strip yut-seats"></div>
     <div class="yut-stage">
       <div class="yut-board" role="img" aria-label="윷판"></div>
+      <svg class="yut-ghost" viewBox="0 0 200 208" aria-hidden="true"></svg>
       <div class="yut-toss" aria-hidden="true"></div>
       <div class="yut-fx" aria-live="polite"></div>
     </div>
@@ -85,6 +88,7 @@ export function create(m) {
   const boardEl = root.querySelector(".yut-board");
   const fxEl = root.querySelector(".yut-fx");
   const tossEl = root.querySelector(".yut-toss");
+  const ghostEl = root.querySelector(".yut-ghost");
   const throwBtn = root.querySelector(".throw-btn");
   const resultsEl = root.querySelector(".results");
   const hintEl = root.querySelector(".yut-hint");
@@ -187,10 +191,10 @@ export function create(m) {
     if (nd && +nd.dataset.node === 0 && firstWaiting() >= 0) { sel = firstWaiting(); render(); }
   });
 
-  // 말 캐릭터 고르기 창 (시작할 때는 꼭 골라야 해서 닫기 없음, 게임 중에는 자리 카드의 '말' 버튼으로 바꾸기)
+  // 말 캐릭터 고르기 창: 시작할 때 한 번만 (꼭 골라야 해서 닫기 없음, 게임 중에는 못 바꿈)
   function openPicker(s, first) {
     picking?.close();
-    const body = el(`<div><p class="muted" style="margin:0 0 10px">${first ? "판에 세울 내 말을 골라요. 다른 사람이 고른 캐릭터는 못 골라요." : "바꿀 캐릭터를 골라요."}</p><div class="skin-pick"></div></div>`);
+    const body = el(`<div><p class="muted" style="margin:0 0 10px">판에 세울 내 말을 골라요. 다른 사람이 고른 캐릭터는 못 고르고, 한 번 고르면 게임 끝까지 그대로예요.</p><div class="skin-pick"></div></div>`);
     const grid = body.querySelector(".skin-pick");
     let done = () => {};
     for (const { id, name } of CHARACTERS) {
@@ -207,8 +211,8 @@ export function create(m) {
     const b = e.target.closest("[data-skin]");
     if (!b) return;
     const s = +b.dataset.skin;
-    if (!m.controls(s) || m.result) return;
-    openPicker(s, !picked.has(s));
+    if (!m.controls(s) || m.result || picked.has(s)) return; // 한 번 고르면 끝까지 그 캐릭터
+    openPicker(s, true);
   });
   /** 아직 말을 안 고른 내 자리가 있으면 고르기 창을 띄움 (한 기기면 자리 순서대로) */
   function promptPick() {
@@ -221,8 +225,8 @@ export function create(m) {
 
   // ------------------------------------------------------------ 행동 적용
   function apply(a, at, seat) {
-    if (a.type === "skin") { // 겉모습만 바뀜 (누구 차례든 상관없음)
-      if (CHAR_IDS.has(a.skin) && takenBy(a.skin, seat) < 0) { skins[seat] = a.skin; picked.add(seat); }
+    if (a.type === "skin") { // 시작할 때 한 번만 (이미 고른 자리는 무시)
+      if (!picked.has(seat) && CHAR_IDS.has(a.skin) && takenBy(a.skin, seat) < 0) { skins[seat] = a.skin; picked.add(seat); }
       if (picking && picking.seat !== seat) openPicker(picking.seat, !picked.has(picking.seat)); // 남이 방금 고른 캐릭터를 내 창에서도 막음
       return;
     }
@@ -267,16 +271,20 @@ export function create(m) {
   }
 
   function playEvents() {
+    // 말이 길을 따라가는 동안에는 잡기 · 도착 · 폭탄 연출을 도착한 뒤로 미룸
+    const mv = game.events.find((e) => e.kind === "move");
+    const arrive = mv ? 60 + routeNodes(mv.from, mv.to).length * 150 : 0;
+    const atArrival = (fn) => (arrive ? m.later(fn, arrive) : fn());
     for (const e of game.events) {
       if (e.kind === "throw") {
         tossing = true;
         m.sfx("yut");
         tossSticks(e.value);
         m.later(() => { tossing = false; render(); }, 900);
-      } else if (e.kind === "move") m.sfx("move");
-      else if (e.kind === "catch") { m.sfx("thud"); shout("잡았다!", "good"); }
-      else if (e.kind === "boom") { m.sfx("thud"); shout("펑!!", "bad"); }
-      else if (e.kind === "home") { m.sfx("pop"); shout("도착!", "good"); }
+      } else if (e.kind === "move") hopAlong(e);
+      else if (e.kind === "catch") atArrival(() => { m.sfx("thud"); shout("잡았다!", "good"); });
+      else if (e.kind === "boom") atArrival(() => { m.sfx("thud"); shout("펑!!", "bad"); });
+      else if (e.kind === "home") atArrival(() => { m.sfx("pop"); shout("도착!", "good"); });
       else if (e.kind === "ability") {
         const d = ABILITY_BY_ID[e.id];
         m.sfx("pop");
@@ -285,6 +293,30 @@ export function create(m) {
       } else if (e.kind === "blocked") shout("어쩔티비~ 막았다!", "good");
       else if (e.kind === "coin") shout(e.heads ? "앞면! 가즈아!!" : "뒷면… 출발점으로", e.heads ? "good" : "bad");
     }
+  }
+
+  const cur0 = (s2) => game.players[s2];
+  /** 말이 지나가는 칸들 (from에서 to까지, 골인이면 출발 칸까지) */
+  function routeNodes(from, to) {
+    const p = pathFrom(from), k = p.indexOf(to);
+    return (k >= 0 ? p.slice(0, k + 1) : [to]).map((n) => (n === HOME ? 0 : n));
+  }
+  const posOf = (n) => SP[n === HOME ? 0 : n];
+
+  /** 옮긴 말을 출발한 칸에서 도착한 칸까지 한 칸씩 콩콩 */
+  function hopAlong(e) {
+    const steps = routeNodes(e.from, e.to).map(posOf);
+    const start = e.from === START ? [DOCKS[e.seat][0], DOCKS[e.seat][1]] : posOf(e.from);
+    // 잡힌 말: 지금은 이미 출발점(START)에 있지만, 도착 전까지 그 칸에 그려 둠
+    const victims = game.events.filter((c) => c.kind === "catch" && c.node === e.to).map((c) => ({
+      seat: c.victim, idxs: game.players[c.victim].pieces.map((q, i) => [q, i]).filter(([q]) => q.node === START).slice(-c.count).map(([, i]) => i),
+    }));
+    const stacked = e.to !== HOME && cur0(e.seat).pieces.filter((q) => q.node === e.to).length > e.count;
+    anim = { seat: e.seat, node: e.to, count: e.count, victims };
+    ghostEl.innerHTML = `<g class="ghost" style="transform:translate(${start[0]}px,${start[1]}px)">${tokenSvg(0, 0, e.seat, { sc: 0.78, count: e.count })}</g>`;
+    const g = ghostEl.firstElementChild;
+    steps.forEach(([x, y], i) => m.later(() => { g.style.transform = `translate(${x}px,${y}px)`; m.sfx("tick"); }, 60 + i * 150));
+    m.later(() => { anim = null; ghostEl.innerHTML = ""; render(); if (stacked) shout("업었다!", "good"); }, 60 + steps.length * 150 + 120);
   }
 
   function showOdds(md) {
@@ -351,9 +383,16 @@ export function create(m) {
       <linearGradient id="ywood" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F3D29B"/><stop offset="1" stop-color="#DDB06C"/></linearGradient></defs>`);
     // 판 바탕: 두께가 있는 사각형 (앞면이 보임)
     const [TL, TR, BR, BL] = [proj(4, 4), proj(96, 4), proj(96, 96), proj(4, 96)];
-    const d = 7, pt = (p, dy = 0) => `${p[0]},${p[1] + dy}`;
-    parts.push(`<polygon class="yb-side-l" points="${pt(BL)} ${pt(BR)} ${pt(BR, d)} ${pt(BL, d)}"/>`);
+    const pt = (p, dy = 0) => `${p[0]},${p[1] + dy}`;
     parts.push(`<polygon class="yb-top" points="${pt(TL)} ${pt(TR)} ${pt(BR)} ${pt(BL)}"/>`);
+    // 가장자리 테 (진한 나무 띠) + 옅은 나뭇결
+    const ring = (a) => [proj(a, a), proj(100 - a, a), proj(100 - a, 100 - a), proj(a, 100 - a)].map((q) => pt(q)).join(" ");
+    parts.push(`<path class="yb-trim" fill-rule="evenodd" d="M${ring(4)}Z M${ring(6.5)}Z"/>`);
+    for (const gy of [18, 31, 44, 57, 70, 83]) {
+      const pts = [];
+      for (let gx = 8; gx <= 92; gx += 6) pts.push(pt(proj(gx, gy + Math.sin(gx / 9 + gy) * 1.2)));
+      parts.push(`<polyline class="yb-grain" points="${pts.join(" ")}"/>`);
+    }
     const inner = [proj(8, 8), proj(92, 8), proj(92, 92), proj(8, 92)];
     parts.push(`<polygon class="yb-inner" points="${inner.map((p) => pt(p)).join(" ")}"/>`);
     // 길
@@ -375,7 +414,7 @@ export function create(m) {
     const order = Object.keys(SP).map(Number).sort((a, b) => SP[a][1] - SP[b][1]);
     for (const n of order) {
       const [x, y] = SP[n];
-      const rb = BIG.has(n) ? 4.6 : 3.2, rx = rb * SX, ry = rb * SY, h = BIG.has(n) ? 3 : 2.2;
+      const rb = BIG.has(n) ? 4.6 : 3.2, rx = rb * SX, ry = rb * SY, h = 1.2;
       const cls = ["yb-tile"];
       if (n === 0) cls.push("start");
       else if (BIG.has(n)) cls.push("corner");
@@ -383,11 +422,19 @@ export function create(m) {
       if (targeting?.def.target === "node") cls.push("pickable");
       parts.push(`<g data-node="${n}" class="${cls.join(" ")}"${dests.has(n) ? ` data-dest="${dests.get(n)[0]}"` : ""}>
         <ellipse class="side" cx="${x}" cy="${y + h}" rx="${rx}" ry="${ry}"/><rect class="side" x="${x - rx}" y="${y}" width="${rx * 2}" height="${h}"/>
-        <ellipse class="top" cx="${x}" cy="${y}" rx="${rx}" ry="${ry}"/>${n === 0 ? `<text x="${x}" y="${y + 1.3}" class="yb-label">출발</text>` : ""}</g>`);
+        <ellipse class="top" cx="${x}" cy="${y}" rx="${rx}" ry="${ry}"/>${BIG.has(n) ? `<ellipse class="ring" cx="${x}" cy="${y}" rx="${rx * 0.7}" ry="${ry * 0.7}"/>` : ""}</g>`);
+    }
+    // 고른 말이 결과마다 지나갈 길
+    if (sel !== null) {
+      const pc = cur().pieces[sel];
+      for (const [node] of dests) {
+        const pts = [pc.node === START ? SP[0] : posOf(pc.node), ...routeNodes(pc.node, node).map(posOf)];
+        parts.push(`<polyline class="yb-route" points="${pts.map((q) => q.join(",")).join(" ")}"/>`);
+      }
     }
     for (const [n, t] of [[5, "지름길"], [10, "지름길"], [CENTER, "가운데"]]) parts.push(`<text x="${SP[n][0]}" y="${SP[n][1] + 1.2}" class="yb-corner-label">${t}</text>`);
-    // 출발 칸 오른쪽 판 밖에 큰 ⬆ (처음 가는 쪽)
-    parts.push(`<g class="yb-go" transform="translate(${BR[0] + 9.5} ${SP[0][1] + 2})"><g class="yb-go-in"><path d="M0 -36 L8 -25 H3.2 V0 H-3.2 V-25 H-8Z"/></g><text y="8">출발</text></g>`);
+    // 출발 칸 오른쪽 판 밖에 ⬆ (처음 가는 쪽). 글자는 아래 '출발 · 골인' 팻말 하나만
+    parts.push(`<g class="yb-go" transform="translate(${BR[0] + 9.5} ${SP[0][1] + 2})"><g class="yb-go-in"><path d="M0 -36 L8 -25 H3.2 V0 H-3.2 V-25 H-8Z" transform="scale(0.55)"/></g></g>`);
     { // 출발 · 골인 팻말 (판 앞면, 출발 칸 아래)
       const [x] = SP[0];
       parts.push(`<g class="yb-start-sign" transform="translate(${x - 8} ${BR[1] + 3.6})"><rect x="-15" y="-3.6" width="30" height="7.2" rx="2.2"/><text y="1.4">출발 · 골인</text></g>`);
@@ -406,6 +453,20 @@ export function create(m) {
       if (pc.node === START || pc.node === HOME) return;
       ((byNode[pc.node] ||= {})[s] ||= []).push(i);
     }));
+    const hiddenStart = new Set(); // 대기 자리에서 잠깐 빼고 판 위에 그리는 잡힌 말
+    if (anim && anim.node !== HOME) {
+      const mineAt = byNode[anim.node]?.[anim.seat];
+      if (mineAt) { // 옮긴 말만 숨기고, 원래 있던 말은 남김
+        mineAt.splice(-anim.count);
+        if (!mineAt.length) delete byNode[anim.node][anim.seat];
+      }
+      for (const v of anim.victims) {
+        if (!v.idxs.length) continue;
+        ((byNode[anim.node] ||= {})[v.seat] ||= []).push(...v.idxs);
+        v.idxs.forEach((i) => hiddenStart.add(`${v.seat}:${i}`));
+      }
+      if (byNode[anim.node] && !Object.keys(byNode[anim.node]).length) delete byNode[anim.node];
+    }
     for (const [node, owners] of Object.entries(byNode)) {
       const list = Object.entries(owners);
       list.forEach(([s, idxs], k) => {
@@ -424,12 +485,13 @@ export function create(m) {
     // 대기 말: 자리마다 판 위아래 띠에
     game.players.forEach((p, s) => {
       const [dx, dy] = DOCKS[s];
-      const waiting = p.pieces.map((pc, i) => [pc, i]).filter(([pc]) => pc.node === START);
+      const waiting = p.pieces.map((pc, i) => [pc, i]).filter(([pc, i]) => pc.node === START && !hiddenStart.has(`${s}:${i}`));
       const fin = game.finished(s);
       const turn = game.current === s && !game.over;
       tokens.push([dy - 30, `<g class="yb-dock${turn ? " on" : ""}"><rect x="${dx - 6}" y="${dy - 17}" width="64" height="20" rx="5" style="--pc:${PLAYER_COLORS[s]}"/>
         <text x="${dx + 30}" y="${dy - 9.5}" class="yb-dock-name" fill="${PLAYER_COLORS[s]}">${esc(p.name.slice(0, 6))}</text>
-        <text x="${dx + 30}" y="${dy - 4.6}" class="yb-dock-sub">남은 말 ${waiting.length}${fin ? ` · 골인 ${fin}` : ""}</text></g>`]);
+        <text x="${dx + 30}" y="${dy - 4.6}" class="yb-dock-sub">남은 말 ${waiting.length}${fin ? ` · 골인 ${fin}` : ""}</text>
+        ${turn ? `<g transform="translate(${dx + 50} ${dy - 17})"><g class="yb-turn-tag"><rect x="-8" y="-3.4" width="16" height="6.8" rx="3.4" style="--pc:${PLAYER_COLORS[s]}"/><text y="1.3">차례!</text></g></g>` : ""}</g>`]);
       const rep = waiting.length ? waiting[0][1] : -1;
       waiting.forEach(([, i], k) => {
         const own = mine && s === game.current;
@@ -445,10 +507,15 @@ export function create(m) {
     // 도착할 곳 말풍선 (결과 이름). 골인은 출발 칸 위. 겹치면 위로 비켜 쌓고 칸까지 점선
     const bubbles = [...dests].map(([node, resIdx]) => {
       const names = resIdx.map((i) => RESULT_NAMES[game.pending[i]]).join("/");
-      const label = node === HOME ? `골인! ${names}` : names;
+      const opp = node !== HOME && game.players.some((p, s2) => s2 !== game.current && p.pieces.some((q) => q.node === node && q.shield < game.turnNo));
+      const mineThere = node !== HOME && cur().pieces.some((q) => q.node === node);
+      const boom = node !== HOME && game.bombs[node] !== undefined;
+      const tag = node === HOME ? "골인!" : boom ? "폭탄!" : opp ? "잡기!" : mineThere ? "업기" : "";
+      const kind = node === HOME ? "home" : boom || opp ? "hot" : mineThere ? "stack" : "";
+      const label = tag ? `${names} · ${tag}` : names;
       const [x, y] = SP[node === HOME ? 0 : node];
       const busy = byNode[node === HOME ? 0 : node];
-      return { res: resIdx[0], label, x, y, w: 7 + label.length * 4.4, top: y - (busy ? 20 : 6) };
+      return { res: resIdx[0], label, kind, x, y, w: 7 + label.length * 4.2, top: y - (busy ? 20 : 6) };
     }).sort((a, b) => b.top - a.top);
     const placed = [];
     for (const b of bubbles) {
@@ -460,29 +527,34 @@ export function create(m) {
     }
     for (const b of placed) {
       const w = b.w;
-      parts.push(`<g class="yb-dest" data-dest="${b.res}" transform="translate(${b.x} ${b.top})"><g class="yb-dest-in">
+      parts.push(`<g class="yb-dest ${b.kind}" data-dest="${b.res}" transform="translate(${b.x} ${b.top})"><g class="yb-dest-in">
         <path d="M${-w / 2} -9 h${w} a2.5 2.5 0 0 1 2.5 2.5 v3 a2.5 2.5 0 0 1 -2.5 2.5 h${-(w / 2 - 2)} l-2 2.6 l-2 -2.6 h${-(w / 2 - 2)} a2.5 2.5 0 0 1 -2.5 -2.5 v-3 a2.5 2.5 0 0 1 2.5 -2.5z"/>
         <text y="-3.6">${esc(b.label)}</text></g></g>`);
     }
-    boardEl.innerHTML = `<svg viewBox="0 0 200 170">${parts.join("")}</svg>`;
-    boardEl.classList.toggle("upside", game.upside !== null && game.upside === game.current && m.controls(game.current));
+    boardEl.innerHTML = `<svg viewBox="0 0 200 208">${parts.join("")}</svg>`;
+    const flip = game.upside !== null && game.upside === game.current && m.controls(game.current);
+    boardEl.classList.toggle("upside", flip);
+    ghostEl.classList.toggle("upside", flip);
   }
 
   function render() {
     // 자리 카드: 도착 수 · 대기 말 · 카드 수, 내 자리는 '말' 버튼으로 캐릭터 바꾸기
+    seatsEl.style.setProperty("--n", game.players.length);
     seatsEl.innerHTML = game.players.map((p, i) => {
       const waiting = p.pieces.filter((q) => q.node === START).length;
       const fin = game.finished(i);
       const turn = !game.over && !m.result && game.current === i;
-      const skinBtn = m.controls(i) && !m.result ? `<button class="skin-btn" data-skin="${i}" title="말 캐릭터 고르기" aria-label="${esc(m.seats[i].name)} 말 캐릭터 고르기"><svg viewBox="-9 -26 18 28">${tokenSvg(0, 0, i)}</svg>말</button>` : "";
-      const extra = skinBtn;
-      const flags = [`남은 말 ${waiting}`, `도착 ${fin}/${pieces}`];
-      if (game.abilitiesOn) flags.push(`카드 ${p.hand.length}`);
-      if (p.ward) flags.push("어쩔티비 준비");
-      if (p.resigned) flags.push("기권");
-      return seatCard(m, i, { sub: flags.join(" · "), turn, extra });
+      const off = m.offline.has(i), left = off ? m.secondsLeft(i) : null;
+      const status = p.resigned ? "기권" : off ? (left !== null ? `연결 끊김 · ${left}초` : "연결 끊김") : !picked.has(i) ? "말 고르는 중…" : p.ward ? "어쩔티비 준비" : "";
+      const me = m.controls(i) && m.mode !== "local" ? " (나)" : "";
+      const choose = m.controls(i) && !m.result && !picked.has(i);
+      return `<div class="ys-card${turn ? " turn" : ""}${p.resigned ? " out" : ""}" style="--pc:${PLAYER_COLORS[i]}">
+        ${choose ? `<button class="ys-char" data-skin="${i}" title="말 캐릭터 고르기" aria-label="${esc(m.seats[i].name)} 말 캐릭터 고르기">` : `<div class="ys-char">`}<svg viewBox="-9 -25 18 27">${tokenSvg(0, 0, i)}</svg>${choose ? "</button>" : "</div>"}
+        <div class="ys-info"><div class="ys-name">${esc(m.seats[i].name + me)}</div>
+          <div class="ys-stats"><span>남은 <b>${waiting}</b></span><span>골인 <b>${fin}/${pieces}</b></span>${game.abilitiesOn ? `<span>카드 <b>${p.hand.length}</b></span>` : ""}</div>
+          ${status ? `<div class="ys-status">${esc(status)}</div>` : ""}</div>
+        ${turn ? `<span class="ys-turn">차례</span>` : ""}</div>`;
     }).join("");
-    seatsEl.querySelectorAll(".person").forEach((c, i) => c.style.setProperty("--pc", PLAYER_COLORS[i]));
 
     const p = cur();
     drawBoard();

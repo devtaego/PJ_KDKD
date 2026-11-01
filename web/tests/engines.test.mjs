@@ -174,6 +174,20 @@ test("윷: 빽도는 판 위 말이 없으면 버려지고, 있으면 한 칸 �
   assert.equal(h.players[0].pieces[0].node, 6);
 });
 
+test("윷: 윷 + 빽도는 윷으로 말을 올린 뒤 빽도로 한 칸 뒤로 (빽도를 버리지 않음)", () => {
+  const g = yutGame(2, { mode: "basic" });
+  g.throw(seedFor(4)); // 윷 → 한 번 더
+  g.throw(seedFor(-1)); // 빽도: 아직 판 위에 말은 없음
+  assert.deepEqual(g.pending, [4, -1]);
+  assert.equal(g.phase, "move");
+  g.move(0, 0, 1); // 윷으로 새 말 → 4
+  assert.equal(g.players[0].pieces[0].node, 4);
+  assert.deepEqual(g.pending, [-1]);
+  g.move(0, 0, 1); // 빽도 → 3
+  assert.equal(g.players[0].pieces[0].node, 3);
+  assert.equal(g.current, 1);
+});
+
 test("윷: 능력 — 폭탄 · 어쩔티비 · 갓생 · 미사일", () => {
   const g = yutGame(2);
   g.players[0].hand = ["bomb", "missile"];

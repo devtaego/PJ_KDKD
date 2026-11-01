@@ -148,7 +148,7 @@ function homeScreen(focusName = false) {
       <button class="icon-btn home-back" aria-label="타이틀 화면으로">←</button>
       <span class="home-sound"></span>
       <h1 class="logo" aria-label="KI득KI득"><span>K</span><span>I</span><b>득</b><span>K</span><span>I</span><em>득</em></h1>
-      <div class="tagline"><span class="tag-pill">${esc(APP_SUB)}</span><span class="muted">체스 · 야추 · 오목 · 윷놀이 아이스브레이킹 게임룸</span></div>
+      <div class="tagline"><span class="tag-pill">${esc(APP_SUB)}</span><span class="muted">체스 · 오목 · 야추 · 윷놀이 아이스브레이킹 게임룸</span></div>
     </header>
     <div class="home-grid">
       <aside class="card player-card">
@@ -220,7 +220,7 @@ function homeScreen(focusName = false) {
   drawPick();
 
   const games = root.querySelector(".games");
-  for (const g of ["chess", "yacht", "omok", "yut"]) {
+  for (const g of ["chess", "omok", "yacht", "yut"]) {
     const meta = GAME_META[g];
     const card = el(`<button class="game-card g-${g}"><span class="gband"></span><div class="gart"><div class="gicon">${GAME_ICONS[g]}</div></div><div class="gbody"><div class="gname">${GAME_NAMES[g]}</div><div class="gdesc">${GAME_DESC[g]}</div><div class="gmeta"><span>${meta.people}</span><span>${meta.modes}</span></div></div><span class="gplay">▶ 플레이</span></button>`);
     card.onclick = () => { if (!needName()) { play("click"); chooseMode(g); } };
@@ -251,7 +251,7 @@ function homeScreen(focusName = false) {
 function rulesPicker() {
   const body = el(`<div class="row"></div>`);
   let close;
-  for (const g of ["chess", "yacht", "omok", "yut"]) {
+  for (const g of ["chess", "omok", "yacht", "yut"]) {
     const b = el(`<button class="btn">${GAME_NAMES[g]}</button>`);
     b.onclick = () => { close(); showRules(g); };
     body.appendChild(b);
@@ -262,7 +262,7 @@ function rulesPicker() {
 function about() {
   const body = el(`<div class="rules">
     <p><b>KI득KI득</b> v${APP_VERSION} — ${esc(APP_SUB)}</p>
-    <p>새 기수가 처음 만났을 때 어색함 없이 친해질 수 있도록 만든 미니게임 모음이에요. 체스 · 야추 다이스 · 오목은 컴퓨터와, 한 기기에서, 또는 온라인으로 함께 해요.</p>
+    <p>새 기수가 처음 만났을 때 어색함 없이 친해질 수 있도록 만든 미니게임 모음이에요. 체스 · 오목 · 야추 다이스는 컴퓨터와, 한 기기에서, 또는 온라인으로 함께 해요.</p>
     <p><b>윷놀이</b>는 2~4명이 한 기기나 온라인으로 해요. 시작할 때 각자 동물 캐릭터 말을 고르고, 밈 이름이 붙은 능력 카드(특수능력 3장 · 개막장 4장)로 판을 뒤집어요. 카드별 확률은 게임 화면의 '확률표'에서 볼 수 있어요.</p>
     <p>만든 사람: ${esc(DEVELOPER)}</p>
     <p class="muted">글꼴: 주아체 (SIL Open Font License 1.1) · 기물 · 주사위 · 캐릭터 · 윷판 · 윷가락 · 스티커는 모두 코드로 직접 그렸어요. 채팅은 서버를 거쳐 전달되고 따로 저장하지 않아요.</p>
@@ -550,9 +550,9 @@ function lobbyScreen(filter = "all") {
       <h3 style="margin-top:16px">코드로 들어가기</h3><div class="join-code" style="margin-top:0"><input type="text" maxlength="4" placeholder="ABCD" aria-label="방 코드" autocomplete="off"><button class="btn primary">참가</button></div>
       <p class="muted" style="font-size:14px">진행 중인 방에 들어가면 관전자로 같이 구경하고 채팅할 수 있어요.</p></div></div></section>`);
   const list = root.querySelector(".room-list");
-  root.querySelector(".filter").appendChild(segment([["all", "전체"], ["chess", "체스"], ["yacht", "야추"], ["omok", "오목"], ["yut", "윷놀이"]], filter, (v) => { filter = v; draw(); }));
+  root.querySelector(".filter").appendChild(segment([["all", "전체"], ["chess", "체스"], ["omok", "오목"], ["yacht", "야추"], ["yut", "윷놀이"]], filter, (v) => { filter = v; draw(); }));
   const make = root.querySelector(".lobby-grid .card:last-child .row");
-  for (const g of ["chess", "yacht", "omok", "yut"]) {
+  for (const g of ["chess", "omok", "yacht", "yut"]) {
     const b = el(`<button class="btn">${GAME_NAMES[g]}</button>`);
     b.onclick = () => chooseModeOnline(g);
     make.appendChild(b);
@@ -752,7 +752,7 @@ function rankingModal() {
     }
     draw();
   }));
-  body.querySelector(".games-f").appendChild(segment([["all", "전체"], ["chess", "체스"], ["yacht", "야추"], ["omok", "오목"], ["yut", "윷놀이"]], game, (v) => { game = v; draw(); }));
+  body.querySelector(".games-f").appendChild(segment([["all", "전체"], ["chess", "체스"], ["omok", "오목"], ["yacht", "야추"], ["yut", "윷놀이"]], game, (v) => { game = v; draw(); }));
   const off = net.on("ranking", (msg) => {
     classData = msg.ranking || {};
     storeKind = msg.store;

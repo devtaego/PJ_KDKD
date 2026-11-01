@@ -78,6 +78,7 @@ export function create(m) {
       <div class="yut-fx" aria-live="polite"></div>
     </div>
     <div class="yut-panel">
+      <div class="yut-turn-status" aria-live="polite"></div>
       <div class="yut-throw">
         <button class="btn big pink throw-btn"></button>
         <div class="yut-result"><span class="muted">나온 결과</span><div class="results"></div></div>
@@ -93,6 +94,7 @@ export function create(m) {
   const tossEl = root.querySelector(".yut-toss");
   const ghostEl = root.querySelector(".yut-ghost");
   const throwBtn = root.querySelector(".throw-btn");
+  const turnStatusEl = root.querySelector(".yut-turn-status");
   const resultsEl = root.querySelector(".results");
   const hintEl = root.querySelector(".yut-hint");
   const handEl = root.querySelector(".hand");
@@ -291,7 +293,8 @@ export function create(m) {
         tossing = true;
         m.sfx("yut");
         tossSticks(e.value);
-        m.later(() => { tossing = false; render(); }, 900);
+        // Keep the extra throw locked until the result animation is readable.
+        m.later(() => { tossing = false; render(); }, 2600);
       } else if (e.kind === "move") hopAlong(e);
       else if (e.kind === "catch") atArrival(() => { m.sfx("thud"); shout("잡았다!", "good"); });
       else if (e.kind === "boom") atArrival(() => { m.sfx("thud"); shout("펑!!", "bad"); });
@@ -502,8 +505,8 @@ export function create(m) {
       const fin = game.finished(s);
       const turn = game.current === s && !game.over;
       tokens.push([dy - 30, `<g class="yb-dock${turn ? " on" : ""}"><rect x="${dx - 6}" y="${dy - 17}" width="64" height="20" rx="5" style="--pc:${PLAYER_COLORS[s]}"/>
-        <text x="${dx + 30}" y="${dy - 9.5}" class="yb-dock-name" fill="${PLAYER_COLORS[s]}">${game.teams ? `${teamOf(s)} · ` : ""}${esc(p.name.slice(0, 6))}</text>
-        <text x="${dx + 30}" y="${dy - 4.6}" class="yb-dock-sub">남은 말 ${waiting.length}${fin ? ` · 골인 ${fin}` : ""}</text>
+        <text x="${dx + 30}" y="${dy - 9.5}" class="yb-dock-name" fill="${PLAYER_COLORS[s]}">${game.teams ? `${teamOf(s)} · ` : `${s + 1}P · `}출발</text>
+        <text x="${dx + 30}" y="${dy - 4.6}" class="yb-dock-sub">말 대기</text>
         ${turn ? `<g transform="translate(${dx + 50} ${dy - 17})"><g class="yb-turn-tag"><rect x="-8" y="-3.4" width="16" height="6.8" rx="3.4" style="--pc:${PLAYER_COLORS[s]}"/><text y="1.3">차례!</text></g></g>` : ""}</g>`]);
       const rep = waiting.length ? waiting[0][1] : -1;
       waiting.forEach(([, i], k) => {
@@ -570,11 +573,12 @@ export function create(m) {
     }).join("");
 
     const p = cur();
+    turnStatusEl.innerHTML = `<b style="color:${PLAYER_COLORS[game.current]}">${esc(p.name)}</b> ${game.teams ? `<span class="ys-team t${game.current % 2}">${teamOf(game.current)}</span>` : ""} 차례 <span>${game.phase === "move" ? `말 이동 · 남은 결과 ${game.pending.length}개` : game.throws > 1 ? `추가로 ${game.throws}번 던질 수 있어요` : "윷 던지기"}</span>`;
     drawBoard();
     // 던지기 버튼과 남은 결과
     const mine = myTurn();
     throwBtn.disabled = game.over || !mine || game.phase !== "throw" || tossing || !allPicked();
-    throwBtn.innerHTML = game.over ? "게임 끝" : !mine ? `${esc(p.name)} 님 차례` : game.phase === "throw" ? `윷 던지기${game.throws > 1 ? ` ×${game.throws}` : ""} <kbd>Space</kbd>` : "말을 옮겨요";
+    throwBtn.innerHTML = game.over ? "게임 끝" : !mine ? `${esc(p.name)} 님 차례` : game.phase === "throw" ? `${game.throws > 1 ? "한 번 더 던지기" : "윷 던지기"}${game.throws > 1 ? ` ×${game.throws}` : ""} <kbd>Space</kbd>` : "말을 움직여요";
     const can = sel !== null ? destinations(sel, selOwner) : new Map();
     const usable = new Set([...can.values()].flat());
     resultsEl.innerHTML = game.pending.map((r, i) => usable.has(i)
@@ -587,8 +591,8 @@ export function create(m) {
       hintEl.textContent = `「${targeting.def.name}」 ${t === "oppPiece" ? "상대 말을 눌러요" : t === "ownPiece" ? "내 말을 눌러요" : t === "node" ? "폭탄을 놓을 빈칸을 눌러요" : targeting.own === undefined ? "먼저 내 말을 눌러요" : "바꿀 상대 말을 눌러요"} · 카드를 다시 누르면 취소`;
     } else if (!mine) hintEl.textContent = `${p.name} 님 차례${game.phase === "move" ? " · 말 옮기는 중" : ""}`;
     else if (!allPicked()) hintEl.textContent = `모두 말을 고르면 시작해요 (${picked.size}/${game.players.length})`;
-    else if (game.phase === "throw") hintEl.textContent = game.pending.length ? "한 번 더 던져요!" : `윷을 던져요${game.abilitiesOn ? " (능력 카드는 한 차례에 한 장)" : ""}`;
-    else hintEl.textContent = sel !== null ? "말풍선이 뜬 칸을 눌러 옮겨요 · 다른 말을 눌러 바꾸기" : "옮길 말을 눌러요 (남은 말은 판 위아래에) · 아래 결과 버튼으로도 옮길 수 있어요";
+    else if (game.phase === "throw") hintEl.textContent = game.pending.length ? `윷·모가 나왔어요! 한 번 더 던져요 (${game.throws}회 남음) · 결과 ${game.pending.length}개는 다음에 옮겨요` : `윷을 던져요${game.abilitiesOn ? " (능력 카드는 한 차례에 한 장)" : ""}`;
+    else hintEl.textContent = sel !== null ? `선택한 말로 결과 ${game.pending.length}개 중 하나를 옮겨요 · 말풍선 또는 아래 결과 버튼 누르기` : "옮길 말을 눌러요. 갈 수 있는 칸의 결과 말풍선이나 아래 결과 버튼을 누르면 이동해요.";
     // 능력 카드
     if (game.abilitiesOn) {
       const showHand = m.mode === "local" ? p.hand : (m.mySeats.length ? game.players[m.mySeats[0]].hand : []);

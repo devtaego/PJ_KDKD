@@ -53,6 +53,7 @@ function show(screen, { push = true } = {}) {
   if (match && screen.root !== match.root) { match.destroy(); match = null; }
   const bar = screen.root.querySelector(".topbar");
   if (bar && !bar.querySelector(".sound-btn")) bar.appendChild(soundButton()); // 어느 화면이든 오른쪽 위에 스피커
+  if (bar && !bar.querySelector(".theme-btn")) bar.appendChild(themeButton());
   backdrop.show(!screen.root.classList.contains("title-screen"));
   app.replaceChildren(screen.root);
   current = screen;
@@ -88,26 +89,19 @@ function titleScreen() {
       <h1 class="title-logo" aria-label="KI득KI득"><span>K</span><span>I</span><b>득</b><span>K</span><span>I</span><em>득</em></h1>
       <div class="title-sub">${esc(APP_SUB)}</div>
       <nav class="title-menu" aria-label="메뉴"></nav>
-      <div class="title-hint">↑ ↓ 고르기 · Enter 결정 · ◀ ▶ 테마</div>
+      <div class="title-hint">↑ ↓ 고르기 · Enter 결정</div>
       <div class="title-credit">제작자 · ${esc(DEVELOPER)}</div>
     </div></section>`);
-  root.querySelector(".title-ui").appendChild(soundButton("title-sound"));
+  root.querySelector(".title-ui").append(soundButton("title-sound"), themeButton("title-theme"));
   const scene = new TitleScene(root.querySelector(".title-scene"), currentTheme());
+  const syncSceneTheme = () => scene.setTheme(currentTheme());
+  window.addEventListener("themechange", syncSceneTheme);
   const menu = root.querySelector(".title-menu");
-  const themeName = () => THEMES.find((t) => t.id === currentTheme()).name;
-  const cycleTheme = (dir = 1) => {
-    const i = THEMES.findIndex((t) => t.id === currentTheme());
-    applyTheme(THEMES[(i + dir + THEMES.length) % THEMES.length].id);
-    scene.setTheme(currentTheme());
-    play("pop");
-    draw();
-  };
   const items = [
     { label: () => "게임 시작", go: () => homeScreen() },
     { label: () => "방 목록", go: () => (profile.name ? lobbyScreen() : homeScreen(true)) },
-    { label: () => "랭킹", go: () => rankingModal() },
-    { label: () => `테마 ◀ ${themeName()} ▶`, go: () => cycleTheme(1), side: (d) => cycleTheme(d) },
-    { label: () => "게임 설명", go: () => rulesPicker() },
+    { label: () => "기록", go: () => rankingModal() },
+    { label: () => "게임 기획 의도", go: () => about() },
   ];
   let sel = 0;
   function draw() {
@@ -127,11 +121,10 @@ function titleScreen() {
     if (document.querySelector(".modal-back")) return;
     if (e.key === "ArrowDown" || e.key === "s") { sel = (sel + 1) % items.length; play("click"); draw(); e.preventDefault(); }
     else if (e.key === "ArrowUp" || e.key === "w") { sel = (sel - 1 + items.length) % items.length; play("click"); draw(); e.preventDefault(); }
-    else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && items[sel].side) items[sel].side(e.key === "ArrowLeft" ? -1 : 1);
     else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); play("pop"); items[sel].go(); }
   };
   document.addEventListener("keydown", onKey);
-  show({ root, destroy: () => { scene.destroy(); document.removeEventListener("keydown", onKey); } }, { push: false });
+  show({ root, destroy: () => { scene.destroy(); window.removeEventListener("themechange", syncSceneTheme); document.removeEventListener("keydown", onKey); } }, { push: false });
 }
 
 // ---------------------------------------------------------------- 첫 화면
@@ -157,9 +150,6 @@ function homeScreen(focusName = false) {
         <div class="field-label">캐릭터 또는 내 사진</div>
         <div class="avatar-pick"></div>
         <label class="field"><span>한 줄 소개 (MBTI, 관심사...)</span><input id="intro" type="text" maxlength="30" placeholder="예: ENFP · 떡볶이 좋아해요"></label>
-        <div class="field-label">테마</div>
-        <div class="theme-pick" role="group" aria-label="화면 테마"></div>
-        <div class="row pc-bottom"><span class="grow"></span><button class="btn small ghost" data-k="about">정보</button></div>
       </aside>
       <div class="home-main">
         <div class="section-title">게임 고르기 <span class="muted">눌러서 바로 시작!</span></div>
@@ -177,16 +167,6 @@ function homeScreen(focusName = false) {
     root.querySelector(".pc-intro").textContent = profile.intro || "한 줄 소개로 말 걸 거리를 만들어요";
   };
   preview();
-  const themes = root.querySelector(".theme-pick");
-  const drawThemes = () => {
-    themes.innerHTML = "";
-    for (const t of THEMES) {
-      const b = el(`<button type="button" aria-pressed="${currentTheme() === t.id}"><span class="sw">${t.swatch.map((c) => `<i style="background:${c}"></i>`).join("")}</span>${esc(t.name)}</button>`);
-      b.onclick = () => { applyTheme(t.id); play("pop"); drawThemes(); };
-      themes.appendChild(b);
-    }
-  };
-  drawThemes();
   const nick = root.querySelector("#nick");
   const intro = root.querySelector("#intro");
   nick.value = profile.name;
@@ -227,8 +207,7 @@ function homeScreen(focusName = false) {
     games.appendChild(card);
   }
 
-  root.querySelector(".home-sound").replaceWith(soundButton("home-sound"));
-  root.querySelector('[data-k="about"]').onclick = about;
+  root.querySelector(".home-sound").replaceWith(soundButton("home-sound"), themeButton("home-theme"));
   root.querySelector('[data-k="rules"]').onclick = () => rulesPicker();
   root.querySelector('[data-k="rank"]').onclick = rankingModal;
   root.querySelector('[data-k="lobby"]').onclick = () => { if (!needName()) lobbyScreen(); };
@@ -259,6 +238,32 @@ function rulesPicker() {
   close = modal("어떤 게임 규칙을 볼까요?", body);
 }
 
+function themeButton(cls = "") {
+  const b = el(`<button class="icon-btn theme-btn ${cls}" type="button" aria-label="화면 테마 고르기" title="화면 테마 고르기">🎨</button>`);
+  b.onclick = (e) => { e.stopPropagation(); themePicker(); };
+  return b;
+}
+
+function themePicker() {
+  const body = el(`<div class="theme-picker-list"></div>`);
+  for (const t of THEMES) {
+    const b = el(`<button class="theme-preview${currentTheme() === t.id ? " selected" : ""}" type="button" aria-pressed="${currentTheme() === t.id}">
+      <span class="theme-preview-shot" style="--preview-bg:${t.swatch[0]};--preview-accent:${t.swatch[1]};--preview-pop:${t.swatch[2]}"><i></i><i></i><i></i></span>
+      <span class="theme-preview-name">${esc(t.name)}</span></button>`);
+    b.onclick = () => {
+      applyTheme(t.id);
+      body.querySelectorAll(".theme-preview").forEach((item) => {
+        const selected = item === b;
+        item.classList.toggle("selected", selected);
+        item.setAttribute("aria-pressed", String(selected));
+      });
+      play("pop");
+    };
+    body.appendChild(b);
+  }
+  modal("기기 테마", body);
+}
+
 function about() {
   const body = el(`<div class="rules">
     <p><b>KI득KI득</b> v${APP_VERSION} — ${esc(APP_SUB)}</p>
@@ -268,7 +273,7 @@ function about() {
     <p class="muted">글꼴: 주아체 (SIL Open Font License 1.1) · 기물 · 주사위 · 캐릭터 · 윷판 · 윷가락 · 스티커는 모두 코드로 직접 그렸어요. 채팅은 서버를 거쳐 전달되고 따로 저장하지 않아요.</p>
     <p class="muted">윷 던지는 소리: <a href="${YUT_SOUND_URL}" target="_blank" rel="noopener" style="color:var(--gold)">「[무료효과음] 프로가 직접 만드는 윷놀이 소리 SoundEffects / Yutnori」 (YouTube)</a>에서 가져왔어요.</p>
     <p><a href="${REPO_URL}" target="_blank" rel="noopener" style="color:var(--gold)">GitHub 저장소</a> · 데스크톱(exe)판도 있어요</p></div>`);
-  modal("정보", body);
+  modal("게임 기획 의도", body);
 }
 
 // ---------------------------------------------------------------- 게임 · 모드 고르기
@@ -299,8 +304,14 @@ function chooseMode(game) {
       body.appendChild(option("말 개수", segment([["2", "2개 (빨리)"], ["3", "3개"], ["4", "4개 (길게)"]], o.pieces, (v) => { o.pieces = v; })));
       if (o.mode === "local") body.appendChild(option("같이 하는 사람 수 (나 포함)", segment([2, 3, 4].map((n) => [n, `${n}명`]), Math.min(4, o.people), (v) => { o.people = v; draw(); })));
       if (o.mode === "online" || Number(o.people) === 4) { // 팀전은 4명일 때만 (1 · 3번 자리 A팀, 2 · 4번 자리 B팀)
-        body.appendChild(option("팀", segment([["", "개인전"], ["1", "2:2 팀전"]], o.team || "", (v) => { o.team = v; })));
-        if (o.mode === "online") body.appendChild(el(`<p class="muted" style="margin:-4px 0 8px;font-size:13px">팀전은 4명이 모였을 때만 돼요. 자리 1 · 3번이 A팀, 2 · 4번이 B팀이에요.</p>`));
+        body.appendChild(option("팀", segment([["", "개인전"], ["1", "2:2 팀전"]], o.team || "", (v) => { o.team = v; draw(); })));
+        if (o.mode === "online") body.appendChild(el(`<p class="muted" style="margin:-4px 0 8px;font-size:13px">팀전은 4명이 모였을 때만 돼요. 팀은 대기실에서 방장이 나눠요.</p>`));
+        if (o.mode === "local" && o.team === "1") { // 누가 어느 팀인지 고르기 (2명씩)
+          if (!Array.isArray(o.teamPick) || o.teamPick.length !== 4) o.teamPick = ["A", "B", "A", "B"];
+          const names = [`${profile.name || "나"} (나)`, "친구 1", "친구 2", "친구 3"];
+          names.forEach((nm, i) => body.appendChild(option(nm, segment([["A", "A팀"], ["B", "B팀"]], o.teamPick[i], (v) => { o.teamPick[i] = v; }))));
+          body.appendChild(el(`<p class="muted" style="margin:-4px 0 8px;font-size:13px">A팀 2명, B팀 2명으로 나눠요. 차례는 두 팀이 번갈아 가요.</p>`));
+        }
       }
     }
     if (game !== "yacht" && game !== "yut" && o.mode === "local") {
@@ -327,6 +338,10 @@ function chooseMode(game) {
     }
     const go = el(`<button class="btn primary big">${o.mode === "online" ? "방 만들기" : "시작!"}</button>`);
     go.onclick = () => {
+      if (game === "yut" && o.mode === "local" && o.team === "1" && Number(o.people) === 4 && o.teamPick.filter((t) => t === "A").length !== 2) {
+        toast("팀을 2명씩 나눠 주세요");
+        return;
+      }
       store.set(`opts.${game}`, o);
       close();
       if (o.mode === "online") {
@@ -348,6 +363,17 @@ function resolveColor(game, color) {
   return color;
 }
 
+/** 팀전 자리 순서: A팀 · B팀이 번갈아 앉게 [A, B, A, B] (isB(사람, 번호)가 B팀이면 true) */
+function teamOrder(list, isB) {
+  const a = list.filter((x, i) => !isB(x, i)), b = list.filter((x, i) => isB(x, i));
+  return a.length === 2 && b.length === 2 ? [a[0], b[0], a[1], b[1]] : list;
+}
+/** 대기실의 B팀 명단 (방장이 나눔, 아직 안 나눴으면 들어온 순서로 2 · 4번째) */
+function roomTeamB(r, players) {
+  if (typeof r.settings.tb === "string") return new Set(r.settings.tb.split(",").filter(Boolean));
+  return new Set(players.filter((_, i) => i % 2 === 1).map((x) => x.cid));
+}
+
 function startLocal(game, o) {
   const me = { name: profile.name, avatar: profile.avatar, intro: profile.intro, ai: false };
   const botAvatar = { name: ROBOT_NAMES[0], avatar: "robot", intro: "", ai: true };
@@ -355,6 +381,7 @@ function startLocal(game, o) {
   if (game === "yut") {
     const n = Math.min(4, Math.max(2, o.people));
     seats = [me, ...Array.from({ length: n - 1 }, (_, i) => ({ name: `친구 ${i + 1}`, avatar: ANIMALS[(i + 1) % ANIMALS.length][0], intro: "", ai: false }))];
+    if (n === 4 && o.team === "1" && Array.isArray(o.teamPick)) seats = teamOrder(seats, (_, i) => o.teamPick[i] === "B");
     mySeats = seats.map((_, i) => i);
   } else if (game === "yacht") {
     if (o.mode === "ai") {
@@ -671,7 +698,21 @@ function waitingScreen() {
     } else if (r.game === "yut") {
       settings.appendChild(option("모드", isHost ? segment(Object.entries(yut.MODES), s.chaos || "chaos", change("chaos")) : el(`<div>${yut.MODES[s.chaos] || "막장"}</div>`)));
       settings.appendChild(option("말 개수", isHost ? segment([["2", "2개"], ["3", "3개"], ["4", "4개"]], s.pieces || "3", change("pieces")) : el(`<div>${esc(s.pieces || "3")}개</div>`)));
-      settings.appendChild(option("팀 (4명일 때)", isHost ? segment([["", "개인전"], ["1", "2:2 팀전"]], s.team || "", change("team")) : el(`<div>${s.team === "1" ? "2:2 팀전 (1 · 3번 A팀, 2 · 4번 B팀)" : "개인전"}</div>`)));
+      settings.appendChild(option("팀 (4명일 때)", isHost ? segment([["", "개인전"], ["1", "2:2 팀전"]], s.team || "", change("team")) : el(`<div>${s.team === "1" ? "2:2 팀전" : "개인전"}</div>`)));
+      if (s.team === "1") { // 팀 나누기: 방장이 사람마다 A · B (2명씩)
+        const tb = roomTeamB(r, players);
+        for (const p of players) {
+          const cur = tb.has(p.cid) ? "B" : "A";
+          settings.appendChild(option(p.name, isHost ? segment([["A", "A팀"], ["B", "B팀"]], cur, (v) => {
+            const next = new Set(roomTeamB(r, players));
+            if (v === "B") next.add(p.cid); else next.delete(p.cid);
+            s.tb = [...next].filter((c) => players.some((x) => x.cid === c)).join(",");
+            net.send({ t: "settings", settings: s });
+          }) : el(`<div class="team-tag t${cur === "A" ? 0 : 1}">${cur}팀</div>`)));
+        }
+        const nB = players.filter((p) => tb.has(p.cid)).length;
+        settings.appendChild(el(`<p class="muted" style="margin:0;font-size:13px">${players.length === 4 && nB === 2 ? "A팀 2명 · B팀 2명, 준비 완료!" : "4명이 모여 A팀 · B팀 2명씩 나뉘면 팀전으로 시작해요."}</p>`));
+      }
     } else if (r.game === "omok") {
       settings.appendChild(option("규칙", isHost ? segment([["33", "쌍삼 금지"], ["free", "자유룰"]], s.rule || "33", change("rule")) : el(`<div>${s.rule === "free" ? "자유룰" : "쌍삼 금지"}</div>`)));
       settings.appendChild(option("방장의 돌", isHost ? segment([["b", "흑"], ["w", "백"], ["random", "무작위"]], s.color || "b", change("color")) : el(`<div>${{ b: "흑", w: "백", random: "무작위" }[s.color] || "흑"}</div>`)));
@@ -690,7 +731,9 @@ function waitingScreen() {
     if (isHost) {
       const need = r.game === "yacht" ? 2 : 2;
       const go = el(`<button class="btn primary big">시작하기</button>`);
-      go.disabled = players.length < need || r.status === "playing" || !players.every((x) => x.online);
+      const yutTeamReady = r.game !== "yut" || r.settings.team !== "1" ||
+        (players.length === 4 && players.filter((p) => roomTeamB(r, players).has(p.cid)).length === 2);
+      go.disabled = players.length < need || r.status === "playing" || !players.every((x) => x.online) || !yutTeamReady;
       go.onclick = () => startRoomGame(r);
       startRow.appendChild(go);
       if (players.length < need) startRow.appendChild(el(`<div class="muted" style="width:100%;text-align:right">친구가 ${need - players.length}명 더 들어오면 시작할 수 있어요</div>`));
@@ -725,8 +768,16 @@ function startRoomGame(r) {
       order = hostColor === firstColor ? [r.host, ...rest] : [...rest, r.host];
     }
   }
+  let team = "";
+  if (r.game === "yut" && r.settings.team === "1" && order.length === 4) { // 팀전: 방장이 나눈 대로 A · B가 번갈아 앉게
+    const players = r.members.filter((x) => x.role === "player");
+    const tb = roomTeamB(r, players);
+    if (order.filter((c) => tb.has(c)).length !== 2) { toast("대기실에서 팀을 2명씩 나눠 주세요"); return; }
+    order = teamOrder(order, (c) => tb.has(c));
+    team = "1";
+  }
   const settings = r.game === "chess" ? { time: r.settings.time || "none" } : r.game === "omok" ? { rule: r.settings.rule || "33" }
-    : r.game === "yut" ? { pieces: r.settings.pieces || "3", chaos: r.settings.chaos || "chaos", team: r.settings.team === "1" && order.length === 4 ? "1" : "" } : {};
+    : r.game === "yut" ? { pieces: r.settings.pieces || "3", chaos: r.settings.chaos || "chaos", team } : {};
   net.send({ t: "act", a: { type: "start", game: r.game, settings, order } });
 }
 

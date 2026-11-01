@@ -16,7 +16,7 @@ const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
 
 /** 이 칸에서 출발할 때 지나가는 칸 목록 (마지막은 HOME) */
 export function pathFrom(node) {
-  if (node === START) return [...range(1, 19), HOME];
+  if (node === START) return [...range(1, 19), 0, HOME];
   if (node === 0 || node === 28) return [HOME];
   if (node === 5) return [20, 21, 22, 23, 24, 15, 16, 17, 18, 19, HOME];
   if (node === 10) return [25, 26, 22, 27, 28, HOME];
@@ -28,10 +28,10 @@ export function pathFrom(node) {
   if (node === 25) return [26, 22, 27, 28, HOME];
   if (node === 26) return [22, 27, 28, HOME];
   if (node === 27) return [28, HOME];
-  return [...range(node + 1, 19), HOME]; // 바깥 칸
+  return [...range(node + 1, 19), 0, HOME]; // 바깥 칸
 }
 
-/** 남은 거리 (작을수록 앞선 말). 출발 전 20, 도착 0 */
+/** 남은 거리 (작을수록 앞선 말). 출발 전 21, 도착 0 */
 export const remaining = (node) => (node === HOME ? 0 : pathFrom(node).length);
 
 function backDefault(node) {

@@ -497,7 +497,7 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
 .chat-log { background: var(--input); border-radius: 12px; padding: 8px 10px; box-shadow: inset 0 0 0 1px var(--edge); }
 
 /* 대기실: 방 정보 · 사람 · 설정을 카드로 나눔, 채팅은 옆 칸 높이에 맞춤 */
-.wait-grid { align-items: stretch; }
+.wait-grid { align-items: stretch; min-height: 0; }
 .wait-main { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
 .ticket { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
 .ticket .code-wrap { flex: 1; min-width: 180px; }
@@ -505,9 +505,9 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
 .ticket .link { font-size: 13px; color: var(--muted); word-break: break-all; }
 .ticket .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .start-row .btn.big { min-width: 180px; }
-.side-col { display: flex; min-width: 0; }
-.side-col .chat { flex: 1; }
-.wait-grid .chat-log { flex: 1; height: auto; min-height: 200px; }
+.side-col { display: flex; min-width: 0; min-height: 0; }
+.side-col .chat { flex: 1; min-height: 0; height: min(640px, calc(100dvh - 220px)); }
+.wait-grid .chat-log { flex: 1 1 0; height: auto; min-height: 0; max-height: 100%; overflow-y: auto; }
 
 /* 게임 화면 오른쪽 카드 */
 .movelist { background: var(--input); border-radius: 10px; padding: 8px; box-shadow: inset 0 0 0 1px var(--edge); }
@@ -561,6 +561,9 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
   .status-line { font-size: 18px; }
   .topbar h1 { font-size: 20px; }
   .chat-log { height: 150px; }
+  .side-col .chat { height: min(420px, calc(100dvh - 180px)); }
+  .theme-picker-list { gap: 6px; }
+  .theme-preview { padding: 5px; }
   .result-card h2 { font-size: 28px; }
   .podium { gap: 10px; }
   .podium .pl { width: 76px; }
@@ -816,6 +819,8 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
 @keyframes quake { 10%, 50%, 90% { transform: translate(-6px, 3px) rotate(-0.6deg); } 30%, 70% { transform: translate(6px, -3px) rotate(0.6deg); } }
 
 .yut-panel { width: 100%; display: flex; flex-direction: column; gap: 10px; }
+.yut-turn-status { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; min-height: 34px; padding: 5px 12px; border-radius: 12px; background: var(--row); box-shadow: inset 0 0 0 1px var(--edge); font-size: 16px; }
+.yut-turn-status > span:last-child { color: var(--muted); font-size: 14px; }
 .yut-throw { display: flex; gap: 14px; align-items: center; justify-content: center; flex-wrap: wrap; background: var(--row); box-shadow: inset 0 0 0 1px var(--edge); border-radius: 18px; padding: 10px 14px; }
 .sticks { display: flex; gap: 8px; height: 76px; align-items: center; }
 .stick {
@@ -940,16 +945,26 @@ html[data-theme="arcade"] .logo em { color: #FF2BD6; }
 /* 이름표 · 동그란 버튼: 타이틀의 PLAYER 이름표와 같은 모양 */
 html[data-theme] .tag-pill { background: var(--chip); color: var(--chip-text); border: 2px solid var(--chip-edge); box-shadow: none; }
 html[data-theme] .home-head .muted { color: var(--chip-text); text-shadow: 1px 1px 0 var(--ink), -1px -1px 0 var(--ink), 1px -1px 0 var(--ink), -1px 1px 0 var(--ink); }
-html[data-theme] .topbar .icon-btn, html[data-theme] .home-head .icon-btn, .title-sound {
+html[data-theme] .topbar .icon-btn, html[data-theme] .home-head .icon-btn, .title-sound, .title-theme {
   background: var(--chip); color: var(--chip-text); box-shadow: inset 0 0 0 2px var(--chip-edge), 0 4px 0 rgba(0, 0, 0, 0.25);
 }
 .sound-btn svg { display: block; }
 .sound-btn.off { opacity: 0.7; }
 .home-head { position: relative; }
 .home-head .home-back { position: absolute; left: 0; top: 4px; }
-.home-head .home-sound { position: absolute; right: 0; top: 4px; }
-.title-sound { position: absolute; top: 14px; right: 14px; z-index: 2; }
+.home-head .home-sound { position: absolute; right: 50px; top: 4px; }
+.home-head .home-theme { position: absolute; right: 0; top: 4px; }
+.title-sound { position: absolute; top: 14px; right: 64px; z-index: 2; }
+.title-theme { position: absolute; top: 14px; right: 14px; z-index: 2; }
 [data-theme="arcade"] .title-sound { box-shadow: inset 0 0 0 2px #00E5FF, 0 0 14px rgba(0, 229, 255, 0.5); }
+.theme-picker-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.theme-preview { min-width: 0; border: 0; border-radius: 14px; background: var(--row); color: var(--text); padding: 8px; box-shadow: inset 0 0 0 1px var(--edge); }
+.theme-preview.selected { box-shadow: inset 0 0 0 3px var(--accent); }
+.theme-preview-shot { display: flex; flex-direction: column; gap: 5px; height: 88px; padding: 7px; border-radius: 10px; background: var(--preview-bg); box-shadow: inset 0 0 0 1px rgba(128,128,128,.35); }
+.theme-preview-shot i { display: block; height: 14px; border-radius: 5px; background: var(--preview-accent); }
+.theme-preview-shot i:nth-child(2) { width: 72%; height: 25px; background: color-mix(in srgb, var(--preview-accent) 45%, var(--preview-bg)); }
+.theme-preview-shot i:nth-child(3) { width: 46%; margin-left: auto; background: var(--preview-pop); }
+.theme-preview-name { display: block; padding-top: 7px; font-size: 15px; }
 .title-credit {
   position: absolute; bottom: calc(10px + var(--safe-b)); right: 14px; font-size: 12px; letter-spacing: 1px;
   color: var(--chip-text); background: var(--chip); border: 1px solid var(--chip-edge); padding: 2px 10px; border-radius: 999px; opacity: 0.85;
@@ -1171,3 +1186,7 @@ button.ys-char { cursor: pointer; box-shadow: inset 0 0 0 2px var(--gold); anima
 .ys-stats .ys-team { color: #fff; box-shadow: none; }
 .ys-stats .ys-team.t0 { background: #E8590C; }
 .ys-stats .ys-team.t1 { background: #1C7ED6; }
+
+.team-tag { display: inline-block; color: #fff; padding: 1px 10px; border-radius: 999px; font-size: 14px; }
+.team-tag.t0 { background: #E8590C; }
+.team-tag.t1 { background: #1C7ED6; }

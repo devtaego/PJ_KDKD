@@ -29,7 +29,7 @@ FONTS = os.path.join(os.path.dirname(HERE), "fonts")
 RANKING_FILE = os.environ.get("KIDK_RANKING_FILE", os.path.join(HERE, "ranking.json"))
 
 GAMES = {"chess": 2, "omok": 2, "yacht": 6, "yut": 4}  # 게임 -> 최대 플레이어 수
-SETTING_KEYS = {"time", "color", "rule", "private", "pieces", "chaos", "team"}  # 방 설정으로 받는 값
+SETTING_KEYS = {"time", "color", "rule", "private", "pieces", "chaos", "team", "tb"}  # 방 설정으로 받는 값
 FX_KINDS = {"teabag", "taunt", "shake"}  # 기록 없이 전달하는 효과
 MAX_MSG = 100_000  # 메시지 하나 최대 크기 (프로필 사진 포함해도 충분)
 MAX_PHOTO = 60_000
@@ -59,7 +59,8 @@ def clean_text(s, limit):
 def clean_settings(raw):
     if not isinstance(raw, dict):
         return {}
-    return {k: clean_text(v, 10) for k, v in raw.items() if k in SETTING_KEYS}
+    # tb: 윷놀이 팀전의 B팀 명단 (공개 번호 2개를 쉼표로) → 조금 더 길게 받음
+    return {k: clean_text(v, 40 if k == "tb" else 10) for k, v in raw.items() if k in SETTING_KEYS}
 
 
 def clean_fx(fx):

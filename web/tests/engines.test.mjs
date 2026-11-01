@@ -115,7 +115,9 @@ test("윷: 지름길 · 남은 거리 · 결과 확률표 합 100%", () => {
   assert.deepEqual(pathFrom(5).slice(0, 6), [20, 21, 22, 23, 24, 15]);
   assert.deepEqual(pathFrom(10), [25, 26, 22, 27, 28, HOME]);
   assert.deepEqual(pathFrom(CENTER), [27, 28, HOME]);
-  assert.equal(remaining(START), 20);
+  assert.deepEqual(pathFrom(19), [0, HOME]);
+  assert.deepEqual(pathFrom(0), [HOME]);
+  assert.equal(remaining(START), 21);
   assert.equal(remaining(HOME), 0);
   assert.ok(Math.abs(THROW_ODDS.reduce((s, o) => s + o.p, 0) - 1) < 1e-9);
   for (const mode of ["special", "chaos"]) assert.ok(Math.abs(abilityOdds(mode).reduce((s, a) => s + a.pct, 0) - 100) < 1e-9);

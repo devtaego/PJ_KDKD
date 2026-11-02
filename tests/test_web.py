@@ -200,20 +200,63 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         for ws in (a, b):
             await ws.close()
 
-    async def test_yut_host_can_assign_character_to_player(self):
+    async def test_yut_character_only_changes_own(self):
         a, b, _ = await self.two_players("yut")
         await self.until(a, "room")  # 방장 쪽에 남은 참가 알림을 먼저 비움
-        await b.send_json({"t": "yut_skin", "pid": self.pids["aaaaaaaa1"], "skin": "penguin"})
-        await b.send_json({"t": "ping", "c": 81})
-        self.assertEqual((await self.until(b, "pong"))["c"], 81)  # 참가자는 다른 사람 캐릭터를 지정할 수 없음
-
+        # 방장이 pid로 남을 지정해도 본인 말만 바뀌고, 참가자도 마찬가지
         await a.send_json({"t": "yut_skin", "pid": self.pids["bbbbbbbb2"], "skin": "rabbit"})
-        changed = [(await self.until(ws, "room"))["room"] for ws in (a, b)]
-        for room in changed:
-            host = next(member for member in room["members"] if member["cid"] == self.pids["aaaaaaaa1"])
-            player = next(member for member in room["members"] if member["cid"] == self.pids["bbbbbbbb2"])
-            self.assertEqual(host["yut_skin"], "")
-            self.assertEqual(player["yut_skin"], "rabbit")
+        room = (await self.until(b, "room"))["room"]
+        skins = {m["cid"]: m["yut_skin"] for m in room["members"]}
+        self.assertEqual(skins, {self.pids["aaaaaaaa1"]: "rabbit", self.pids["bbbbbbbb2"]: ""})
+        await b.send_json({"t": "yut_skin", "pid": self.pids["aaaaaaaa1"], "skin": "penguin"})
+        room = (await self.until(a, "room"))["room"]
+        while room["members"][1]["yut_skin"] != "penguin":
+            room = (await self.until(a, "room"))["room"]
+        self.assertEqual(room["members"][0]["yut_skin"], "rabbit")
+        await a.close()
+        await b.close()
+
+    async def test_host_cannot_pick_other_team_character(self):
+        a, b, _ = await self.two_players("yut", {"team": "1"})
+        await a.send_json({"t": "yut_team_skin", "team": "B", "skin": "penguin"})  # a는 A팀
+        await a.send_json({"t": "ping", "c": 83})
+        self.assertEqual((await self.until(a, "pong"))["c"], 83)
+        await a.send_json({"t": "yut_team_skin", "team": "A", "skin": "tiger"})
+        room = (await self.until(a, "room"))["room"]
+        self.assertEqual(room["team_skins"], {"A": "tiger", "B": ""})
+        await a.close()
+        await b.close()
+
+    async def test_host_can_hand_over_host(self):
+        a, b, _ = await self.two_players("omok")
+        await b.send_json({"t": "host", "pid": self.pids["bbbbbbbb2"]})  # 방장이 아니면 무시
+        await b.send_json({"t": "ping", "c": 84})
+        self.assertEqual((await self.until(b, "pong"))["c"], 84)
+        await a.send_json({"t": "host", "pid": self.pids["bbbbbbbb2"]})
+        notice = await self.until(b, "notice")
+        while notice["kind"] != "host":
+            notice = await self.until(b, "notice")
+        self.assertEqual(notice["name"], "민수")
+        room = (await self.until(b, "room"))["room"]
+        self.assertEqual(room["host"], self.pids["bbbbbbbb2"])
+        await a.send_json({"t": "kick", "pid": self.pids["bbbbbbbb2"]})  # 넘긴 뒤에는 권한 없음
+        await a.send_json({"t": "ping", "c": 85})
+        self.assertEqual((await self.until(a, "pong"))["c"], 85)
+        await b.send_json({"t": "ping", "c": 86})
+        msg = await asyncio.wait_for(b.receive_json(), 2)
+        while msg["t"] != "pong":
+            self.assertNotEqual(msg["t"], "kicked")
+            msg = await asyncio.wait_for(b.receive_json(), 2)
+        await a.close()
+        await b.close()
+
+    async def test_host_can_kick_player_during_game(self):
+        a, b, code = await self.two_players("omok")
+        await self.start(a, b, "omok")
+        await a.send_json({"t": "kick", "pid": self.pids["bbbbbbbb2"]})
+        self.assertEqual((await self.until(b, "kicked"))["room"], code)
+        act = await self.until(a, "act")  # 게임은 그 사람이 나간 것으로 처리
+        self.assertEqual((act["a"]["type"], act["from"]), ("leave", self.pids["bbbbbbbb2"]))
         await a.close()
         await b.close()
 

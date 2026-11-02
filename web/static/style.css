@@ -1575,3 +1575,15 @@ button.ys-char { cursor: pointer; box-shadow: inset 0 0 0 2px var(--gold); anima
 .yut-team-skin-title { color: var(--team-accent, var(--text)); font-size: 13px; }
 .yut-team-skin .yut-character-picker { margin-top: 5px; }
 .yut-team-skin .yut-character-choice:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* 방장 관리 */
+.icon-btn[hidden] { display: none; }
+.manage-list { display: grid; gap: 8px; min-width: min(460px, 100%); }
+.manage-list .person { flex-wrap: wrap; }
+.manage-list .person .who { flex: 1 1 120px; min-width: 0; }
+@media (max-width: 640px) { /* 폰: 왕관 버튼까지 들어가도 게임 이름이 눌리지 않게 */
+  .game-screen .topbar { gap: 5px; }
+  html[data-theme] .game-screen .topbar .icon-btn { width: 34px; height: 34px; font-size: 16px; }
+  .game-screen .topbar h1 { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 17px; }
+  .game-screen .topbar .top-actions { flex: none; }
+}

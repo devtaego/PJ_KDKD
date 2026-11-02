@@ -14,8 +14,8 @@ export class Match {
    * seats: [{name, avatar, intro, ai, cid}], mySeats: 이 기기가 조작하는 자리 번호들
    * settings: 게임별 설정, level: 컴퓨터 난이도
    */
-  constructor({ game, mode, seats, mySeats, settings, level, module, onExit, onAgain, isHost = true, replaying = false }) {
-    Object.assign(this, { game, mode, seats, mySeats, settings, level, module, onExit, onAgain, isHost, replaying });
+  constructor({ game, mode, seats, mySeats, settings, level, module, onExit, onAgain, onManage, isHost = true, replaying = false }) {
+    Object.assign(this, { game, mode, seats, mySeats, settings, level, module, onExit, onAgain, onManage, isHost, replaying });
     this.online = mode === "online";
     this.lastSeq = 0;
     this.result = null;
@@ -52,7 +52,20 @@ export class Match {
     document.addEventListener("keydown", this.onEscape);
     this.chat = new ChatPanel((m) => this.sendChat(m));
     this.side.appendChild(this.chat.root);
-    if (this.online) this.root.querySelector(".net-dot").hidden = false;
+    if (this.online) {
+      this.root.querySelector(".net-dot").hidden = false;
+      const manage = el(`<button class="icon-btn manage-btn" aria-label="방 관리" title="방 관리">👑</button>`);
+      manage.hidden = !this.isHost;
+      manage.onclick = () => this.onManage?.();
+      this.root.querySelector('[data-k="rules"]').before(manage);
+    }
+  }
+
+  /** 방장이 바뀌면 방 관리 버튼도 함께 (게임 중에도 방장을 넘길 수 있음) */
+  setHost(isHost) {
+    this.isHost = isHost;
+    const manage = this.root.querySelector(".manage-btn");
+    if (manage) manage.hidden = !isHost;
   }
 
   /** 오른쪽 위 상단바 버튼들 (무르기 · 항복 · 판 돌리기). list = [{label, short?, onClick, disabled, title}] (short: 폰에서 쓰는 짧은 글자) */

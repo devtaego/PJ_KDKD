@@ -99,7 +99,7 @@ test("질문 카드: 이름 순서와 상관없이 같고, 파이썬판과 같�
   assert.equal(questionFor("태고", "민수", 12), questionFor("민수", "태고", 12));
   assert.ok(QUESTIONS.includes(questionFor("a", "b", 1)));
   assert.equal(questionFor("a", "b", 1), "내가 은근히 자신 있는 사소한 능력은?"); // hub.party.question_for("a", "b", 1)
-  assert.equal(questionFor("태고", "민수", 12), "MBTI가 뭐예요?");
+  assert.equal(questionFor("태고", "민수", 12), "내가 좋아하는 대화 주제는 무엇인가요?"); // hub.party.question_for("태고", "민수", 12)
 });
 
 // ---------------------------------------------------------------- 특수능력 윷놀이

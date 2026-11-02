@@ -297,19 +297,20 @@ function about() {
 }
 
 // ---------------------------------------------------------------- 게임 · 모드 고르기
-/** 팀전: 팀이 같이 쓸 말 고르기. 상대 팀이 고른 말은 못 고름 (onPick이 없으면 보기만) */
+/** 팀전: 팀이 같이 쓸 말 고르기. 상대 팀이 고른 말은 못 고름 (onPick이 없으면 버튼은 보이되 누를 수 없음) */
 function teamSkinPicker(team, picked, taken, onPick) {
   const box = el(`<div class="yut-team-skin"><span class="yut-team-skin-title">${team}팀 말 ${picked ? "" : "· 골라 주세요"}</span><div class="yut-character-picker" role="group" aria-label="${team}팀 말 캐릭터"></div></div>`);
   const picker = box.querySelector(".yut-character-picker");
+  const locked = onPick ? "" : `disabled title="방장이나 이 팀 사람만 고를 수 있어요"`;
+  const controls = el(`<div class="yut-picker-controls"><button type="button" class="yut-character-choice yut-character-default${!picked ? " selected" : ""}" aria-pressed="${!picked}" ${locked}><span class="yut-default-icon">?</span><span>선택 안 함</span></button><button type="button" class="yut-character-choice yut-random-choice" ${locked}>&#127922; <span>랜덤</span></button></div>`);
   if (onPick) {
-    const controls = el(`<div class="yut-picker-controls"><button type="button" class="yut-character-choice yut-character-default${!picked ? " selected" : ""}" aria-pressed="${!picked}"><span class="yut-default-icon">?</span><span>선택 안 함</span></button><button type="button" class="yut-character-choice yut-random-choice">&#127922; <span>랜덤</span></button></div>`);
     controls.querySelector(".yut-character-default").onclick = () => onPick("");
     controls.querySelector(".yut-random-choice").onclick = () => {
       const available = YUT_ROOM_SKINS.filter((skin) => skin.id !== taken && skin.id !== picked);
       onPick(available[Math.floor(Math.random() * available.length)].id);
     };
-    picker.appendChild(controls);
   }
+  picker.appendChild(controls);
   for (const skin of YUT_ROOM_SKINS) {
     const button = el(`<button type="button" class="yut-character-choice${picked === skin.id ? " selected" : ""}" aria-pressed="${picked === skin.id}" aria-label="${esc(skin.name)} 말" ${!onPick || taken === skin.id ? "disabled" : ""}><svg viewBox="-11 -27 22 29" aria-hidden="true">${yutCharSvg(skin.id)}</svg><span>${esc(skin.name)}</span></button>`);
     if (onPick) button.onclick = () => onPick(skin.id);

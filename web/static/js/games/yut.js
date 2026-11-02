@@ -830,8 +830,10 @@ export function create(m) {
     }
   }
 
+  const surrenderSeat = () => (m.mode === "local" ? game.current : m.mySeats[0]); // 기권하면 지는 자리
+
   async function resignMine() {
-    const seat = m.mode === "local" ? game.current : m.mySeats[0];
+    const seat = surrenderSeat();
     if (await confirmBox("기권", `${seatNames[seat]} 님, 정말 기권할까요?`, "기권", "계속")) m.submit({ type: "resign" }, seat);
   }
 
@@ -846,5 +848,5 @@ export function create(m) {
 
   const vsPortrait = (i) => `<svg class="vs-yut" viewBox="-11 -27 22 29" aria-hidden="true">${charSvg(skins[i])}</svg>`;
 
-  return { el: root, sideEl: sideStack, apply, resign, render, cancelInput, vsPortrait, destroy: () => { clearInterval(dealInterval); skipCardRoulette = null; dealModalClose?.(); dealModalClose = null; tossCancel?.(); tossCancel = null; document.removeEventListener("keydown", onKey); } };
+  return { el: root, sideEl: sideStack, apply, resign, render, cancelInput, vsPortrait, surrenderSeat, destroy: () => { clearInterval(dealInterval); skipCardRoulette = null; dealModalClose?.(); dealModalClose = null; tossCancel?.(); tossCancel = null; document.removeEventListener("keydown", onKey); } };
 }

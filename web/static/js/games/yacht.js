@@ -44,10 +44,13 @@ export function create(m) {
 
   // 항복은 오른쪽 위(상단바), 채팅은 트레이 아래 왼쪽으로 옮겨서 한 화면에 깔끔하게
   const mySeatsLeft = () => m.mySeats.filter((i) => !game.players[i].resigned && !m.seats[i].ai);
-  const resignMine = async () => {
+  const surrenderSeat = () => { // 항복하면 지는 자리 (이미 항복했으면 없음)
     const mine = mySeatsLeft();
-    if (!mine.length) return;
-    const seat = m.mode === "local" ? (mine.includes(game.current) ? game.current : mine[0]) : mine[0];
+    return m.mode === "local" && mine.includes(game.current) ? game.current : mine[0];
+  };
+  const resignMine = async () => {
+    const seat = surrenderSeat();
+    if (seat === undefined) return;
     if (await confirmBox("항복", `${m.seats[seat].name} 님, 정말 항복할까요?`, "항복", "계속")) m.submit({ type: "resign" }, seat);
   };
   m.chat.root.classList.add("yacht-chat");
@@ -414,6 +417,7 @@ export function create(m) {
   }
 
   return {
+    surrenderSeat,
     el: root, sideEl: side, apply, resign, render, onFx,
     destroy: () => {
       clearTimeout(tapTimer);

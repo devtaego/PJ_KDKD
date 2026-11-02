@@ -3,7 +3,7 @@
 // 온라인에서는 서버가 순서와 시각을 붙여 모두에게 똑같이 돌려주므로, 모든 기기가 같은 판을 계산함.
 import * as net from "./net.js";
 import { titleBadge, titleFx } from "./data/titles.js";
-import { countQuirk, streakHtml, el, ChatPanel, popAt, showResult, addLocalRecord, confirmBox, toast, modal, soundButton } from "./ui.js";
+import { countQuirk, streakHtml, el, ChatPanel, popAt, showResult, addLocalRecord, toast, modal, soundButton } from "./ui.js";
 import { avatarHtml, esc } from "./art.js";
 import { play } from "./sound.js";
 import { questionFor, replyLine, CHAT_AI_TEXTS, randomOf } from "./party.js";
@@ -237,7 +237,7 @@ export class Match {
 
   showChat(name, m, seat) {
     this.chat.add(name, m);
-    if (seat !== null && seat >= 0) this.popSeat(seat, m.sticker ? { sticker: m.sticker } : { text: m.text });
+    if (seat !== null && seat >= 0) this.popSeat(seat, m.sticker ? { sticker: m.sticker, long: true } : { text: m.text, long: true });
     if (m.sticker) this.sfx("pop");
   }
 
@@ -392,10 +392,27 @@ export class Match {
   async exit(force = false) {
     if (!force && this.g.cancelInput?.()) return;
     if (!force && !this.result && (this.online ? this.mySeats.length > 0 : true)) {
-      const ok = await confirmBox("나가기", this.online ? "지금 나가면 이 판은 항복으로 처리돼요. 나갈까요?" : "진행 중인 판을 그만둘까요?", "나가기", "계속하기");
-      if (!ok) return;
+      const choice = await this.askSurrender();
+      if (choice === "stay") return;
+      if (choice === "resign") {
+        this.submit({ type: "resign" }, this.g.surrenderSeat());
+        return;
+      }
     }
     this.onExit?.();
+  }
+
+  /** Esc · 뒤로 가기: 계속하기(stay) / 항복하고 결과 보기(resign) 중에 고르는 창. 이미 항복한 자리면 나가기(leave) */
+  askSurrender() {
+    return new Promise((resolve) => {
+      const word = this.game === "yut" ? "기권" : "항복";
+      const seat = this.g.surrenderSeat?.();
+      const who = seat === undefined ? "" : `${this.seats[seat].name} 님, `;
+      const body = el(`<div><p>${seat === undefined ? "이 판에서 나갈까요?" : `${esc(who)}${word}할까요?`}</p><div class="row" style="justify-content:flex-end"><button class="btn ghost" data-v="stay">계속하기</button>${seat === undefined ? `<button class="btn primary" data-v="leave">나가기</button>` : `<button class="btn primary" data-v="resign">${word}</button>`}</div></div>`);
+      const pick = (value) => { close(); resolve(value); };
+      const close = modal(word, body, { closable: false, onEscape: () => pick("stay") }); // Esc = 계속하기, Enter = 항복
+      body.querySelectorAll("button").forEach((b) => { b.onclick = () => pick(b.dataset.v); });
+    });
   }
 
   destroy() {

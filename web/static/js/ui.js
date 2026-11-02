@@ -153,14 +153,17 @@ export function personHtml(p, { extra = "", sub = null, cls = "" } = {}) {
 }
 
 /** 사람 카드 위에 스티커/말풍선을 잠깐 띄움 */
-export function popAt(target, { sticker = null, text = null } = {}) {
+const POP_MS = 1850; // 점수 같은 짧은 알림
+const CHAT_POP_MS = 4500; // 채팅 말풍선은 읽을 시간을 줌 (style.css 의 .pop.long 과 같은 길이)
+
+export function popAt(target, { sticker = null, text = null, long = false } = {}) {
   if (!target) return;
   const r = target.getBoundingClientRect();
-  const pop = el(`<div class="pop">${sticker ? stickerSvg(sticker, 54) : ""}${text ? `<div class="txt">${esc(text)}</div>` : ""}</div>`);
+  const pop = el(`<div class="pop${long ? " long" : ""}">${sticker ? stickerSvg(sticker, 54) : ""}${text ? `<div class="txt">${esc(text)}</div>` : ""}</div>`);
   pop.style.left = `${r.left + r.width / 2 + window.scrollX}px`;
   pop.style.top = `${r.top + window.scrollY - (sticker ? 56 : 30)}px`;
   document.body.appendChild(pop);
-  setTimeout(() => pop.remove(), 1850);
+  setTimeout(() => pop.remove(), long ? CHAT_POP_MS : POP_MS);
 }
 
 // ---------------------------------------------------------------- 채팅
@@ -338,7 +341,7 @@ export function showResult(opts) {
       if (flow.queue) { queueBtn.textContent = flow.queue.label; queueBtn.onclick = flow.queue.onClick; }
     },
     close() { root.remove(); document.removeEventListener("keydown", onKey); api.cleanup.forEach((f) => f()); },
-    bubble(key, text) { popAt(podium.querySelector(`[data-key="${CSS.escape(key)}"] .avatar`), { text }); },
+    bubble(key, text) { popAt(podium.querySelector(`[data-key="${CSS.escape(key)}"] .avatar`), { text, long: true }); },
     teabag(fromKey, toKey, style) {
       const stop = teabag(podium, fromKey, toKey, style);
       if (stop) api.cleanup.push(stop);

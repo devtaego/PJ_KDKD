@@ -253,6 +253,8 @@ label.field > span { display: block; color: var(--muted); font-size: 14px; margi
   display: flex; flex-direction: column; align-items: center; gap: 2px;
 }
 .pop .txt { background: #fff; color: #2E2923; padding: 6px 12px; border-radius: 12px; font-size: 16px; white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.pop.long { animation-name: pop-long; animation-duration: 4.5s; }
+@keyframes pop-long { 0% { transform: translate(-50%, 10px) scale(0.4); opacity: 0; } 5% { transform: translate(-50%, -8px) scale(1.1); opacity: 1; } 9% { transform: translate(-50%, -6px) scale(1); } 92% { transform: translate(-50%, -8px); opacity: 1; } 100% { transform: translate(-50%, -22px); opacity: 0; } }
 @keyframes pop { 0% { transform: translate(-50%, 10px) scale(0.4); opacity: 0; } 12% { transform: translate(-50%, -8px) scale(1.1); opacity: 1; } 22% { transform: translate(-50%, -6px) scale(1); } 80% { opacity: 1; } 100% { transform: translate(-50%, -22px); opacity: 0; } }
 .chat-toggle { display: none; }
 

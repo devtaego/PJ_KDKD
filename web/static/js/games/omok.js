@@ -245,8 +245,10 @@ export function create(m) {
   }
 
   // ------------------------------------------------------------ 화면
+  const surrenderSeat = () => (m.mode === "local" ? turnSeat() : m.mySeats.find((i) => !m.seats[i].ai)); // 항복하면 지는 자리
+
   async function resignMine() {
-    const seat = m.mode === "local" ? turnSeat() : m.mySeats.find((i) => !m.seats[i].ai);
+    const seat = surrenderSeat();
     if (await confirmBox("항복", `${m.seats[seat].name} 님, 정말 항복할까요?`, "항복", "계속")) m.submit({ type: "resign" }, seat);
   }
 
@@ -269,5 +271,5 @@ export function create(m) {
     maybeAi();
   }
 
-  return { el: root, sideEl: side, apply, resign, render, destroy: () => clearInterval(tick) };
+  return { el: root, sideEl: side, apply, resign, render, surrenderSeat, destroy: () => clearInterval(tick) };
 }

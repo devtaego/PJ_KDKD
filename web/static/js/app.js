@@ -588,7 +588,7 @@ function localYutSetup(o) {
 function localYutLobbyScreen(o) {
   o.yutSkins = Array(4).fill("");
   const root = el(`<section class="screen yut-lobby-screen local-yut-lobby-screen">
-    <div class="topbar"><button class="icon-btn" aria-label="\uBA54\uC778\uC73C\uB85C">\u2190</button><h1>\uC735\uB180\uC774 \uB300\uAE30\uC2E4</h1><button class="icon-btn" data-k="rules" aria-label="\uADDC\uCE59 \uBCF4\uAE30">?</button></div>
+    <div class="topbar"><button class="icon-btn" aria-label="\uBA54\uC778\uC73C\uB85C">\u2190</button><h1>\uC737\uB180\uC774 \uB300\uAE30\uC2E4</h1><button class="icon-btn" data-k="rules" aria-label="\uADDC\uCE59 \uBCF4\uAE30">?</button></div>
     <section class="yut-lobby"><header class="yut-lobby-head"><div class="yut-lobby-intro"><span class="yut-lobby-eyebrow">LOCAL WAITING ROOM</span><h2>\uD50C\uB808\uC774\uC5B4\uC640 \uB9D0\uC744 \uC900\uBE44\uD574\uC694</h2><p>\uD55C \uAE30\uAE30\uC5D0\uC11C \uCC28\uB840\uB85C \uD50C\uB808\uC774\uD569\uB2C8\uB2E4. \uD300\uC804\uC740 \uB124 \uBA85\uC77C \uB54C\uB9CC \uAC00\uB2A5\uD574\uC694.</p></div></header>
       <div class="yut-lobby-roster"></div><footer class="yut-lobby-foot"><div><div class="yut-lobby-count"><strong>${Number(o.people)}\uBA85</strong><span>\uCC38\uAC00 \uC900\uBE44</span></div><p class="yut-local-ready muted"></p></div><button class="btn primary big local-yut-start">\uAC8C\uC784 \uC2DC\uC791</button></footer>
     </section></section>`);

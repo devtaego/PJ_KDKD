@@ -245,7 +245,7 @@ const VEIN_SVG = `<svg class="vein" viewBox="-10 -10 20 20"><g stroke="#FF2E2E" 
  * opts: { title, sub, players: [{name, avatar, score?, winner, key}], me: 내 key 또는 null(관전),
  *         myKind: win/lose/draw/null, question: 질문 문자열 또는 null, questionFor: 이름,
  *         onTaunt(text), onTeabag(), onAgain, againLabel, onExit, canAgain }
- * 돌려주는 객체: { close(), teabag(fromKey, toKey), bubble(key, text) }
+ * 돌려주는 객체: { close(), teabag(fromKey, toKeys, style), bubble(key, text) }
  */
 export function showResult(opts) {
   const root = el(`<div class="result"><div class="result-card"><h2>${esc(opts.title)}</h2><div class="sub">${esc(opts.sub || "")}</div><div class="podium"></div></div></div>`);
@@ -274,7 +274,7 @@ export function showResult(opts) {
   const actions = el(`<div class="row result-actions"></div>`);
   if (opts.onTeabag) {
     const tb = el(`<button class="btn pink">🍑 티배깅</button>`);
-    tb.onclick = () => opts.onTeabag(randomOf(["teabag", "stomp", "kick"])); // 누를 때마다 동작이 랜덤 (고른 동작을 함께 보내 모두 같은 걸 봄)
+    tb.onclick = () => opts.onTeabag(randomOf(TEABAG_STYLES)); // 누를 때마다 동작이 랜덤 (고른 동작을 함께 보내 모두 같은 걸 봄)
     actions.appendChild(tb);
   }
   if (opts.onAgain && opts.canAgain !== false) {
@@ -342,18 +342,31 @@ export function showResult(opts) {
     },
     close() { root.remove(); document.removeEventListener("keydown", onKey); api.cleanup.forEach((f) => f()); },
     bubble(key, text) { popAt(podium.querySelector(`[data-key="${CSS.escape(key)}"] .avatar`), { text, long: true }); },
-    teabag(fromKey, toKey, style) {
-      const stop = teabag(podium, fromKey, toKey, style);
-      if (stop) api.cleanup.push(stop);
+    /** 진 사람 모두를 차례로 공격. 사람이 많으면 한 명당 시간을 줄이고, 모션도 돌아가며 바꿈 (모든 기기가 같은 순서) */
+    teabag(fromKey, toKeys, style = "teabag") {
+      if (podium.dataset.tbChain || !toKeys.length) return;
+      podium.dataset.tbChain = "1";
+      const time = toKeys.length > 1 ? TEABAG_TIME_EACH : TEABAG_TIME;
+      const first = Math.max(0, TEABAG_STYLES.indexOf(style));
+      let i = 0, stop = null;
+      const next = () => {
+        if (i >= toKeys.length || !podium.isConnected) { delete podium.dataset.tbChain; return; }
+        const motion = TEABAG_STYLES[(first + i) % TEABAG_STYLES.length];
+        stop = teabag(podium, fromKey, toKeys[i++], motion, time, next);
+        if (!stop) next(); // 나간 사람처럼 자리가 없으면 건너뜀
+      };
+      api.cleanup.push(() => stop?.());
+      next();
     },
   };
   return api;
 }
 
-const TEABAG_TIME = 3.1, TB_GO = 0.48;
+const TEABAG_TIME = 3.1, TEABAG_TIME_EACH = 1.9, TB_GO = 0.48;
+const TEABAG_STYLES = ["teabag", "stomp", "kick"];
 
 /** 이긴 사람 프로필이 진 사람 머리 위로 날아가 앉았다 일어났다 (party.teabag_pos 와 같은 움직임) */
-function teabag(podium, fromKey, toKey, style = "teabag") {
+function teabag(podium, fromKey, toKey, style = "teabag", total = TEABAG_TIME, onDone = null) {
   const from = podium.querySelector(`[data-key="${CSS.escape(fromKey)}"] .avatar`);
   const toPl = podium.querySelector(`[data-key="${CSS.escape(toKey)}"]`);
   if (!from || !toPl || podium.dataset.tb) return;
@@ -406,15 +419,16 @@ function teabag(podium, fromKey, toKey, style = "teabag") {
     toPl.classList.remove("tb-impact");
     toPl.querySelector(".vein")?.remove();
     delete podium.dataset.tb;
+    onDone?.();
   };
-  setTimeout(finish, TEABAG_TIME * 1000 + 100);
+  setTimeout(finish, total * 1000 + 100);
   play("pop");
   const frame = (now) => {
     const t = (now - start) / 1000;
     if (done) return;
-    if (t >= TEABAG_TIME) return finish();
+    if (t >= total) return finish();
     let x, y, rotation = 0, scaleX = 1, scaleY = 1;
-    const back = TEABAG_TIME - TB_GO * 0.78;
+    const back = total - TB_GO * 0.78;
     if (t < TB_GO) {
       const p = t / TB_GO;
       const e = 1 - (1 - p) ** 4;
@@ -423,7 +437,7 @@ function teabag(podium, fromKey, toKey, style = "teabag") {
       rotation = -18 + 34 * p;
       scaleX = 0.78 + p * 0.22; scaleY = 1.18 - p * 0.18;
     } else if (t > back) {
-      const p = (t - back) / (TEABAG_TIME - back);
+      const p = (t - back) / (total - back);
       const e = p * p * (3 - 2 * p);
       x = tx + (hx - tx) * e;
       y = ty + (hy - ty) * e - Math.sin(p * Math.PI) * size * 0.8;

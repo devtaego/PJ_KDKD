@@ -327,7 +327,8 @@ export class Match {
       myKind = info.winners.includes(me) ? "win" : info.winners.length ? "lose" : "draw";
     }
     const loser = info.losers.length ? info.losers[info.losers.length - 1] : null;
-    const winner = info.winners.length === 1 ? info.winners[0] : null;
+    // 공격하는 사람: 이긴 사람. 팀전은 이 기기의 이긴 사람 (한 기기에서는 첫 번째)
+    const winner = (info.winners.length === 1 || this.mode === "local" ? info.winners[0] : info.winners.find((i) => this.controls(i))) ?? null;
     const question = loser !== null && !this.seats[loser].ai
       ? questionFor(...this.seats.map((s) => s.name), info.moves ?? 0) : null;
     const canTeabag = winner !== null && loser !== null && (this.mode === "local" || this.controls(winner));
@@ -373,7 +374,8 @@ export class Match {
     const seatOk = (i) => Number.isInteger(i) && i >= 0 && i < this.seats.length;
     if (f.kind === "teabag" && seatOk(f.from) && seatOk(f.to)) {
       if (this.online && this.seats[f.from].cid !== msg.from) return; // 이긴 사람 본인만
-      this.resultView?.teabag(String(f.from), String(f.to), f.style);
+      const losers = this.seats.map((_, i) => i).filter((i) => i !== f.from && !this.result?.winners.includes(i)); // 다인전은 이긴 사람을 뺀 모두
+      this.resultView?.teabag(String(f.from), (losers.length ? losers : [f.to]).map(String), f.style);
     } else if (f.kind === "taunt" && seatOk(f.seat) && typeof f.text === "string") {
       if (this.online && this.seats[f.seat].cid !== msg.from) return;
       const text = f.text.slice(0, 40);

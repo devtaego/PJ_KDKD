@@ -1,5 +1,6 @@
 // 체스 화면: 자리 0 = 백, 자리 1 = 흑
-import { Position, bestMove, moveSan, gameOver, sameMove, opponent, FILES } from "../engine/chess.js";
+import { Position, bestMove, moveSan, gameOver, sameMove, opponent, materialInfo, FILES } from "../engine/chess.js";
+import { askAi } from "../engine/ai_client.js";
 import { pieceSvg } from "../art.js";
 import { seatCard } from "../match.js";
 import { el, toast, confirmBox, modal } from "../ui.js";
@@ -7,6 +8,9 @@ import { el, toast, confirmBox, modal } from "../ui.js";
 const UNDO_LIMIT = 2;
 export const TIME_MODES = { none: ["무제한", null], "10": ["10분", [600, 0]], "3+2": ["3분+2초", [180, 2]] };
 const COLOR_NAME = { w: "백", b: "흑" };
+
+const AI_SEARCH_MS = 1400; // 어려움이 수를 찾는 시간
+const AI_THINK_MS = { easy: [800, 1800], normal: [1000, 2400], hard: [1700, 3400] }; // 수를 두기까지 걸리는 시간 (너무 빨리 두지 않게)
 
 export function create(m) {
   const tc = (TIME_MODES[m.settings.time] || TIME_MODES.none)[1];
@@ -22,6 +26,8 @@ export function create(m) {
   let anim = null;
   let over = false;
   let aiTimer = null;
+  let aiThinking = false;
+  let aiToken = 0; // 무르기 등으로 판이 바뀌면 늦게 온 답을 버림
   let flipped = m.mode !== "local" && m.controls(1) && !m.controls(0);
   let flagSent = false;
 
@@ -143,12 +149,23 @@ export function create(m) {
 
   // ------------------------------------------------------------ 컴퓨터
   function maybeAi() {
-    if (over || m.result || !m.seats[turnSeat()].ai || aiTimer) return;
-    aiTimer = m.later(() => {
-      aiTimer = null;
-      if (over || !m.seats[turnSeat()].ai) return;
-      send(bestMove(pos(), m.level));
-    }, 300);
+    if (over || m.result || !m.seats[turnSeat()].ai || aiTimer || aiThinking) return;
+    const token = ++aiToken, started = performance.now(), p = pos();
+    const [lo, hi] = AI_THINK_MS[m.level] || AI_THINK_MS.normal;
+    const wait = p.legalMoves().length === 1 ? 700 : lo + Math.random() * (hi - lo); // 사람처럼 잠시 생각하고 둠
+    const seen = history.map((h) => h.key());
+    aiThinking = true;
+    askAi("chess", { board: p.board, turn: p.turn, castling: p.castling, ep: p.ep, halfmove: p.halfmove }, m.level, {
+      timeMs: AI_SEARCH_MS, seen, fallback: () => bestMove(p, m.level, { timeMs: 400, seen }),
+    }).then((mv) => {
+      if (token !== aiToken) return;
+      aiTimer = m.later(() => {
+        aiTimer = null;
+        aiThinking = false;
+        if (token !== aiToken || over || m.result || !m.seats[turnSeat()].ai) return;
+        send(mv);
+      }, Math.max(0, wait - (performance.now() - started)));
+    });
   }
 
   // ------------------------------------------------------------ 무르기
@@ -163,6 +180,8 @@ export function create(m) {
     if (clock && moves.length) lastAt = at; // 무른 뒤에는 무른 시각부터 다시 잼 (모든 기기가 같은 값)
     selected = null;
     flagSent = false;
+    aiToken++;
+    aiThinking = false;
     if (aiTimer) { clearTimeout(aiTimer); m.timers.delete(aiTimer); aiTimer = null; }
   }
 
@@ -275,7 +294,11 @@ export function create(m) {
     if (turn && m.seats[i].ai) bits.push("생각 중...");
     else if (turn && m.controls(i) && m.mode !== "local") bits.push("내 차례");
     if (m.mode !== "ai") bits.push(`무르기 ${UNDO_LIMIT - undoUsed[i]}번`);
-    return seatCard(m, i, { sub: bits.join(" · "), turn, extra: clockHtml });
+    const { taken, diff } = materialInfo(p.board);
+    const lead = color === "w" ? diff : -diff;
+    const leadHtml = lead > 0 ? `<b class="up">+${lead}</b>` : ""; // 앞서는 쪽에만 표시, 같으면 비움
+    const below = `<div class="captured">${taken[color].map((k) => pieceSvg(opponent(color) + k)).join("")}${leadHtml}</div>`;
+    return seatCard(m, i, { sub: bits.join(" · "), turn, extra: clockHtml, below });
   }
 
   async function resignMine() {
@@ -297,10 +320,20 @@ export function create(m) {
       actions.push({ label: "무르기", onClick: askUndo, disabled: !canUndo() });
       actions.push({ label: "항복", onClick: resignMine });
     }
-    actions.push({ label: "⇅ 판 돌리기", short: "⇅", title: "판 방향 바꾸기", onClick: () => { flipped = !flipped; render(); } });
+    actions.push({ label: "⇅ 판 돌리기 (C)", short: "⇅", title: "판 방향 바꾸기 (단축키 C)", onClick: () => { flipped = !flipped; render(); } });
     m.setTopActions(actions);
     maybeAi();
   }
 
-  return { el: root, sideEl: side, apply, resign, render, destroy: () => clearInterval(tick) };
+  // C: 판 돌리기 (한글 입력 상태에서도 되도록 글자 대신 키 위치로 확인)
+  const onFlipKey = (e) => {
+    if (e.code !== "KeyC" || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.closest?.("input, textarea, select, [contenteditable=true]") || document.querySelector(".modal-back")) return;
+    e.preventDefault();
+    flipped = !flipped;
+    render();
+  };
+  document.addEventListener("keydown", onFlipKey);
+
+  return { el: root, sideEl: side, apply, resign, render, destroy: () => { aiToken++; clearInterval(tick); document.removeEventListener("keydown", onFlipKey); } };
 }

@@ -1,11 +1,15 @@
 // 오목 화면: 자리 0 = 흑, 자리 1 = 백
 import { Board, N, BLACK, WHITE, EMPTY, STARS, RULES, aiMove } from "../engine/omok.js";
+import { askAi } from "../engine/ai_client.js";
 import { seatCard } from "../match.js";
 import { el, toast, confirmBox } from "../ui.js";
 
 const UNDO_LIMIT = 2;
 const COLOR_NAME = { [BLACK]: "흑", [WHITE]: "백" };
 export const TURN_LIMITS = { none: ["무제한", 0], s30: ["1수 30초", 30] }; // 한 수 시간 제한 (초)
+
+const AI_SEARCH_MS = 1200; // 어려움이 수를 찾는 시간
+const AI_THINK_MS = { easy: [600, 1400], normal: [800, 1800], hard: [1400, 2800] }; // 수를 두기까지 걸리는 시간
 
 export function create(m) {
   const rule = m.settings.rule === "free" ? "free" : "33";
@@ -15,6 +19,8 @@ export function create(m) {
   let ghost = null; // 미리 보기 [r, c]
   let winLine = [];
   let aiTimer = null;
+  let aiThinking = false;
+  let aiToken = 0; // 무르기 등으로 판이 바뀌면 늦게 온 답을 버림
   let over = false;
   const limit = (TURN_LIMITS[m.settings.turn] || TURN_LIMITS.none)[1] * 1000;
   let turnAt = Number(m.settings.startedAt) || m.now(); // 지금 수가 시작된 시각 (온라인은 서버 시각이라 모든 기기가 같음)
@@ -125,19 +131,30 @@ export function create(m) {
 
   // ------------------------------------------------------------ 컴퓨터
   function maybeAi() {
-    if (over || m.result || !m.seats[turnSeat()].ai || aiTimer) return;
-    aiTimer = m.later(() => {
-      aiTimer = null;
-      if (over || !m.seats[turnSeat()].ai) return;
-      const [r, c] = aiMove(board, m.level);
-      m.submit({ type: "place", r, c }, turnSeat());
-    }, 380 + Math.random() * 300);
+    if (over || m.result || !m.seats[turnSeat()].ai || aiTimer || aiThinking) return;
+    const token = ++aiToken, started = performance.now();
+    const [lo, hi] = AI_THINK_MS[m.level] || AI_THINK_MS.normal;
+    const wait = lo + Math.random() * (hi - lo); // 사람처럼 잠시 생각하고 둠
+    aiThinking = true;
+    askAi("omok", { rule: board.rule, g: board.g, moves: board.moves }, m.level, {
+      timeMs: AI_SEARCH_MS, fallback: () => aiMove(board, m.level, { timeMs: 300 }),
+    }).then(([r, c]) => {
+      if (token !== aiToken) return;
+      aiTimer = m.later(() => {
+        aiTimer = null;
+        aiThinking = false;
+        if (token !== aiToken || over || m.result || !m.seats[turnSeat()].ai) return;
+        m.submit({ type: "place", r, c }, turnSeat());
+      }, Math.max(0, wait - (performance.now() - started)));
+    });
   }
 
   // ------------------------------------------------------------ 무르기
   function undoMoves(k) {
     for (let i = 0; i < k && board.moves.length; i++) board.undo();
     winLine = [];
+    aiToken++;
+    aiThinking = false;
     if (aiTimer) { clearTimeout(aiTimer); m.timers.delete(aiTimer); aiTimer = null; }
   }
 

@@ -205,63 +205,252 @@ function addPawn(moves, r, c, nr, nc, last) {
   else moves.push([r, c, nr, nc, null]);
 }
 
+const POINTS = { P: 1, N: 3, B: 3, R: 5, Q: 9, K: 0 };
+const START_COUNT = { Q: 1, R: 2, B: 2, N: 2, P: 8 }; // 큰 기물부터
+
+/** 판만 보고 계산: taken[색] = 그 색이 잡은 기물 종류들, diff = 백 점수 - 흑 점수 (승급한 기물은 그 기물 점수로 셈) */
+export function materialInfo(board) {
+  const count = { w: {}, b: {} };
+  let diff = 0;
+  for (const row of board) for (const piece of row) {
+    if (!piece) continue;
+    count[piece[0]][piece[1]] = (count[piece[0]][piece[1]] || 0) + 1;
+    diff += piece[0] === "w" ? POINTS[piece[1]] : -POINTS[piece[1]];
+  }
+  const missing = (color) => {
+    let promoted = 0; // 시작보다 많은 기물은 폰이 승급한 것이라 그만큼 폰은 잡힌 게 아님
+    for (const kind of "QRBN") promoted += Math.max(0, (count[color][kind] || 0) - START_COUNT[kind]);
+    const out = [];
+    for (const [kind, start] of Object.entries(START_COUNT)) {
+      const left = (count[color][kind] || 0) + (kind === "P" ? promoted : 0);
+      for (let i = left; i < start; i++) out.push(kind);
+    }
+    return out;
+  };
+  return { taken: { w: missing("b"), b: missing("w") }, diff };
+}
+
 export const sameMove = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3] && (a[4] || null) === (b[4] || null);
 
 // ---------------------------------------------------------------- 컴퓨터
+// 난이도 목표 (체스닷컴 레이팅 기준의 대략적인 수준, 실제 레이팅으로 측정한 값은 아님)
+//   easy   약 300: 바로 앞만 보고 자주 엉뚱한 수를 둠, 한 수 메이트도 자주 놓침
+//   normal 약 700: 상대 응수까지 보지만 가끔 말을 그냥 내줌
+//   hard   약 1600: 정해진 시간 동안 깊이를 늘려 가며 찾고, 잡기가 끝날 때까지 계산함
+const BISHOP_PST = [
+  [-20, -10, -10, -10, -10, -10, -10, -20], [-10, 0, 0, 0, 0, 0, 0, -10], [-10, 0, 5, 10, 10, 5, 0, -10],
+  [-10, 5, 5, 10, 10, 5, 5, -10], [-10, 0, 10, 10, 10, 10, 0, -10], [-10, 10, 10, 10, 10, 10, 10, -10],
+  [-10, 5, 0, 0, 0, 0, 5, -10], [-20, -10, -10, -10, -10, -10, -10, -20]];
+const ROOK_PST = [
+  [0, 0, 0, 0, 0, 0, 0, 0], [5, 10, 10, 10, 10, 10, 10, 5], [-5, 0, 0, 0, 0, 0, 0, -5], [-5, 0, 0, 0, 0, 0, 0, -5],
+  [-5, 0, 0, 0, 0, 0, 0, -5], [-5, 0, 0, 0, 0, 0, 0, -5], [-5, 0, 0, 0, 0, 0, 0, -5], [0, 0, 0, 5, 5, 0, 0, 0]];
+const QUEEN_PST = [
+  [-20, -10, -10, -5, -5, -10, -10, -20], [-10, 0, 0, 0, 0, 0, 0, -10], [-10, 0, 5, 5, 5, 5, 0, -10],
+  [-5, 0, 5, 5, 5, 5, 0, -5], [0, 0, 5, 5, 5, 5, 0, -5], [-10, 5, 5, 5, 5, 5, 0, -10],
+  [-10, 0, 5, 0, 0, 0, 0, -10], [-20, -10, -10, -5, -5, -10, -10, -20]];
+const KING_MID_PST = [
+  [-30, -40, -40, -50, -50, -40, -40, -30], [-30, -40, -40, -50, -50, -40, -40, -30], [-30, -40, -40, -50, -50, -40, -40, -30],
+  [-30, -40, -40, -50, -50, -40, -40, -30], [-20, -30, -30, -40, -40, -30, -30, -20], [-10, -20, -20, -20, -20, -20, -20, -10],
+  [20, 20, 0, 0, 0, 0, 20, 20], [20, 30, 10, 0, 0, 10, 30, 20]];
+const KING_END_PST = [
+  [-50, -40, -30, -20, -20, -30, -40, -50], [-30, -20, -10, 0, 0, -10, -20, -30], [-30, -10, 20, 30, 30, 20, -10, -30],
+  [-30, -10, 30, 40, 40, 30, -10, -30], [-30, -10, 30, 40, 40, 30, -10, -30], [-30, -10, 20, 30, 30, 20, -10, -30],
+  [-30, -30, 0, 0, 0, 0, -30, -30], [-50, -30, -30, -30, -30, -30, -30, -50]];
+const PST = { P: PAWN_PST, N: KNIGHT_PST, B: BISHOP_PST, R: ROOK_PST, Q: QUEEN_PST };
+const PHASE = { N: 1, B: 1, R: 2, Q: 4 };
+const PASSED_BONUS = [0, 5, 10, 20, 35, 60, 100, 0]; // 얼마나 전진했는지 (칸 수)
+const MATE = 100000;
+const INF = 1000000;
+
+/** 지금 둘 차례 쪽에서 본 점수: 기물값 · 자리 · 비숍 쌍 · 폰 구조 · 열린 줄의 룩 · 끝판 킹 */
 function evaluate(pos) {
-  let score = 0;
+  let score = 0, phase = 0, wKingMid = 0, wKingEnd = 0, bKingMid = 0, bKingEnd = 0, wBishops = 0, bBishops = 0;
+  const wPawns = [0, 0, 0, 0, 0, 0, 0, 0], bPawns = [0, 0, 0, 0, 0, 0, 0, 0];
+  const wMost = [8, 8, 8, 8, 8, 8, 8, 8], bMost = [-1, -1, -1, -1, -1, -1, -1, -1]; // 줄마다 가장 앞선 폰 (통과한 폰 판단)
+  const wFront = [-1, -1, -1, -1, -1, -1, -1, -1], bFront = [8, 8, 8, 8, 8, 8, 8, 8]; // 줄마다 가장 뒤처진 폰
+  const rooks = [];
   for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
     const p = pos.board[r][c];
     if (!p) continue;
-    const kind = p[1];
-    const pr = p[0] === "w" ? r : 7 - r;
-    let v = VALUES[kind];
-    if (kind === "P") v += PAWN_PST[pr][c];
-    else if (kind === "N") v += KNIGHT_PST[pr][c];
-    else if (kind === "B" || kind === "Q") v += Math.trunc(8 - Math.abs(3.5 - r) - Math.abs(3.5 - c)) * 2;
-    score += p[0] === "w" ? v : -v;
+    const white = p[0] === "w", kind = p[1], pr = white ? r : 7 - r;
+    if (kind === "K") {
+      if (white) { wKingMid = KING_MID_PST[pr][c]; wKingEnd = KING_END_PST[pr][c]; } else { bKingMid = KING_MID_PST[pr][c]; bKingEnd = KING_END_PST[pr][c]; }
+      continue;
+    }
+    phase += PHASE[kind] || 0;
+    const v = VALUES[kind] + PST[kind][pr][c];
+    score += white ? v : -v;
+    if (kind === "B") { if (white) wBishops++; else bBishops++; }
+    else if (kind === "R") rooks.push([white, c]);
+    else if (kind === "P") {
+      if (white) { wPawns[c]++; wMost[c] = Math.min(wMost[c], r); wFront[c] = Math.max(wFront[c], r); }
+      else { bPawns[c]++; bMost[c] = Math.max(bMost[c], r); bFront[c] = Math.min(bFront[c], r); }
+    }
   }
+  if (wBishops >= 2) score += 30;
+  if (bBishops >= 2) score -= 30;
+  for (let c = 0; c < 8; c++) {
+    const lo = Math.max(0, c - 1), hi = Math.min(7, c + 1);
+    if (wPawns[c]) {
+      score -= (wPawns[c] - 1) * 12;
+      if (!(c > 0 && wPawns[c - 1]) && !(c < 7 && wPawns[c + 1])) score -= 12;
+      let passed = true;
+      for (let f = lo; f <= hi; f++) if (bPawns[f] && bFront[f] < wMost[c]) passed = false;
+      if (passed) score += PASSED_BONUS[7 - wMost[c]];
+    }
+    if (bPawns[c]) {
+      score += (bPawns[c] - 1) * 12;
+      if (!(c > 0 && bPawns[c - 1]) && !(c < 7 && bPawns[c + 1])) score += 12;
+      let passed = true;
+      for (let f = lo; f <= hi; f++) if (wPawns[f] && wFront[f] > bMost[c]) passed = false;
+      if (passed) score -= PASSED_BONUS[bMost[c]];
+    }
+  }
+  for (const [white, c] of rooks) {
+    const own = white ? wPawns[c] : bPawns[c], opp = white ? bPawns[c] : wPawns[c];
+    const bonus = !own ? (opp ? 8 : 16) : 0;
+    score += white ? bonus : -bonus;
+  }
+  const mid = Math.min(phase, 24); // 말이 많을수록 중반, 적을수록 끝판 킹 자리
+  score += Math.trunc(((wKingMid - bKingMid) * mid + (wKingEnd - bKingEnd) * (24 - mid)) / 24);
   return pos.turn === "w" ? score : -score;
 }
 
-function orderKey(pos, m) {
+const captureGain = (pos, m) => {
   const target = pos.board[m[2]][m[3]];
-  const gain = target ? VALUES[target[1]] * 10 - VALUES[pos.board[m[0]][m[1]][1]] : 0;
-  return gain + (m[4] === "Q" ? 900 : 0);
+  return target ? VALUES[target[1]] * 10 - VALUES[pos.board[m[0]][m[1]][1]] + 10000 : 0;
+};
+function orderKey(pos, m, ctx, ply) {
+  let k = captureGain(pos, m) + (m[4] === "Q" ? 9000 : 0);
+  if (!k && ctx) {
+    const killers = ctx.killers[ply];
+    if (killers && ((killers[0] && sameMove(killers[0], m)) || (killers[1] && sameMove(killers[1], m)))) k = 8000;
+    else k = Math.min(ctx.hist[(m[0] * 8 + m[1]) * 64 + m[2] * 8 + m[3]] || 0, 7000);
+  }
+  return k;
 }
 
-function negamax(pos, depth, alpha, beta, ply) {
-  if (depth === 0) return evaluate(pos);
-  const moves = pos.legalMoves();
-  if (!moves.length) return pos.inCheck(pos.turn) ? -100000 + ply : 0;
-  moves.sort((a, b) => orderKey(pos, b) - orderKey(pos, a));
-  for (const m of moves) {
-    const score = -negamax(pos.make(m), depth - 1, -beta, -alpha, ply + 1);
+function tick(ctx) {
+  ctx.nodes++;
+  if (ctx.deadline && (ctx.nodes & 511) === 0 && Date.now() > ctx.deadline) throw ctx;
+}
+
+/** 조용한 자리까지 잡기만 계속 계산 (말을 잡히는 걸 못 보는 일을 막음) */
+function quiesce(pos, alpha, beta, ctx, depth) {
+  tick(ctx);
+  const stand = evaluate(pos);
+  if (stand >= beta || depth <= 0) return stand;
+  if (stand > alpha) alpha = stand;
+  const me = pos.turn;
+  const caps = pos.pseudoMoves().filter((m) => pos.board[m[2]][m[3]] || m[4] === "Q");
+  caps.sort((x, y) => captureGain(pos, y) - captureGain(pos, x));
+  let best = stand;
+  for (const m of caps) {
+    const target = pos.board[m[2]][m[3]];
+    if (target && stand + VALUES[target[1]] + 200 < alpha) continue;
+    const next = pos.make(m);
+    if (next.inCheck(me)) continue;
+    const score = -quiesce(next, -beta, -alpha, ctx, depth - 1);
+    if (score > best) best = score;
     if (score >= beta) return score;
-    alpha = Math.max(alpha, score);
-  }
-  return alpha;
-}
-
-/** level: easy(가끔 실수, 1수) / normal(2수 앞) / hard(3수 앞) */
-export function bestMove(pos, level = "normal") {
-  const moves = pos.legalMoves();
-  let depth = 3;
-  if (level === "easy") {
-    depth = 1;
-    if (Math.random() < 0.3) return moves[Math.floor(Math.random() * moves.length)];
-  } else if (level === "normal") depth = 2;
-  for (let i = moves.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [moves[i], moves[j]] = [moves[j], moves[i]];
-  }
-  moves.sort((a, b) => orderKey(pos, b) - orderKey(pos, a));
-  let best = moves[0], alpha = -1e9;
-  for (const m of moves) {
-    const score = -negamax(pos.make(m), depth - 1, -1e9, -alpha, 1);
-    if (score > alpha) { alpha = score; best = m; }
+    if (score > alpha) alpha = score;
   }
   return best;
+}
+
+function search(pos, depth, alpha, beta, ply, ctx) {
+  tick(ctx);
+  if (pos.halfmove >= 100) return 0;
+  const moves = pos.legalMoves();
+  const inCheck = pos.inCheck(pos.turn);
+  if (!moves.length) return inCheck ? -MATE + ply : 0;
+  if (inCheck && ply < 16) depth++; // 체크를 당하면 한 수 더 봄
+  if (depth <= 0) return ctx.quiesce ? quiesce(pos, alpha, beta, ctx, 6) : evaluate(pos);
+  moves.sort((a, b) => orderKey(pos, b, ctx, ply) - orderKey(pos, a, ctx, ply));
+  let best = -INF, index = 0;
+  for (const m of moves) {
+    const quiet = !pos.board[m[2]][m[3]] && !m[4];
+    const next = pos.make(m);
+    let score;
+    if (ctx.quiesce && quiet && !inCheck && depth >= 3 && index >= 4) { // 뒤쪽 조용한 수는 얕게 본 뒤 좋아 보일 때만 다시
+      score = -search(next, depth - 2, -alpha - 1, -alpha, ply + 1, ctx);
+      if (score > alpha) score = -search(next, depth - 1, -beta, -alpha, ply + 1, ctx);
+    } else score = -search(next, depth - 1, -beta, -alpha, ply + 1, ctx);
+    index++;
+    if (score > best) best = score;
+    if (score > alpha) alpha = score;
+    if (score >= beta) {
+      if (quiet) {
+        const killers = ctx.killers[ply] || (ctx.killers[ply] = [null, null]);
+        if (!killers[0] || !sameMove(killers[0], m)) { killers[1] = killers[0]; killers[0] = m; }
+        const h = (m[0] * 8 + m[1]) * 64 + m[2] * 8 + m[3];
+        ctx.hist[h] = (ctx.hist[h] || 0) + depth * depth;
+      }
+      return score;
+    }
+  }
+  return best;
+}
+
+const newCtx = (extra = {}) => ({ nodes: 0, killers: [], hist: {}, deadline: 0, quiesce: false, ...extra });
+
+/** 모든 수의 점수를 정확히 매김 (쉬움 · 보통용 얕은 탐색) */
+function scoreMoves(pos, moves, depth) {
+  const ctx = newCtx();
+  return moves.map((m) => [m, -search(pos.make(m), depth - 1, -INF, INF, 1, ctx)]);
+}
+const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+const pickNoisy = (scored, sigma) => {
+  let best = scored[0][0], top = -Infinity;
+  for (const [m, score] of scored) {
+    const v = score + gauss() * sigma;
+    if (v > top) { top = v; best = m; }
+  }
+  return best;
+};
+
+function hardMove(pos, moves, timeMs, seen) {
+  const started = Date.now();
+  const ctx = newCtx({ deadline: started + timeMs, quiesce: true });
+  const repeats = new Set(seen);
+  const early = seen.length <= 10; // 초반은 수가 매번 조금 달라지게
+  let root = moves.map((m) => ({ m, jitter: early ? Math.random() * 12 : 0, next: pos.make(m) }));
+  root.sort((a, b) => orderKey(pos, b.m, ctx, 0) - orderKey(pos, a.m, ctx, 0) || b.jitter - a.jitter);
+  let best = root[0].m;
+  try {
+    for (let depth = 1; depth <= 30; depth++) {
+      let alpha = -INF, bestNow = null;
+      for (const item of root) {
+        // 같은 자리가 또 나오는 수는 무승부로 봄 (앞서 있을 때 같은 수만 반복하지 않게)
+        const repeated = repeats.has(item.next.key());
+        const score = repeated ? 0 : -search(item.next, depth - 1, -INF, -(alpha - item.jitter), 1, ctx);
+        const v = score + item.jitter;
+        if (v > alpha) { alpha = v; bestNow = item; best = item.m; }
+      }
+      if (bestNow) root = [bestNow, ...root.filter((x) => x !== bestNow)];
+      if (alpha > MATE - 100 || Date.now() - started > timeMs * 0.55) break; // 다음 깊이는 시간 안에 못 끝남
+    }
+  } catch (e) {
+    if (e !== ctx) throw e; // 시간이 다 됨: 지금까지 찾은 가장 좋은 수를 씀
+  }
+  return best;
+}
+
+/** level: easy / normal / hard. timeMs: hard가 생각할 시간, seen: 지금까지 나온 자리(반복 피하기) */
+export function bestMove(pos, level = "normal", { timeMs = 300, seen = [] } = {}) {
+  const moves = pos.legalMoves();
+  if (moves.length <= 1) return moves[0];
+  if (level === "hard") return hardMove(pos, moves, timeMs, seen);
+  const shallow = scoreMoves(pos, moves, 1);
+  const mates = shallow.filter(([, score]) => score > MATE - 100);
+  if (level === "easy") {
+    if (mates.length && Math.random() < 0.5) return mates[0][0];
+    if (Math.random() < 0.35) return moves[Math.floor(Math.random() * moves.length)];
+    return pickNoisy(shallow, 130);
+  }
+  if (mates.length && Math.random() < 0.9) return mates[0][0];
+  if (Math.random() < 0.15) return pickNoisy(shallow, 40); // 가끔 상대 응수를 못 보고 둠
+  return pickNoisy(scoreMoves(pos, moves, 2), 35);
 }
 
 // ---------------------------------------------------------------- 기보 (SAN)

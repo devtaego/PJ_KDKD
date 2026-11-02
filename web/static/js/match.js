@@ -2,11 +2,27 @@
 // 모든 행동(수 두기, 주사위 굴리기, 항복...)은 submit -> apply 순서로 흘러감.
 // 온라인에서는 서버가 순서와 시각을 붙여 모두에게 똑같이 돌려주므로, 모든 기기가 같은 판을 계산함.
 import * as net from "./net.js";
-import { el, ChatPanel, popAt, showResult, addLocalRecord, confirmBox, toast, modal, soundButton } from "./ui.js";
+import { titleBadge, titleFx } from "./data/titles.js";
+import { streakHtml, el, ChatPanel, popAt, showResult, addLocalRecord, confirmBox, toast, modal, soundButton } from "./ui.js";
 import { avatarHtml, esc } from "./art.js";
 import { play } from "./sound.js";
 import { questionFor, replyLine, CHAT_AI_TEXTS, randomOf } from "./party.js";
 import { RULES_TEXT, GAME_NAMES } from "./rules.js";
+
+const INTRO_MS = 2000; // 시작 연출 길이
+// 연출 재료: 모션(style.css 의 vs- / gather- 클래스) · 배경 · 터질 때 흩어지는 게임별 조각
+const VS_MOTIONS = ["clash", "drop", "spin", "charge", "slash", "zoom", "flip", "rocket", "whip", "swap"];
+const GATHER_MOTIONS = ["implode", "spiral", "rain", "march", "pop"];
+const VS_BACKS = ["bg-slash", "bg-split", "bg-rays", "bg-spot"];
+const GATHER_BACKS = ["bg-glow", "bg-rays", "bg-spot"];
+const INTRO_BITS = { chess: ["♟", "♞", "♝", "♜", "♛", "♚"], omok: ["⚫", "⚪"], yacht: ["🎲", "🎯", "🍀"], yut: ["🐷", "🐶", "🐑", "🐮", "🐴"] };
+const lastPick = new Map();
+/** 바로 전과 다른 것을 무작위로 고름 (같은 연출이 연달아 나오지 않게) */
+function freshPick(list) {
+  const pick = randomOf(list.filter((x) => x !== lastPick.get(list)));
+  lastPick.set(list, pick);
+  return pick;
+}
 
 export class Match {
   /**
@@ -22,6 +38,9 @@ export class Match {
     this.resultView = null;
     this.timers = new Set();
     this.offline = new Set(); // 연결이 끊긴 자리
+    this.introKind = replaying || matchMedia("(prefers-reduced-motion: reduce)").matches ? null
+      : seats.length === 2 || (seats.length === 4 && settings?.team === "1") ? "vs" : seats.length > 2 ? "gather" : null;
+    this.introUntil = this.introKind ? Date.now() + INTRO_MS : 0;
     this.buildScreen();
     this.g = module.create(this);
     this.boardWrap.appendChild(this.g.el);
@@ -30,6 +49,39 @@ export class Match {
       else this.side.appendChild(this.g.sideEl);
     }
     this.g.render();
+    if (this.introKind) this.playIntro();
+  }
+
+  /** 시작 연출이 끝나기까지 남은 시간 (게임이 카드 뽑기 같은 시작 과정을 그 뒤로 미룰 때 씀) */
+  introLeft() { return Math.max(0, this.introUntil - Date.now()); }
+
+  /** 시작 연출: 1:1 · 2:2는 양쪽이 격돌, 그 밖에는 모두 모였다가 펑. 보기만 하는 화면이라 누르면 아래 판으로 그대로 전달됨 */
+  playIntro() {
+    const member = (i, style = "") => {
+      const s = this.seats[i];
+      const pic = this.g.vsPortrait?.(i) ?? avatarHtml(s.avatar, 92);
+      return `<div class="vs-member" style="${style}"><span class="vs-pic">${pic}</span><div class="vs-name"><span class="${titleFx(s.title)}">${esc(s.name)}</span></div>${titleBadge(s.title)}</div>`;
+    };
+    const pieces = INTRO_BITS[this.game] || [];
+    const bits = `<span class="intro-bits">${Array.from({ length: 16 }, (_, k) => `<i style="--a:${k * 22.5 + Math.random() * 14}deg;--d:${30 + Math.random() * 28}vmin">${pieces[k % pieces.length] || ""}</i>`).join("")}</span>`;
+    let html, impact;
+    if (this.introKind === "vs") {
+      const team = this.seats.length === 4; // 자리 순서가 A, B, A, B
+      const side = (cls, list) => `<div class="vs-side ${cls}">${list.map((i) => member(i)).join("")}</div>`;
+      html = `<div class="vs-intro vs-${freshPick(VS_MOTIONS)} ${freshPick(VS_BACKS)}${team ? " vs-team" : ""}" aria-hidden="true"><div class="vs-stage">${side("a", team ? [0, 2] : [0])}<div class="vs-big">VS</div>${side("b", team ? [1, 3] : [1])}</div>${bits}<span class="vs-burst"></span></div>`;
+      impact = 420;
+    } else {
+      const ring = this.seats.map((_, i) => {
+        const angle = (i / this.seats.length) * 2 * Math.PI - Math.PI / 2;
+        return member(i, `--cx:${Math.cos(angle).toFixed(3)};--cy:${Math.sin(angle).toFixed(3)};--ang:${(angle * 180 / Math.PI).toFixed(1)}deg;--i:${i}`);
+      }).join("");
+      html = `<div class="vs-intro gather-intro gather-${freshPick(GATHER_MOTIONS)} ${freshPick(GATHER_BACKS)}" aria-hidden="true"><div class="gather-ring">${ring}</div><div class="gather-go">시작!</div>${bits}<span class="vs-burst"></span></div>`;
+      impact = 1250;
+    }
+    const intro = el(html);
+    this.root.appendChild(intro);
+    this.later(() => this.sfx("clash"), impact);
+    this.later(() => { intro.remove(); this.g.render(); }, INTRO_MS);
   }
 
   // ------------------------------------------------------------ 화면 틀
@@ -214,6 +266,58 @@ export class Match {
     this.later(() => this.showResultCard(), delay);
   }
 
+  /** 방 정보(대기 줄 등)가 바뀔 때마다 앱이 불러 줌 */
+  setRoomInfo(room) {
+    this.roomInfo = room;
+    this.updateSpecBar();
+    this.resultView?.setFlow?.(this.flowInfo());
+  }
+
+  queueAction(pos) {
+    return pos >= 0
+      ? { label: "줄에서 빠지기", onClick: () => net.send({ t: "seat", role: "spectator" }) }
+      : { label: "다음 판 줄 서기", onClick: () => net.send({ t: "seat", role: "player" }) };
+  }
+
+  /** 관전하는 사람에게 게임 화면 위에 보여 주는 줄: 관전 중 · 몇 번째 대기인지 */
+  updateSpecBar() {
+    if (!this.online || this.mySeats.length || !this.root) { this.specBar?.remove(); this.specBar = null; return; }
+    if (!this.specBar) {
+      this.specBar = el(`<div class="spec-bar"><span></span><button class="btn small"></button></div>`);
+      this.root.querySelector(".topbar").after(this.specBar);
+    }
+    const pos = (this.roomInfo?.queue || []).indexOf(net.myId());
+    this.specBar.querySelector("span").textContent = pos >= 0 ? `관전 중 · 다음 판 대기 ${pos + 1}번째` : "관전 중이에요";
+    const btn = this.specBar.querySelector("button"), action = this.queueAction(pos);
+    btn.textContent = action.label;
+    btn.onclick = action.onClick;
+  }
+
+  /** 끝난 뒤 내 역할과 다음에 무슨 일이 일어나는지 (온라인만) */
+  flowInfo() {
+    if (!this.online || !this.result) return null;
+    const info = this.result, room = this.roomInfo || {}, me = net.myId();
+    const queue = room.queue || [];
+    const nameOf = (pid) => (room.members || []).find((x) => x.cid === pid)?.name || "다음 사람";
+    const mine = this.mySeats.filter((i) => !this.seats[i].ai);
+    if (mine.length) {
+      const seat = mine[0];
+      const next = queue.length ? `${nameOf(queue[0])} 님` : "";
+      if (info.winners.includes(seat)) {
+        const streak = room.members?.find((x) => x.cid === me)?.streak || 0;
+        return { kind: "win", tag: streak >= 2 ? `승자 · ${streak}연승` : "승자", note: next ? `자리를 지켜요. 다음 상대는 ${next}이에요` : "다음 판도 이 자리에서 계속해요" };
+      }
+      if (info.winners.length) return { kind: "lose", tag: "패자", note: next ? `줄 맨 뒤로 가요. 다음 판은 ${next}이 앉아요` : "대기 줄이 없어서 다음 판도 같이 해요" };
+      return { kind: "draw", tag: "무승부", note: "다음 판도 이 자리에서 계속해요" };
+    }
+    const pos = queue.indexOf(me);
+    if (pos >= 0) {
+      const slots = info.losers.length || 1;
+      return { kind: "queue", tag: `대기 ${pos + 1}번째`, note: pos < slots ? "다음 판에 앉아요! 준비하세요" : `앞에 ${pos}명이 있어요`, queue: this.queueAction(pos) };
+    }
+    return { kind: "spectator", tag: "관전자", note: "구경 중이에요. 다음 판에 하고 싶으면 줄을 서요", queue: this.queueAction(pos) };
+  }
+
   showResultCard() {
     const info = this.result;
     const mine = this.mySeats.filter((i) => !this.seats[i].ai);
@@ -228,19 +332,20 @@ export class Match {
       ? questionFor(...this.seats.map((s) => s.name), info.moves ?? 0) : null;
     const canTeabag = winner !== null && loser !== null && (this.mode === "local" || this.controls(winner));
     const players = (info.order || this.seats.map((_, i) => i)).map((i) => ({
-      key: String(i), name: this.seats[i].name, avatar: this.seats[i].avatar,
+      key: String(i), name: this.seats[i].name, avatar: this.seats[i].avatar, title: this.seats[i].title,
       winner: info.winners.includes(i), score: info.scores?.[i],
     }));
     this.resultView = showResult({
       title: info.title, sub: info.sub, players, myKind,
       question, questionFor: loser !== null ? this.seats[loser].name : "",
       onTaunt: (text) => this.taunt(mine[0], text, myKind),
-      onTeabag: canTeabag ? () => this.fx({ kind: "teabag", from: winner, to: loser }) : null,
+      onTeabag: canTeabag ? (style) => this.fx({ kind: "teabag", from: winner, to: loser, style }) : null,
       onAgain: () => this.again(),
-      againLabel: this.online && !this.isHost ? "방장이 다시 시작해요" : "한 판 더",
+      againLabel: this.online ? (this.isHost ? "한 판 더" : "방장이 다음 판을 열면 대기실로 가요") : "한 판 더",
       canAgain: !this.online || this.isHost,
       onExit: () => this.exit(true),
     });
+    this.resultView.setFlow(this.flowInfo());
   }
 
   taunt(seat, text, kind) {
@@ -268,7 +373,7 @@ export class Match {
     const seatOk = (i) => Number.isInteger(i) && i >= 0 && i < this.seats.length;
     if (f.kind === "teabag" && seatOk(f.from) && seatOk(f.to)) {
       if (this.online && this.seats[f.from].cid !== msg.from) return; // 이긴 사람 본인만
-      this.resultView?.teabag(String(f.from), String(f.to));
+      this.resultView?.teabag(String(f.from), String(f.to), f.style);
     } else if (f.kind === "taunt" && seatOk(f.seat) && typeof f.text === "string") {
       if (this.online && this.seats[f.seat].cid !== msg.from) return;
       const text = f.text.slice(0, 40);
@@ -310,13 +415,13 @@ export function showRules(game) {
 }
 
 /** 자리 카드 HTML: 차례 표시 · 연결 끊김 표시 포함 */
-export function seatCard(match, i, { extra = "", sub = null, turn = false } = {}) {
+export function seatCard(match, i, { extra = "", sub = null, turn = false, below = "" } = {}) {
   const s = match.seats[i];
   const off = match.offline.has(i);
   const left = off ? match.secondsLeft(i) : null;
   const intro = off ? (left !== null ? `연결 끊김 · ${left}초 안에 안 오면 기권` : "연결이 끊겼어요...") : sub ?? s.intro ?? "";
   const tag = match.controls(i) && match.mode !== "local" ? " (나)" : "";
   const streak = match.streaks?.get(s.cid) || 0;
-  const badge = streak >= 2 ? ` <span class="streak">${streak}연승</span>` : "";
-  return `<div class="person ${turn ? "turn" : ""} ${off ? "off" : ""}" data-seat="${i}">${avatarHtml(s.avatar, 40)}<div class="who"><div class="nm">${esc(s.name + tag)}${badge}</div>${intro ? `<div class="intro">${esc(intro)}</div>` : ""}</div>${extra}</div>`;
+  const badge = streak >= 2 ? ` ${streakHtml(streak)}` : "";
+  return `<div class="person ${turn ? "turn" : ""} ${off ? "off" : ""}" data-seat="${i}">${avatarHtml(s.avatar, 40)}<div class="who"><div class="nm"><span class="${titleFx(s.title)}">${esc(s.name + tag)}</span>${titleBadge(s.title)}${badge}</div>${intro ? `<div class="intro">${esc(intro)}</div>` : ""}${below}</div>${extra}</div>`;
 }

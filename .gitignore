@@ -5,3 +5,5 @@ dist/
 *.spec
 .venv*/
 web/ranking.json
+web/.title_secret
+private/

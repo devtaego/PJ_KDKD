@@ -105,6 +105,7 @@ const SOUNDS = {
   },
   tick: () => { noise(0.025, { gain: 0.28, freq: 3400, q: 2.5 }); tone(1300 + Math.random() * 500, 0.03, { type: "triangle", gain: 0.05 }); },
   thud: () => { tone(120, 0.18, { gain: 0.4, slide: -70 }); noise(0.08, { gain: 0.3, freq: 400 }); },
+  clash: () => { noise(0.2, { gain: 0.6, freq: 1500, q: 0.8 }); tone(110, 0.22, { gain: 0.3, slide: -60 }); },
   win: () => [523, 659, 784, 1047].forEach((fq, i) => tone(fq, 0.22, { type: "triangle", gain: 0.16, at: i * 0.11 })),
   lose: () => [392, 330, 262].forEach((fq, i) => tone(fq, 0.3, { type: "sine", gain: 0.16, at: i * 0.16 })),
   join: () => { tone(660, 0.1, { gain: 0.12 }); tone(880, 0.14, { gain: 0.12, at: 0.08 }); },

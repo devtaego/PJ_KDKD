@@ -10,6 +10,7 @@
 """
 import asyncio
 import hashlib
+import hmac
 import json
 import os
 import random
@@ -37,6 +38,50 @@ RANKING_FILE = os.environ.get("KIDK_RANKING_FILE", os.path.join(HERE, "ranking.j
 
 GAMES = {"chess": 2, "omok": 2, "yacht": 6, "yut": 4}  # 게임 -> 최대 플레이어 수
 SETTING_KEYS = {"time", "turn", "color", "rule", "private", "pieces", "chaos", "team", "tb"}  # 방 설정으로 받는 값
+# 칭호: 화면 쪽 목록은 static/js/data/titles.js. 코드는 해시만 둠 (새 코드: sha256(대문자 코드).hexdigest())
+TITLE_IDS = {"dev", "kda", "first_win", "chess_s2", "chess_s3", "chess_s5", "chess_s7", "chess_s10", "omok_s2", "omok_s3", "omok_s5", "omok_s7", "omok_s10", "yacht_s2", "yacht_s3", "yacht_s5", "yacht_s7", "yacht_s10", "yut_win", "yut_s2", "yut_s3", "yut_s5", "yut_s7", "yut_s10", "first_game", "spectator", "draw", "teabag", "teabag3", "fast_win", "long_win", "night_win", "comeback", "yut_team", "yut_chaos", "lose_3", "lose_5", "lose_10"}
+TITLE_CODES = {
+    "6c072a4839fe4be0aefdf8b989474e6988ae47003c0f12e9367a2e02769cfa61": "first_game",
+    "80f48348c33b6f5200b27c236c58997e056705b3e97b8f3d58d372f74cf3aaa3": "spectator",
+    "1a6c4739ecb533e82b65686ee0dbdf6c036586be4e343651de239fc4656d0aa2": "draw",
+    "9a33b08c825993fef116b7b98688d3bd9e0089d8491cb87994bea463ca93f315": "teabag",
+    "d7d9a1d298f0c68edc8e11a5dd43fec0cf1083860bd429143ffd716c34c0b71d": "teabag3",
+    "4447741abf7e931e6be475dcb4daeff54cf8d686101dc2e4e42b31460860757a": "fast_win",
+    "7346ab370d848da2200520460e9bcea90114cc47c1edcd1d4f90c8a6285ef177": "long_win",
+    "9eb5cc509174ea0616db20fe9d6a271f78efa09044ea416aafe05a89da23c77c": "night_win",
+    "943a04542324673b03d3e05d905d411373842db8ede4501607655dd69706a043": "comeback",
+    "dea3112b555a8c62bceae190a828b4295d030b011b8c9d064f4ac76dab2cf608": "yut_team",
+    "e9a3783bd08cf0a198caab2d23e027f1080876c551e11418987fec8c60aa1b2a": "yut_chaos",
+    "6383074be774b5bff2f185b497e5ef03d18c8aafb3ef36dcbccdcde2faaba8c9": "lose_3",
+    "d0421b2f9aab081ea1f189f86973f83f4a8a4d39569c87c6b8195f983d644a1d": "lose_5",
+    "5a866d474b35d2e15ba13f8c898239d98168984f2d65c2b7084823f6f984eb71": "lose_10",
+    "d39f3e0d928a104df91620be33d9e94b7f926e063ed2083412bf6bbf8c5fd719": "dev",
+    "9cb10eb12c048236a65e59514d4d283d41663dcc62f319bc473f3cb4d1584976": "kda",
+    "6a9d1190b7440e5e6cc98b3947543b5726e6e9c749724c790b1f5602d9816831": "first_win",
+    "dc4b60441e78429e4586b50fe21f154397babc21f56ab5012fd2513b14c0d4bb": "chess_s2",
+    "b5b45931dcc4ca7291c131742d7ba349a53f19dc5332e8d73e70fa2727d9c88a": "chess_s3",
+    "01b8d9d8782ae2ce8b322a3cc08a8942c7e158ed806d50605fa8f25e089193bf": "chess_s5",
+    "ea2c7bb142ebf13be7620fa384b541dfe026e523e3b0c35bc3c27bf33fea85c3": "chess_s7",
+    "b34a0eabe406ee5ef1b62b594af365475bb97b1acf79b1f24ea4a9a208df8bf8": "chess_s10",
+    "45b5547cad7c9469c8b1fa047c42def08d039e2024e44a4ee5abed336bdc572d": "omok_s2",
+    "0c115ada6c6dd99044c981a46494bac84eef6091ef94a32319b3cbad16d05b72": "omok_s3",
+    "dbf0960d814817654786b2b0267e8740099a7cf8f0d36049f662a84d6fb81d2c": "omok_s5",
+    "8614caa3a5515728408469df7fe0091fd10592b8cad790153aef2cf2fe67bc04": "omok_s7",
+    "748ae46ceb71a90b57846a2dc2f46b8c15d941d50e7cacc723650841af0443ee": "omok_s10",
+    "91e7d4c529736d0dce26966a8de6dbcdbc3b7e113869cbf7f61705f0578eae6c": "yacht_s2",
+    "8dcdafeda9a0c24a35a49c00de3d94d80f3c7601135380fac21c1673feb04b99": "yacht_s3",
+    "35d7995f60a588dd75a8176d3e267e3f3db82e1f5882df13805521c37413665b": "yacht_s5",
+    "eab0cf9b4f98822a30548257ce63fcaed81855ac67c5f984f2bbee8a42e169f1": "yacht_s7",
+    "08d3523b8e39b23ac9896bf72905b34759236c6492acaaf677233fb60946d239": "yacht_s10",
+    "ba27816cb4b70cdb2d507c2300d15d30d750d51b1996083f53339fa5491a8979": "yut_win",
+    "8f9ac6675ccd29b58b2f025390862692eb7bcdc51630c34069dc1c557cba79d2": "yut_s2",
+    "e21356a1b1b4e382499a3fee9944a17efc41ad00e77e9e498ea59ebae8f452ac": "yut_s3",
+    "b37c318daa4f2b50d0efa27e1392e83e8d0cc99281437f52220a84d81941f898": "yut_s5",
+    "92f92d4b465ec5d509503127ece0c66e1a369db2f704b82927d35bd7af86cc38": "yut_s7",
+    "0763a384615eae67484228b1e141edac75e9b3f37df07e9f2852d130a6323774": "yut_s10",
+}
+TEABAG_STYLES = {"teabag", "stomp", "kick"}
+RESERVED_NAMES = {"개발자", "관리자", "운영자", "운영진", "dev", "admin", "administrator", "gm", "시스템", "system", "공지"}  # 운영자인 척 못 하게
 FX_KINDS = {"teabag", "taunt", "shake"}
 YUT_SKINS = {"penguin", "tiger", "rabbit", "frog", "bear", "cat", "chick", "fox"}  # 기록 없이 전달하는 효과
 MAX_MSG = 100_000  # 메시지 하나 최대 크기 (프로필 사진 포함해도 충분)
@@ -66,6 +111,58 @@ def clean_text(s, limit):
     return " ".join(str(s or "").split())[:limit]
 
 
+def _title_secret():
+    """칭호 표를 서명하는 비밀값. Render는 TITLE_SECRET(자동 생성), 내 PC는 파일에 한 번 만들어 둠."""
+    env = os.environ.get("TITLE_SECRET") or os.environ.get("SUPABASE_SERVICE_KEY")
+    if env:
+        return hashlib.sha256(env.encode()).digest()
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".title_secret")
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except OSError:
+        value = secrets.token_bytes(32)
+        try:
+            with open(path, "wb") as f:
+                f.write(value)
+        except OSError:
+            pass
+        return value
+
+
+TITLE_SECRET = _title_secret()
+
+
+def title_token(cid, title):
+    """이 사람(비밀 열쇠)이 이 칭호를 가졌다는 표. 다른 사람이 복사해 써도 통하지 않음."""
+    return hmac.new(TITLE_SECRET, f"{cid}:{title}".encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def restore_code(title):
+    """칭호 복구 코드: 브라우저 기록을 지웠거나 다른 기기에서 다시 받을 때 입력"""
+    nonce = secrets.token_hex(3).upper()
+    return f"T1-{title.upper()}-{nonce}-{_restore_sig(title, nonce)}"
+
+
+def _restore_sig(title, nonce):
+    return hmac.new(TITLE_SECRET, f"restore:{title}:{nonce}".encode(), hashlib.sha256).hexdigest()[:12].upper()
+
+
+def title_from_code(code):
+    """입력한 코드가 가리키는 칭호 (복구 코드 또는 등록된 코드), 아니면 None"""
+    parts = code.split("-")
+    if len(parts) == 4 and parts[0] == "T1":
+        title = parts[1].lower()
+        if title in TITLE_IDS and hmac.compare_digest(parts[3], _restore_sig(title, parts[2])):
+            return title
+        return None
+    return TITLE_CODES.get(hashlib.sha256(code.encode()).hexdigest())
+
+
+def name_key(name):
+    return "".join(str(name).split()).casefold()
+
+
 def clean_settings(raw):
     if not isinstance(raw, dict):
         return {}
@@ -85,6 +182,8 @@ def clean_fx(fx):
         out["text"] = clean_text(fx["text"], 40)
     if isinstance(fx.get("on"), bool):
         out["on"] = fx["on"]
+    if fx.get("style") in TEABAG_STYLES:
+        out["style"] = fx["style"]
     return out
 
 
@@ -99,8 +198,9 @@ class Client:
         self.room = None
         self.gone_at = None  # 연결이 끊긴 시각 (다시 들어오면 None)
         self.last_active = time.time()
-        self.sent = {"all": [], "chat": []}  # 최근 보낸 메시지 시각 (도배 막기)
+        self.sent = {"all": [], "chat": [], "redeem": []}  # 최근 보낸 메시지 시각 (도배 막기)
         self.sent_chat = []
+        self.teabag_wins = 0  # 이기고 티배깅한 판 수 (칭호용)
 
     def allow(self, kind, limit):
         now = time.time()
@@ -140,6 +240,11 @@ class Client:
         changed = photo is not None and photo != self.photo
         self.photo = photo
         self.profile = {"name": name, "avatar": avatar, "intro": clean_text(p.get("intro"), 30)}
+        title, token = p.get("title"), p.get("titleToken")
+        if title in TITLE_IDS and isinstance(token, str) and hmac.compare_digest(token, title_token(self.cid, title)):
+            self.profile["title"] = title  # 서버가 준 표가 있어야만 칭호가 보임
+        if name_key(name) in RESERVED_NAMES and self.profile.get("title") != "dev":
+            self.profile["name"] = "플레이어"
         return changed
 
     async def send(self, obj):
@@ -154,6 +259,29 @@ def clean_profile(p):
     """(테스트용) 프로필 정리 규칙만 확인."""
     c = Client("x" * 8, "")
     return c.profile if c.set_profile(p) or c.profile else None
+
+
+def win_titles(room, streak, lost_before, now=None):
+    """이긴 사람이 받는 칭호: 연승 단계와 이번 판의 조건"""
+    now = time.time() if now is None else now
+    earned = ["first_win"] + [f"{room.game}_s{n}" for n in (2, 3, 5, 7, 10) if streak >= n]
+    if room.game == "yut":
+        earned.append("yut_win")
+        if room.settings.get("team") == "1":
+            earned.append("yut_team")
+        if room.settings.get("chaos", "chaos") == "chaos":
+            earned.append("yut_chaos")
+    played = now - room.started_at
+    if played < 60:
+        earned.append("fast_win")
+    elif played >= 1200:
+        earned.append("long_win")
+    hour = time.gmtime(now + 9 * 3600).tm_hour  # 한국 시각
+    if hour >= 23 or hour < 6:
+        earned.append("night_win")
+    if lost_before >= 3:
+        earned.append("comeback")
+    return earned
 
 
 class Room:
@@ -173,6 +301,9 @@ class Room:
         self.seat_cids = []
         self.queue = []  # 다음 판을 기다리는 줄 (cid, 먼저 선 순서)
         self.streak = {}  # cid -> 이 방에서 이어 온 연승 수
+        self.lose_streak = {}  # cid -> 이 방에서 이어 온 연패 수
+        self.started_at = 0  # 이번 판을 시작한 시각
+        self.teabag_ready = set()  # 지난 판을 이겨서 아직 티배깅하지 않은 cid (한 판에 한 번만 셈)
         self.losers = []  # 지난 판에 진 사람 (한 판 더 할 때 줄 맨 뒤로)
         self.banned = set()  # 방장이 내보낸 사람 (cid)
 
@@ -292,9 +423,21 @@ class Hub:
                 room.queue.remove(cid)
                 room.set_role(cid, "player")
 
+    def name_taken(self, room, client):
+        """이 방에 같은 닉네임을 쓰는 다른 사람이 있는지 (결과 · 연승이 이름으로 묶여서 겹치면 안 됨)"""
+        key = name_key(client.profile["name"])
+        for cid, _ in room.members:
+            other = self.clients.get(cid)
+            if other is not None and other is not client and other.profile and name_key(other.profile["name"]) == key:
+                return True
+        return False
+
     async def join(self, client, room, want="player"):
         if client.cid in room.banned:
             await client.send({"t": "error", "msg": "방장이 내보낸 방이라 다시 들어갈 수 없어요."})
+            return
+        if self.name_taken(room, client):
+            await client.send({"t": "error", "msg": "이 방에 같은 닉네임이 있어요. 닉네임을 바꾼 뒤 다시 들어와 주세요."})
             return
         if client.room is not None:
             await self.leave(client)
@@ -360,6 +503,7 @@ class Hub:
         if a.get("type") == "start":
             room.log = []
             room.status = "playing"
+            room.started_at = time.time()
             room.seat_cids, a["seats"] = self.seats_for_start(room, a.pop("order", None))
             room.seat_names = [self.clients[c].profile["name"] for c in room.seat_cids]
             settings = a.get("settings")
@@ -387,12 +531,29 @@ class Hub:
             return
         client.last_active = time.time()
         if t == "profile":
+            old_name = client.profile["name"] if client.profile else None
             photo_changed = client.set_profile(msg.get("profile"))
             room = self.rooms.get(client.room)
             if room and client.profile:
+                if old_name and self.name_taken(room, client):  # 방 안에서 남과 같은 이름으로는 못 바꿈
+                    client.profile["name"] = old_name
+                    await client.send({"t": "error", "msg": "이 방에 같은 닉네임이 있어서 이름을 바꾸지 못했어요."})
                 if photo_changed:
                     await self.send_photos(room, only=client)
                 await self.send_room(room)
+            return
+        if t == "redeem":  # 칭호 코드 입력
+            if not client.allow("redeem", RATE_CHAT):
+                return
+            code = "".join(str(msg.get("code") or "").upper().split())[:40]
+            title = title_from_code(code)
+            await client.send({"t": "title_grant", "title": title, "token": title_token(client.cid, title), "via": "code"} if title else {"t": "title_bad"})
+            return
+        if t == "title_backup":  # 가진 칭호의 복구 코드 받기
+            title, token = msg.get("title"), msg.get("token")
+            if (client.allow("redeem", RATE_CHAT) and title in TITLE_IDS and isinstance(token, str)
+                    and hmac.compare_digest(token, title_token(client.cid, title))):
+                await client.send({"t": "title_code", "title": title, "code": restore_code(title)})
             return
         if client.profile is None:
             return
@@ -433,6 +594,10 @@ class Hub:
             fx = clean_fx(msg.get("fx"))
             if fx:
                 await self.to_room(room, {"t": "fx", "from": client.pid, "fx": fx})
+                if fx["kind"] == "teabag" and client.cid in room.teabag_ready:
+                    room.teabag_ready.discard(client.cid)
+                    client.teabag_wins += 1
+                    await self.grant_titles(client.cid, ["teabag"] + (["teabag3"] if client.teabag_wins >= 3 else []))
         elif t == "yut_skin" and room.game == "yut" and room.status != "playing":
             target = client  # 말은 본인 것만 고름 (방장도 남의 말은 못 고름)
             if room.role_of(target.cid) != "player":
@@ -512,10 +677,24 @@ class Hub:
             winners = [n for n in dict.fromkeys(clean_text(n, 12) for n in msg.get("winners", [])[:6]) if n in players]
             losers = [n for n in dict.fromkeys(clean_text(n, 12) for n in msg.get("losers", [])[:6])
                       if n in players and n not in winners]
-            if winners:  # 무승부는 연승을 그대로 둠
-                for cid, name in zip(room.seat_cids, room.seat_names):
-                    room.streak[cid] = room.streak.get(cid, 0) + 1 if name in winners else 0
+            for cid, name in zip(room.seat_cids, room.seat_names):
+                earned = ["first_game"]
+                if not winners:  # 무승부는 연승 · 연패를 그대로 둠
+                    earned.append("draw")
+                elif name in winners:
+                    room.streak[cid] = room.streak.get(cid, 0) + 1
+                    earned += win_titles(room, room.streak[cid], room.lose_streak.get(cid, 0))
+                    room.lose_streak[cid] = 0
+                else:
+                    room.streak[cid] = 0
+                    room.lose_streak[cid] = room.lose_streak.get(cid, 0) + 1
+                    earned += [f"lose_{n}" for n in (3, 5, 10) if room.lose_streak[cid] >= n]
+                await self.grant_titles(cid, earned)
+            for cid, role in room.members:
+                if role == "spectator":
+                    await self.grant_titles(cid, ["spectator"])
             room.losers = [cid for cid, name in zip(room.seat_cids, room.seat_names) if name in losers]
+            room.teabag_ready = {cid for cid, name in zip(room.seat_cids, room.seat_names) if name in winners}
             if players:
                 await self.store.add(room.game, players, winners)
             await self.send_room(room)
@@ -531,6 +710,15 @@ class Hub:
             room.losers = []
             await self.to_room(room, {"t": "reset"})
             await self.send_room(room)
+
+    async def grant_titles(self, cid, titles):
+        """칭호 표를 보내 줌 (이미 가졌으면 브라우저가 알아서 무시)"""
+        client = self.clients.get(cid)
+        if client is None:
+            return
+        for title in titles:
+            if title in TITLE_IDS:
+                await client.send({"t": "title_grant", "title": title, "token": title_token(cid, title), "via": "earned"})
 
     async def drop_later(self, client):
         await asyncio.sleep(GRACE)

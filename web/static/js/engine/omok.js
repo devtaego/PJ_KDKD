@@ -106,33 +106,123 @@ function windowScore(board, r, c, color) {
   return total;
 }
 
-/** level: easy(자주 놓침) / normal / hard */
-export function aiMove(board, level = "normal") {
-  const color = board.turn;
-  const opp = other(color);
-  const seen = new Set();
-  const cands = [];
+const LINE_W = [0, 1, 10, 100, 1400]; // 5칸 안에 내 돌이 n개일 때 점수
+const WIN_SCORE = 10000000;
+
+/** 판 전체 점수 (color 쪽에서 봄): 상대 돌이 없는 5칸마다 돌 수에 따라 더함 */
+function evalBoard(board, color) {
+  const g = board.g, opp = other(color);
+  let score = 0;
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+    for (const [dr, dc] of DIRS) {
+      const er = r + 4 * dr, ec = c + 4 * dc;
+      if (!inside(er, ec)) continue;
+      let mine = 0, theirs = 0;
+      for (let k = 0; k < 5; k++) {
+        const v = g[r + k * dr][c + k * dc];
+        if (v === color) mine++; else if (v === opp) theirs++;
+      }
+      if (mine && !theirs) score += LINE_W[mine];
+      else if (theirs && !mine) score -= LINE_W[theirs] * 1.15; // 상대 차례일 때 재는 값이라 상대 쪽을 조금 더 무겁게
+    }
+  }
+  return score;
+}
+
+function neighbors(board, radius = 2) {
+  const seen = new Set(), out = [];
   for (const [r, c] of board.moves) {
-    for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
+    for (let dr = -radius; dr <= radius; dr++) for (let dc = -radius; dc <= radius; dc++) {
       const rr = r + dr, cc = c + dc;
       if (inside(rr, cc) && board.g[rr][cc] === EMPTY && !seen.has(rr * N + cc)) {
         seen.add(rr * N + cc);
-        cands.push([rr, cc]);
+        out.push([rr, cc]);
       }
     }
   }
+  return out;
+}
+
+/** 둘 만한 자리 상위 limit개 (공격 + 수비 점수 순, 금수 제외) */
+function topMoves(board, color, limit) {
+  const opp = other(color);
+  const scored = neighbors(board).map((p) => [p, windowScore(board, p[0], p[1], color) * 1.1 + windowScore(board, p[0], p[1], opp)]);
+  scored.sort((a, b) => b[1] - a[1]);
+  const out = [];
+  for (const [p] of scored) {
+    if (board.forbidden(p[0], p[1], color)) continue;
+    out.push(p);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+function omokSearch(board, depth, alpha, beta, ply, ctx) {
+  if ((++ctx.nodes & 63) === 0 && Date.now() > ctx.deadline) throw ctx;
+  const color = board.turn, opp = other(color);
+  const cands = topMoves(board, color, depth >= 4 ? 10 : 7);
+  if (!cands.length) return 0;
+  for (const p of cands) if (board.fiveAt(p[0], p[1], color)) return WIN_SCORE - ply;
+  const mustBlock = cands.filter((p) => board.fiveAt(p[0], p[1], opp)); // 막아야만 하는 자리
+  if (depth <= 0) return evalBoard(board, color);
+  let best = -Infinity;
+  for (const p of (mustBlock.length ? mustBlock : cands)) {
+    board.place(p[0], p[1]);
+    let score;
+    try { score = -omokSearch(board, depth - 1, -beta, -alpha, ply + 1, ctx); } finally { board.undo(); }
+    if (score > best) best = score;
+    if (score > alpha) alpha = score;
+    if (alpha >= beta) break;
+  }
+  return best;
+}
+
+/** 어려움: 시간 안에서 몇 수 앞까지 번갈아 둬 보고 고름 (4 · 3을 만드는 수와 막는 수를 함께 봄) */
+function hardOmok(board, legal, timeMs) {
+  const color = board.turn;
+  const ctx = { nodes: 0, deadline: Date.now() + timeMs };
+  const started = Date.now();
+  const allowed = new Set(legal.map(([r, c]) => r * N + c));
+  let root = topMoves(board, color, 14).filter(([r, c]) => allowed.has(r * N + c));
+  if (!root.length) return legal[0];
+  let best = root[0];
+  try {
+    for (let depth = 2; depth <= 12; depth += 2) {
+      let alpha = -Infinity, bestNow = null;
+      for (const p of root) {
+        board.place(p[0], p[1]);
+        let score;
+        try { score = -omokSearch(board, depth - 1, -Infinity, -alpha, 1, ctx); } finally { board.undo(); }
+        if (score > alpha) { alpha = score; bestNow = p; best = p; }
+      }
+      if (bestNow) root = [bestNow, ...root.filter((x) => x !== bestNow)];
+      if (alpha > WIN_SCORE - 100 || Date.now() - started > timeMs * 0.5) break;
+    }
+  } catch (e) {
+    if (e !== ctx) throw e;
+  }
+  return best;
+}
+
+/** level: easy(자주 놓침) / normal(눈앞의 수는 막지만 멀리 못 봄) / hard(몇 수 앞까지 계산). timeMs: hard가 생각할 시간 */
+export function aiMove(board, level = "normal", { timeMs = 300 } = {}) {
+  const color = board.turn;
+  const opp = other(color);
+  const cands = neighbors(board);
   if (!cands.length) return [7, 7];
   let legal = cands.filter(([r, c]) => !board.forbidden(r, c, color));
   if (!legal.length) {
     legal = [];
     for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) if (board.legal(r, c)) legal.push([r, c]);
   }
-  for (const p of legal) if (board.fiveAt(p[0], p[1], color)) return p;
-  for (const p of legal) if (board.fiveAt(p[0], p[1], opp) && (level !== "easy" || Math.random() < 0.6)) return p;
-  const noise = { easy: 900, normal: 60 }[level] ?? 1;
+  for (const p of legal) if (board.fiveAt(p[0], p[1], color) && (level !== "easy" || Math.random() < 0.7)) return p;
+  for (const p of legal) if (board.fiveAt(p[0], p[1], opp) && (level !== "easy" || Math.random() < 0.5)) return p;
+  if (level === "hard") return hardOmok(board, legal, timeMs);
+  const noise = level === "easy" ? 900 : 140;
   const scored = legal.map((p) => [p, windowScore(board, p[0], p[1], color) * 1.12 + windowScore(board, p[0], p[1], opp) +
     Math.random() * noise]);
   scored.sort((a, b) => b[1] - a[1]);
-  if (level === "easy" && Math.random() < 0.35) return scored[Math.floor(Math.random() * Math.min(6, scored.length))][0];
+  if (level === "easy" && Math.random() < 0.4) return scored[Math.floor(Math.random() * Math.min(8, scored.length))][0];
+  if (level !== "easy" && Math.random() < 0.15) return scored[Math.floor(Math.random() * Math.min(3, scored.length))][0];
   return scored[0][0];
 }

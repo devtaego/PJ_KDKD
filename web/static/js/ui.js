@@ -2,6 +2,7 @@
 import { avatarHtml, stickerSvg, STICKERS, CROWN_SVG, esc } from "./art.js";
 import { play, soundOn, setSound } from "./sound.js";
 import { pickLines, TAUNTS, randomOf } from "./party.js";
+import { titleBadge, titleFx } from "./data/titles.js";
 
 const SPEAKER = `<path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>`;
 const WAVES = `<path d="M16 9.2a4 4 0 0 1 0 5.6M18.6 6.6a7.6 7.6 0 0 1 0 10.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`;
@@ -135,9 +136,17 @@ export function addLocalRecord(game, names, winners) {
 }
 
 // ---------------------------------------------------------------- 사람 카드
+/** 연승 뱃지: 많이 이길수록 화려해짐 (2 · 3~4 · 5~6 · 7~9 · 10 이상) */
+export function streakHtml(n) {
+  if (!(n >= 2)) return "";
+  const tier = n >= 10 ? 5 : n >= 7 ? 4 : n >= 5 ? 3 : n >= 3 ? 2 : 1;
+  const icon = tier === 5 ? "👑 " : tier >= 2 ? "🔥 " : "";
+  return `<span class="streak s${tier}">${icon}${n}연승</span>`;
+}
+
 export function personHtml(p, { extra = "", sub = null, cls = "" } = {}) {
   const intro = sub ?? p.intro ?? "";
-  return `<div class="person ${cls}" data-key="${esc(p.key ?? "")}">${avatarHtml(p.avatar, 40)}<div class="who"><div class="nm">${esc(p.name)}</div>${intro ? `<div class="intro">${esc(intro)}</div>` : ""}</div>${extra}</div>`;
+  return `<div class="person ${cls}" data-key="${esc(p.key ?? "")}">${avatarHtml(p.avatar, 40)}<div class="who"><div class="nm"><span class="${titleFx(p.title)}">${esc(p.name)}</span>${titleBadge(p.title)}</div>${intro ? `<div class="intro">${esc(intro)}</div>` : ""}</div>${extra}</div>`;
 }
 
 /** 사람 카드 위에 스티커/말풍선을 잠깐 띄움 */
@@ -235,9 +244,11 @@ const VEIN_SVG = `<svg class="vein" viewBox="-10 -10 20 20"><g stroke="#FF2E2E" 
 export function showResult(opts) {
   const root = el(`<div class="result"><div class="result-card"><h2>${esc(opts.title)}</h2><div class="sub">${esc(opts.sub || "")}</div><div class="podium"></div></div></div>`);
   const card = root.firstElementChild;
+  const flowEl = el(`<div class="result-flow" hidden></div>`);
+  card.querySelector(".sub").after(flowEl);
   const podium = card.querySelector(".podium");
   for (const p of opts.players) {
-    const pl = el(`<div class="pl ${p.winner ? "won" : "lost"}" data-key="${esc(p.key)}">${p.winner ? CROWN_SVG : ""}${avatarHtml(p.avatar, 64, p.winner ? "ring" : "")}<div class="nm">${esc(p.name)}</div>${p.score !== undefined ? `<div class="sc">${esc(p.score)}</div>` : ""}</div>`);
+    const pl = el(`<div class="pl ${p.winner ? "won" : "lost"}" data-key="${esc(p.key)}">${p.winner ? CROWN_SVG : ""}${avatarHtml(p.avatar, 64, p.winner ? "ring" : "")}<div class="nm"><span class="${titleFx(p.title)}">${esc(p.name)}</span>${titleBadge(p.title)}</div>${p.score !== undefined ? `<div class="sc">${esc(p.score)}</div>` : ""}</div>`);
     podium.appendChild(pl);
   }
   if (opts.question) {
@@ -252,18 +263,21 @@ export function showResult(opts) {
     }
     card.appendChild(taunts);
   }
-  const actions = el(`<div class="row" style="justify-content:center;margin-top:12px"></div>`);
+  // 버튼은 한 줄로: 티배깅(이긴 사람만) / 한 판 더 / 판 보기 / 나가기. 방장이 아니면 한 판 더 대신 안내 문구를 위에
+  if (opts.onAgain && opts.canAgain === false) card.appendChild(el(`<div class="result-wait">${esc(opts.againLabel || "")}</div>`));
+  const actions = el(`<div class="row result-actions"></div>`);
   if (opts.onTeabag) {
-    const tb = el(`<button class="btn pink">티배깅 하기</button>`);
-    tb.onclick = () => opts.onTeabag();
+    const tb = el(`<button class="btn pink">🍑 티배깅</button>`);
+    tb.onclick = () => opts.onTeabag(randomOf(["teabag", "stomp", "kick"])); // 누를 때마다 동작이 랜덤 (고른 동작을 함께 보내 모두 같은 걸 봄)
     actions.appendChild(tb);
   }
-  if (opts.onAgain) {
+  if (opts.onAgain && opts.canAgain !== false) {
     const again = el(`<button class="btn primary">${esc(opts.againLabel || "한 판 더")}</button>`);
-    again.disabled = opts.canAgain === false;
     again.onclick = () => opts.onAgain();
     actions.appendChild(again);
   }
+  const queueBtn = el(`<button class="btn" hidden></button>`);
+  actions.appendChild(queueBtn);
   const look = el(`<button class="btn ghost">판 보기</button>`);
   let showAgain = null; // '판 보기' 중일 때 결과를 다시 여는 함수
   look.onclick = () => {
@@ -311,10 +325,19 @@ export function showResult(opts) {
   const api = {
     root,
     cleanup: [],
+    /** 내 역할 안내 바꾸기 (대기 줄이 바뀌면 다시 부름) flow: { kind, tag, note, queue:{label, onClick} } */
+    setFlow(flow) {
+      flowEl.hidden = !flow;
+      if (!flow) return;
+      flowEl.className = `result-flow k-${flow.kind}`;
+      flowEl.innerHTML = `<b>${esc(flow.tag)}</b><span>${esc(flow.note)}</span>`;
+      queueBtn.hidden = !flow.queue;
+      if (flow.queue) { queueBtn.textContent = flow.queue.label; queueBtn.onclick = flow.queue.onClick; }
+    },
     close() { root.remove(); document.removeEventListener("keydown", onKey); api.cleanup.forEach((f) => f()); },
     bubble(key, text) { popAt(podium.querySelector(`[data-key="${CSS.escape(key)}"] .avatar`), { text }); },
-    teabag(fromKey, toKey) {
-      const stop = teabag(podium, fromKey, toKey);
+    teabag(fromKey, toKey, style) {
+      const stop = teabag(podium, fromKey, toKey, style);
       if (stop) api.cleanup.push(stop);
     },
   };
@@ -324,7 +347,7 @@ export function showResult(opts) {
 const TEABAG_TIME = 3.1, TB_GO = 0.48;
 
 /** 이긴 사람 프로필이 진 사람 머리 위로 날아가 앉았다 일어났다 (party.teabag_pos 와 같은 움직임) */
-function teabag(podium, fromKey, toKey) {
+function teabag(podium, fromKey, toKey, style = "teabag") {
   const from = podium.querySelector(`[data-key="${CSS.escape(fromKey)}"] .avatar`);
   const toPl = podium.querySelector(`[data-key="${CSS.escape(toKey)}"]`);
   if (!from || !toPl || podium.dataset.tb) return;
@@ -347,7 +370,21 @@ function teabag(podium, fromKey, toKey) {
   if (originalCrown) originalCrown.style.visibility = "hidden";
   toPl.classList.add("angry");
   toPl.insertAdjacentHTML("beforeend", VEIN_SVG);
-  const hx = fr.left, hy = fr.top, tx = tr.left + (tr.width - size) / 2, ty = tr.top - size * 0.62;
+  const kickDir = fr.left <= tr.left ? 1 : -1; // 걷어차기: 이긴 사람 쪽에서 반대쪽으로 날려 보냄
+  const hx = fr.left, hy = fr.top;
+  const tx = style === "kick" ? tr.left - kickDir * size * 0.95 : tr.left + (tr.width - size) / 2;
+  const ty = style === "kick" ? tr.top : tr.top - size * 0.48;
+  const hit = (words) => {
+    play("thud");
+    toPl.classList.remove("tb-impact");
+    void toPl.offsetWidth;
+    toPl.classList.add("tb-impact");
+    const boom = el(`<div class="boom">${esc(randomOf(words))}</div>`);
+    boom.style.left = `${tr.left + tr.width / 2 + (Math.random() - 0.5) * 60}px`;
+    boom.style.top = `${tr.top - 10}px`;
+    document.body.appendChild(boom);
+    setTimeout(() => boom.remove(), 720);
+  };
   const start = performance.now();
   let lastImpact = -1;
   let done = false;
@@ -355,6 +392,8 @@ function teabag(podium, fromKey, toKey) {
     if (done) return;
     done = true;
     fly.remove();
+    to.style.transform = "";
+    to.style.transformOrigin = "";
     from.style.visibility = "";
     if (originalCrown) originalCrown.style.visibility = "";
     toPl.classList.remove("angry");
@@ -385,24 +424,35 @@ function teabag(podium, fromKey, toKey) {
       rotation = 16 * (1 - p); scaleX = 1 - p * 0.2; scaleY = 1 + p * 0.2;
     } else {
       const p = t - TB_GO;
-      // 빠르고 크게 시작해 매번 낮아지는 착지 바운스
-      const bounce = Math.abs(Math.sin(p * 15)) * Math.exp(-p * 0.43);
-      x = tx + Math.sin(p * 8) * size * 0.07 * Math.exp(-p * 0.45);
-      y = ty - bounce * size * 0.66;
-      rotation = Math.sin(p * 11) * 9 * Math.exp(-p * 0.55);
-      scaleX = 1 + bounce * 0.18; scaleY = 1 - bounce * 0.2;
-      const impact = Math.floor(p / 0.42);
-      if (impact > lastImpact && bounce < 0.16) {
-        lastImpact = impact;
-        play("thud");
-        toPl.classList.remove("tb-impact");
-        void toPl.offsetWidth;
-        toPl.classList.add("tb-impact");
-        const boom = el(`<div class="boom">${esc(randomOf(["착!", "쿵!", "앉았다!", ...TAUNTS]))}</div>`);
-        boom.style.left = `${tr.left + tr.width / 2 + (Math.random() - 0.5) * 60}px`;
-        boom.style.top = `${tr.top - 10}px`;
-        document.body.appendChild(boom);
-        setTimeout(() => boom.remove(), 720);
+      if (style === "stomp") { // 통통 튀어 올랐다가 머리를 쿵쿵 밟음 (밟힐 때마다 진 사람 얼굴이 납작해짐)
+        const bounce = Math.abs(Math.sin(p * 9)) * Math.exp(-p * 0.3);
+        x = tx + Math.sin(p * 5) * size * 0.06;
+        y = ty - bounce * size * 0.66;
+        rotation = Math.sin(p * 7) * 8;
+        scaleX = 1 + (1 - bounce) * 0.12; scaleY = 1 - (1 - bounce) * 0.14;
+        const squash = Math.max(0, 1 - bounce * 3.5); // 내려앉은 순간에만 눌림
+        to.style.transformOrigin = "50% 100%";
+        to.style.transform = `scale(${1 + squash * 0.24}, ${1 - squash * 0.36})`;
+        const impact = Math.floor((p * 9) / Math.PI);
+        if (impact > lastImpact && bounce < 0.3) { lastImpact = impact; hit(["쿵!", "밟았다!", "꾹!", ...TAUNTS]); }
+      } else if (style === "kick") { // 뒤로 젖혔다가 뻥 차고, 진 사람이 날아갔다 돌아옴
+        const period = 0.72, q = (p % period) / period;
+        const reach = q < 0.45 ? -Math.sin((q / 0.45) * Math.PI / 2) * 0.4 : q < 0.58 ? -0.4 + ((q - 0.45) / 0.13) * 0.72 : 0.32 * (1 - (q - 0.58) / 0.42);
+        x = tx + kickDir * reach * size;
+        y = ty - (q >= 0.45 && q < 0.58 ? size * 0.1 : 0);
+        rotation = kickDir * (q < 0.45 ? -16 * (q / 0.45) : q < 0.58 ? 30 : 30 * (1 - (q - 0.58) / 0.42));
+        const v = q >= 0.5 ? 1 - (q - 0.5) / 0.5 : 0;
+        to.style.transform = `translate(${kickDir * v * size * 0.75}px, ${-Math.sin(v * Math.PI) * size * 0.5}px) rotate(${kickDir * v * 60}deg)`;
+        const impact = Math.floor(p / period);
+        if (q >= 0.5 && impact > lastImpact) { lastImpact = impact; hit(["뻥!", "퍽!", "날아갔다!", ...TAUNTS]); }
+      } else { // 티배깅: 머리 위에 붙어서 낮고 빠르게 콩콩
+        const bounce = Math.abs(Math.sin(p * 15));
+        x = tx + Math.sin(p * 8) * size * 0.03;
+        y = ty - bounce * size * 0.2;
+        rotation = Math.sin(p * 11) * 4;
+        scaleX = 1 + (1 - bounce) * 0.1; scaleY = 1 - (1 - bounce) * 0.1;
+        const impact = Math.floor(p / 0.42);
+        if (impact > lastImpact && bounce < 0.3) { lastImpact = impact; hit(["착!", "쿵!", "앉았다!", ...TAUNTS]); }
       }
     }
     fly.style.transform = `translate(${x - hx}px, ${y - hy}px) rotate(${rotation}deg) scale(${scaleX}, ${scaleY})`;

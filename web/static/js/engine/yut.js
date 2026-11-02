@@ -230,8 +230,9 @@ export class YutGame {
     return path;
   }
 
+  /** 나온 결과가 있으면 옮길 수 있음 (윷 · 모 뒤에 더 던지기 전에 먼저 옮겨도 됨) */
   move(pieceIdx, resIdx, seed, owner = this.current) {
-    if (this.over || this.phase !== "move") return false;
+    if (this.over || !this.pending.length) return false;
     const seat = this.current;
     if (!this.ally(seat, owner)) return false;
     const side = this.team(owner);

@@ -3,6 +3,7 @@
 실행: python -m unittest discover -s tests -v   (aiohttp가 없으면 건너뜀)
 """
 import asyncio
+import hashlib
 import os
 import sys
 import tempfile
@@ -22,11 +23,16 @@ except ImportError:  # 데스크톱판만 쓰는 PC
     server = None
 
 
+# 진짜 칭호 코드는 저장소에 두지 않으므로 테스트 전용 코드를 서버에 넣어서 씀
+TEST_CODES = {"TEST-DEV-CODE": "dev", "TEST-KDA-CODE": "kda", "TEST-ROOK-CODE": "chess_s5", "TEST-PIG-CODE": "yut_win"}
+
+
 @unittest.skipIf(server is None, "aiohttp가 설치되어 있지 않음")
 class WebServerTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         os.environ["KIDK_RANKING_FILE"] = os.path.join(tempfile.mkdtemp(), "ranking.json")  # 테스트마다 빈 랭킹
         server.hub.__init__()
+        server.TITLE_CODES.update({hashlib.sha256(code.encode()).hexdigest(): title for code, title in TEST_CODES.items()})
         self.pids = {}  # 테스트용 짧은 이름 -> 서버가 준 공개 번호
         self.client = TestClient(TestServer(server.make_app()))
         await self.client.start_server()
@@ -286,6 +292,121 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(host["yut_skin"], "penguin")
         await a.close()
         await b.close()
+
+    async def test_title_code_gives_token_and_shows_only_with_valid_token(self):
+        a = await self.connect("aaaaaaaa1", "태고")
+        await a.send_json({"t": "redeem", "code": "wrong-code"})
+        self.assertEqual((await self.until(a, "title_bad"))["t"], "title_bad")
+        await a.send_json({"t": "redeem", "code": " test-kda-code "})
+        grant = await self.until(a, "title_grant")
+        self.assertEqual(grant["title"], "kda")
+        # 표 없이 칭호를 달겠다고 하면 무시
+        await a.send_json({"t": "profile", "profile": {"name": "태고", "title": "dev", "titleToken": grant["token"]}})
+        await a.send_json({"t": "create", "game": "chess", "settings": {}})
+        room = (await self.until(a, "room"))["room"]
+        self.assertNotIn("title", room["members"][0])
+        # 받은 표로 달면 방 사람들에게 보임
+        await a.send_json({"t": "profile", "profile": {"name": "태고", "title": "kda", "titleToken": grant["token"]}})
+        room = (await self.until(a, "room"))["room"]
+        self.assertEqual(room["members"][0]["title"], "kda")
+        await a.close()
+
+    async def test_finished_game_grants_win_lose_and_spectator_titles(self):
+        a, b, code = await self.two_players("chess")
+        c = await self.connect("cccccccc3", "구경꾼")
+        await c.send_json({"t": "join", "room": code})
+        await self.until(c, "room")
+
+        async def titles_of(ws, count):
+            return {(await self.until(ws, "title_grant"))["title"] for _ in range(count)}
+
+        await a.send_json({"t": "act", "a": {"type": "start", "game": "chess"}})
+        await self.until(a, "act")
+        await a.send_json({"t": "result", "winners": ["태고"], "losers": ["민수"]})
+        got = await titles_of(a, 3)
+        self.assertLessEqual({"first_game", "first_win"}, got)
+        self.assertEqual(await titles_of(b, 1), {"first_game"})
+        self.assertEqual(await titles_of(c, 1), {"spectator"})
+        for ws in (a, b, c):
+            await ws.close()
+
+    async def test_teabag_titles_count_one_per_won_game(self):
+        a, b, code = await self.two_players("chess")
+        for game in range(3):
+            await a.send_json({"t": "act", "a": {"type": "start", "game": "chess"}})
+            await self.until(a, "act")
+            await a.send_json({"t": "result", "winners": ["태고"], "losers": ["민수"]})
+            await self.until(a, "room")
+            await b.send_json({"t": "fx", "fx": {"kind": "teabag"}})  # 진 사람은 세지 않음
+            for _ in range(2):  # 같은 판에 여러 번 해도 한 판으로 셈
+                await a.send_json({"t": "fx", "fx": {"kind": "teabag"}})
+            grants = []
+            while "teabag" not in grants:
+                grants.append((await self.until(a, "title_grant"))["title"])
+            if game < 2:
+                await a.send_json({"t": "ranking"})  # 받을 것이 더 있으면 ranking보다 먼저 옴
+                while (msg := await a.receive_json())["t"] != "ranking":
+                    self.assertNotEqual(msg.get("title"), "teabag3")
+            else:
+                self.assertEqual((await self.until(a, "title_grant"))["title"], "teabag3")
+            await a.send_json({"t": "reset"})
+            await self.until(a, "reset")
+        await a.close()
+        await b.close()
+
+    def test_win_titles_follow_streak_time_and_comeback(self):
+        room = server.Room.__new__(server.Room)
+        room.game, room.settings, room.started_at = "yut", {"team": "1", "chaos": "basic"}, 1000
+        noon_kst = 1000 + 1800  # 시각 조건은 아래에서 따로 확인
+        got = server.win_titles(room, 5, 3, now=noon_kst)
+        for title in ("first_win", "yut_win", "yut_s2", "yut_s3", "yut_s5", "yut_team", "long_win", "comeback"):
+            self.assertIn(title, got)
+        for title in ("yut_s7", "yut_chaos", "fast_win"):
+            self.assertNotIn(title, got)
+        self.assertLessEqual(set(got), server.TITLE_IDS)
+        room.started_at = 14 * 3600  # 23:00 KST (UTC 14시)
+        self.assertIn("night_win", server.win_titles(room, 1, 0, now=14 * 3600 + 30))
+        room.started_at = 18 * 3600  # 03:00 KST (UTC 18시)
+        self.assertIn("night_win", server.win_titles(room, 1, 0, now=18 * 3600 + 30))
+        self.assertNotIn("night_win", server.win_titles(room, 1, 0, now=6 * 3600))
+
+    async def test_same_nickname_blocked_and_reserved_name_replaced(self):
+        a, b, code = await self.two_players("chess")
+        c = await self.connect("cccccccc3", "민 수")  # 띄어쓰기만 다른 같은 이름
+        await c.send_json({"t": "join", "room": code})
+        self.assertIn("같은 닉네임", (await self.until(c, "error"))["msg"])
+        await b.send_json({"t": "profile", "profile": {"name": "태고"}})  # 방 안에서 남의 이름으로 못 바꿈
+        await self.until(b, "error")
+        d = await self.connect("dddddddd4", "D E V")
+        await d.send_json({"t": "create", "game": "chess", "settings": {}})
+        room = (await self.until(d, "room"))["room"]
+        self.assertEqual(room["members"][0]["name"], "플레이어")
+        for ws in (a, b, c, d):
+            await ws.close()
+
+    async def test_every_title_code_gives_its_title(self):
+        a = await self.connect("aaaaaaaa1", "태고")
+        self.assertEqual(set(server.TITLE_CODES.values()), server.TITLE_IDS)  # 모든 칭호에 코드가 있음
+        for code, title in {"test-dev-code": "dev", "TEST-KDA-CODE": "kda", "TEST-ROOK-CODE": "chess_s5", "TEST-PIG-CODE": "yut_win"}.items():
+            await a.send_json({"t": "redeem", "code": code})
+            self.assertEqual((await self.until(a, "title_grant"))["title"], title)
+        await asyncio.sleep(0)
+        await a.close()
+
+    async def test_title_backup_code_restores_on_another_browser(self):
+        a = await self.connect("aaaaaaaa1", "태고")
+        await a.send_json({"t": "redeem", "code": "TEST-KDA-CODE"})
+        token = (await self.until(a, "title_grant"))["token"]
+        await a.send_json({"t": "title_backup", "title": "kda", "token": "wrong"})  # 가짜 표는 무시
+        await a.send_json({"t": "title_backup", "title": "kda", "token": token})
+        code = (await self.until(a, "title_code"))["code"]
+        b = await self.connect("bbbbbbbb2", "민수")
+        await b.send_json({"t": "redeem", "code": code.lower()})
+        self.assertEqual((await self.until(b, "title_grant"))["title"], "kda")
+        await b.send_json({"t": "redeem", "code": code[:-1] + ("0" if code[-1] != "0" else "1")})  # 고친 코드는 안 됨
+        await self.until(b, "title_bad")
+        for ws in (a, b):
+            await ws.close()
 
     async def test_host_can_act_only_for_offline_player(self):
         a, b, _ = await self.two_players("yacht")

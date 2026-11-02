@@ -1,7 +1,8 @@
 // KI득KI득 웹판: 첫 화면 · 프로필 · 게임 고르기 · 온라인 방 목록 · 대기실 · 랭킹
 import * as net from "./net.js";
 import { ANIMALS, avatarHtml, photoToSpec, GAME_ICONS, esc, setPhoto } from "./art.js";
-import { el, toast, modal, confirmBox, segment, option, store, ChatPanel, personHtml, soundButton } from "./ui.js";
+import { el, toast, modal, confirmBox, segment, option, store, ChatPanel, personHtml, soundButton, streakHtml } from "./ui.js";
+import { TITLES, titleBadge, titleFx, isReservedName } from "./data/titles.js";
 import { play } from "./sound.js";
 import { Match, showRules } from "./match.js";
 import { GAME_NAMES, GAME_DESC } from "./rules.js";
@@ -22,6 +23,7 @@ const MODULES = { chess, omok, yacht, yut };
 const YUT_ROOM_SKINS = YUT_CHARACTERS.filter((c) => YUT_CHAR_IDS.has(c.id));
 const MAX_PLAYERS = { chess: 2, omok: 2, yacht: 6, yut: 4 };
 const LEVELS = [["easy", "쉬움"], ["normal", "보통"], ["hard", "어려움"]];
+const CHESS_LEVELS = [["easy", "쉬움 · 약 300"], ["normal", "보통 · 약 700"], ["hard", "어려움 · 약 1600"]]; // 체스닷컴 점수 기준의 대략적인 목표
 const ROBOT_NAMES = ["컴퓨터", "로봇 철수", "로봇 영희", "로봇 민수", "로봇 지수", "로봇 하나"];
 
 const app = document.getElementById("app");
@@ -83,9 +85,114 @@ const saveProfile = () => {
   if (net.isOpen()) net.updateProfile(profile);
 };
 
+// ---------------------------------------------------------------- 칭호
+let titleTokens = store.get("titles", {}); // 칭호 -> 서버가 준 표
+let onTitlesChanged = null;
+function equipTitle(id) {
+  profile.title = titleTokens[id] ? id : "";
+  profile.titleToken = titleTokens[id] || "";
+  saveProfile();
+  onTitlesChanged?.();
+}
+net.on("title_grant", (msg) => {
+  if (!TITLES[msg.title] || typeof msg.token !== "string") return;
+  const fresh = !titleTokens[msg.title];
+  titleTokens = { ...titleTokens, [msg.title]: msg.token };
+  store.set("titles", titleTokens);
+  if (fresh) {
+    toast(`칭호 획득: ${TITLES[msg.title].name}!`, 3000);
+    play("pop");
+  } else if (msg.via === "code") toast("이미 가진 칭호예요");
+  if (msg.via === "code") equipTitle(msg.title); // 이겨서 받은 칭호는 직접 골라서 닮 (연패 칭호가 저절로 달리지 않게)
+  else onTitlesChanged?.();
+});
+net.on("title_bad", () => toast("맞지 않는 코드예요"));
+
+async function redeemCode(code) {
+  if (!code.trim()) { toast("칭호 코드를 넣어 주세요"); return; }
+  connect();
+  for (let i = 0; i < 40 && !net.isOpen(); i++) await new Promise((r) => setTimeout(r, 100));
+  if (!net.isOpen()) { toast("서버에 연결하지 못했어요. 잠시 뒤에 다시 눌러 주세요"); return; }
+  net.send({ t: "redeem", code });
+}
+
+let titleCodes = store.get("titleCodes", {}); // 칭호 -> 복구 코드
+let onTitleCode = null;
+net.on("title_code", (msg) => {
+  if (!TITLES[msg.title] || typeof msg.code !== "string") return;
+  titleCodes = { ...titleCodes, [msg.title]: msg.code };
+  store.set("titleCodes", titleCodes);
+  onTitleCode?.();
+});
+
+// 칭호 화면: 얻은 칭호 고르기 · 코드 넣기 · 복구 코드. 아직 못 얻은 칭호는 ???로 숨김
+function titlesScreen() {
+  const root = el(`<section class="screen titles-screen">
+    <div class="topbar"><button class="icon-btn" aria-label="뒤로">←</button><h1>칭호</h1></div>
+    <div class="card titles-now">
+      <div class="titles-me"></div>
+      <div class="join-code title-code"><input id="title-code" type="text" maxlength="40" placeholder="칭호 코드 입력" aria-label="칭호 코드" autocomplete="off"><button class="btn" data-k="redeem">등록</button></div>
+      <p class="muted title-note">얻은 칭호는 이 브라우저에 계속 남아요. 브라우저 기록을 지우거나 다른 기기에서 쓰려면 <b>복구 코드</b>를 적어 두었다가 칭호 코드 칸에 넣으세요.</p>
+    </div>
+    <div class="card"><div class="title-count"></div><div class="title-rows"></div></div></section>`);
+  root.querySelector(".topbar .icon-btn").onclick = () => homeScreen();
+  const rows = root.querySelector(".title-rows");
+  const listed = Object.entries(TITLES).filter(([, t]) => !t.hidden);
+  const draw = () => {
+    root.querySelector(".titles-me").innerHTML = `<span class="${titleFx(profile.title)}">${esc(profile.name || "닉네임을 정해 주세요")}</span>${titleBadge(profile.title)}`;
+    if (profile.title) {
+      const off = el(`<button type="button" class="btn small ghost">칭호 빼기</button>`);
+      off.onclick = () => equipTitle("");
+      root.querySelector(".titles-me").appendChild(off);
+    }
+    root.querySelector(".title-count").textContent = `획득 ${listed.filter(([id]) => titleTokens[id]).length} / ${listed.length}`;
+    rows.innerHTML = "";
+    let group = null;
+    for (const [id, t] of listed) {
+      if (t.group !== group) {
+        group = t.group;
+        rows.appendChild(el(`<div class="title-group">${esc(group)}</div>`));
+      }
+      if (!titleTokens[id]) {
+        rows.appendChild(el(`<div class="title-row locked"><span class="title-badge title-unknown">🔒 ???</span></div>`));
+        continue;
+      }
+      const on = profile.title === id;
+      const row = el(`<div class="title-row${on ? " on" : ""}"><button type="button" class="title-use" aria-pressed="${on}">${titleBadge(id)}<span class="title-info muted">${on ? "사용 중" : esc(t.how)}</span></button></div>`);
+      row.querySelector(".title-use").onclick = () => equipTitle(id);
+      if (titleCodes[id]) {
+        const copy = el(`<button type="button" class="btn small ghost">복구 코드 복사</button>`);
+        copy.onclick = async () => {
+          try { await navigator.clipboard.writeText(titleCodes[id]); toast("복구 코드를 복사했어요"); } catch { toast(`코드를 직접 적어 두세요: ${titleCodes[id]}`, 6000); }
+        };
+        row.appendChild(copy);
+      } else {
+        const show = el(`<button type="button" class="btn small ghost">복구 코드</button>`);
+        show.onclick = async () => {
+          connect();
+          for (let i = 0; i < 40 && !net.isOpen(); i++) await new Promise((r) => setTimeout(r, 100));
+          if (net.isOpen()) net.send({ t: "title_backup", title: id, token: titleTokens[id] });
+          else toast("서버에 연결하지 못했어요. 잠시 뒤에 다시 눌러 주세요");
+        };
+        row.appendChild(show);
+      }
+      rows.appendChild(row);
+    }
+  };
+  draw();
+  onTitlesChanged = draw;
+  onTitleCode = draw;
+  const input = root.querySelector("#title-code");
+  const submit = () => { redeemCode(input.value); input.value = ""; };
+  root.querySelector('[data-k="redeem"]').onclick = submit;
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) submit(); });
+  show({ root, back: () => homeScreen(), destroy: () => { onTitlesChanged = null; onTitleCode = null; } });
+}
+
 function needName() {
-  if (profile.name.trim()) return false;
-  toast("먼저 닉네임을 정해 주세요!");
+  const reserved = isReservedName(profile.name) && profile.title !== "dev";
+  if (profile.name.trim() && !reserved) return false;
+  toast(reserved ? "운영자처럼 보이는 닉네임은 쓸 수 없어요" : "먼저 닉네임을 정해 주세요!");
   const input = document.querySelector("#nick");
   input?.focus();
   return true;
@@ -112,6 +219,7 @@ function titleScreen() {
     { label: () => "게임 시작", go: () => homeScreen() },
     { label: () => "방 목록", go: () => (profile.name ? lobbyScreen() : homeScreen(true)) },
     { label: () => "기록", go: () => rankingModal() },
+    { label: () => "칭호", go: () => titlesScreen() },
     { label: () => "게임 기획 의도", go: () => about() },
   ];
   let sel = 0;
@@ -127,7 +235,7 @@ function titleScreen() {
       menu.appendChild(b);
     });
     root.querySelector(".title-player").innerHTML = profile.name
-      ? `${avatarHtml(profile.avatar, 34)}<span>PLAYER</span><b>${esc(profile.name)}</b>` : `<span>PLAYER</span><b>닉네임을 정해 주세요</b>`;
+      ? `${avatarHtml(profile.avatar, 34)}<span>PLAYER</span><b class="${titleFx(profile.title)}">${esc(profile.name)}</b>${titleBadge(profile.title)}` : `<span>PLAYER</span><b>닉네임을 정해 주세요</b>`;
   }
   draw();
   const onKey = (e) => {
@@ -163,6 +271,7 @@ function homeScreen(focusName = false) {
         <div class="field-label">캐릭터 또는 내 사진</div>
         <div class="avatar-pick"></div>
         <label class="field"><span>한 줄 소개 (MBTI, 관심사...)</span><input id="intro" type="text" maxlength="30" placeholder="예: ENFP · 떡볶이 좋아해요"></label>
+        <button type="button" class="btn" data-k="titles">칭호 고르기 · 코드 입력</button>
       </aside>
       <div class="home-main">
         <div class="section-title">게임 고르기 <span class="muted">눌러서 바로 시작!</span></div>
@@ -176,15 +285,17 @@ function homeScreen(focusName = false) {
     </div></section>`);
   const preview = () => { // 왼쪽 위 '플레이어 카드'에 지금 프로필을 바로 보여 줌
     root.querySelector(".pc-avatar").innerHTML = avatarHtml(profile.avatar, 76);
-    root.querySelector(".pc-name").textContent = profile.name || "닉네임을 정해 주세요";
+    root.querySelector(".pc-name").innerHTML = `<span class="${titleFx(profile.title)}">${esc(profile.name || "닉네임을 정해 주세요")}</span>${titleBadge(profile.title)}`;
     root.querySelector(".pc-intro").textContent = profile.intro || "한 줄 소개로 말 걸 거리를 만들어요";
   };
   preview();
+  root.querySelector('[data-k="titles"]').onclick = titlesScreen;
   const nick = root.querySelector("#nick");
   const intro = root.querySelector("#intro");
   nick.value = profile.name;
   intro.value = profile.intro;
   nick.oninput = () => { profile.name = nick.value.trim(); saveProfile(); preview(); };
+  nick.onblur = () => { if (isReservedName(profile.name) && profile.title !== "dev") toast("운영자처럼 보이는 닉네임은 쓸 수 없어요"); };
   intro.oninput = () => { profile.intro = intro.value.trim(); saveProfile(); preview(); };
 
   const pick = root.querySelector(".avatar-pick");
@@ -252,7 +363,7 @@ function rulesPicker() {
 }
 
 function themeButton(cls = "") {
-  const b = el(`<button class="icon-btn theme-btn ${cls}" type="button" aria-label="화면 테마 고르기" title="화면 테마 고르기">🎨</button>`);
+  const b = el(`<button class="icon-btn theme-btn ${cls}" type="button" aria-label="기기 테마 고르기" title="기기 테마"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8.5" cy="9.5" r="1.8" fill="currentColor"/><path d="M5.5 18l4.5-5 3 3 3-4 2.5 6z" fill="currentColor"/></svg></button>`);
   b.onclick = (e) => { e.stopPropagation(); themePicker(); };
   return b;
 }
@@ -261,8 +372,9 @@ function themePicker() {
   const body = el(`<div class="theme-picker-list"></div>`);
   for (const t of THEMES) {
     const b = el(`<button class="theme-preview${currentTheme() === t.id ? " selected" : ""}" type="button" aria-pressed="${currentTheme() === t.id}">
-      <span class="theme-preview-shot" style="--preview-bg:${t.swatch[0]};--preview-accent:${t.swatch[1]};--preview-pop:${t.swatch[2]}"><i></i><i></i><i></i></span>
+      <span class="theme-preview-shot"><canvas aria-hidden="true"></canvas></span>
       <span class="theme-preview-name">${esc(t.name)}</span></button>`);
+    new TitleScene(b.querySelector("canvas"), t.id).destroy(); // 그 테마의 실제 배경을 한 장만 그려 예시 그림으로
     b.onclick = () => {
       applyTheme(t.id);
       body.querySelectorAll(".theme-preview").forEach((item) => {
@@ -367,7 +479,7 @@ function localYutSetup(o) {
       const preview = skin ? `<svg viewBox="-11 -27 22 29" aria-hidden="true">${yutCharSvg(skin.id)}</svg>` : `<span class="yut-character-none">?</span>`;
       const pickedLabel = skin ? `${esc(skin.name)} \uB9D0` : "\uC120\uD0DD \uC548 \uD568";
       const card = el(`<article class="yut-room-player local-yut-player" data-local-player="${i}">
-        <div class="yut-player-top">${teamMode ? `<button type="button" class="team-drag-handle" aria-label="\uD50C\uB808\uC774\uC5B4 \uD300 \uC774\uB3D9" title="\uB04C\uC5B4\uC11C \uD300 \uC774\uB3D9">?</button>` : ""}<span class="yut-character-preview">${preview}</span><div class="yut-player-label"><strong>${esc(name)}</strong><span class="yut-picked-name">${pickedLabel}</span></div></div>
+        <div class="yut-player-top">${teamMode ? `<button type="button" class="team-drag-handle" aria-label="\uD50C\uB808\uC774\uC5B4 \uD300 \uC774\uB3D9" title="\uB04C\uC5B4\uC11C \uD300 \uC774\uB3D9"><svg viewBox="0 0 12 18" width="12" height="18" aria-hidden="true" fill="currentColor"><circle cx="3" cy="3" r="1.7"/><circle cx="9" cy="3" r="1.7"/><circle cx="3" cy="9" r="1.7"/><circle cx="9" cy="9" r="1.7"/><circle cx="3" cy="15" r="1.7"/><circle cx="9" cy="15" r="1.7"/></svg></button>` : ""}<span class="yut-character-preview">${preview}</span><div class="yut-player-label"><strong>${esc(name)}</strong><span class="yut-picked-name">${pickedLabel}</span></div></div>
         <div class="yut-character-picker" role="group" aria-label="${esc(name)} \uB9D0 \uCE90\uB9AD\uD130 \uC120\uD0DD"></div>
         ${teamMode ? `<button type="button" class="team-move-btn">${team === "A" ? "B\uD300\uC73C\uB85C \u2192" : "\u2190 A\uD300\uC73C\uB85C"}</button>` : ""}
       </article>`);
@@ -454,7 +566,7 @@ function chooseMode(game) {
     const modes = [["ai", "컴퓨터 대전"], ["local", game === "yacht" || game === "yut" ? "한 기기 여럿" : "한 기기 2인"], ["online", "온라인"]]
       .filter(([m]) => !(game === "yut" && m === "ai"));
     body.appendChild(option("어떻게 할까요?", segment(modes, o.mode, (v) => { o.mode = v; draw(); })));
-    if (o.mode === "ai") body.appendChild(option("컴퓨터 난이도", segment(LEVELS, o.level, (v) => { o.level = v; })));
+    if (o.mode === "ai") body.appendChild(option("컴퓨터 난이도", segment(game === "chess" ? CHESS_LEVELS : LEVELS, o.level, (v) => { o.level = v; })));
     if (game === "chess") {
       body.appendChild(option("시간", segment(Object.entries(chess.TIME_MODES).map(([k, v]) => [k, v[0]]), o.time, (v) => { o.time = v; })));
       if (o.mode !== "local") body.appendChild(option(o.mode === "online" ? "방장(나)의 색" : "내 색", segment([["w", "백 (먼저)"], ["b", "흑"], ["random", "무작위"]], o.color, (v) => { o.color = v; })));
@@ -467,15 +579,16 @@ function chooseMode(game) {
     if (game === "yacht" && o.mode === "ai") body.appendChild(option("컴퓨터 수", segment([1, 2, 3, 4, 5].map((n) => [n, `${n}명`]), o.bots, (v) => { o.bots = v; })));
     if (game === "yacht" && o.mode === "local") body.appendChild(option("같이 하는 사람 수 (나 포함)", segment([2, 3, 4, 5, 6].map((n) => [n, `${n}명`]), o.people, (v) => { o.people = v; })));
     if (game === "yut") {
-      if (o.mode === "local" && Number(o.people) !== 4) o.team = "";
+      if (o.team === "1" && o.mode === "local") o.people = 4; // 팀전은 항상 4명
       body.appendChild(option("모드", segment(Object.entries(yut.MODES), o.chaos, (v) => { o.chaos = v; })));
       if (o.team !== "1") body.appendChild(option("말 개수", segment([["2", "2개 (빨리)"], ["3", "3개"], ["4", "4개 (길게)"]], o.pieces, (v) => { o.pieces = v; })));
-      if (o.mode === "local") body.appendChild(option("같이 하는 사람 수 (나 포함)", segment([2, 3, 4].map((n) => [n, `${n}명`]), Math.min(4, o.people), (v) => { o.people = v; if (Number(v) !== 4) o.team = ""; draw(); })));
-      if (o.mode === "local" && Number(o.people) !== 4) body.appendChild(el(`<p class="muted" style="margin:-4px 0 8px;font-size:13px">2:2 팀전은 4명을 고르면 선택할 수 있어요.</p>`));
-      if (o.mode === "online" || Number(o.people) === 4) { // 팀전은 4명일 때만 (1 · 3번 자리 A팀, 2 · 4번 자리 B팀)
-        body.appendChild(option("팀", segment([["", "개인전"], ["1", "2:2 팀전"]], o.team || "", (v) => { o.team = v; draw(); })));
-        if (o.team === "1") body.appendChild(el(`<p class="muted" style="margin:-4px 0 8px;font-size:13px">팀마다 같은 캐릭터의 말 4개와 능력 카드 한 벌을 같이 써요.${o.mode === "online" ? " 팀전은 4명이 모였을 때만 돼요. 팀은 대기실에서 방장이 나눠요." : ""}</p>`));
-        else if (o.mode === "online") body.appendChild(el(`<p class="muted" style="margin:-4px 0 8px;font-size:13px">팀전은 4명이 모였을 때만 돼요.</p>`));
+      body.appendChild(option("팀", segment([["", "개인전"], ["1", "2:2 팀전"]], o.team || "", (v) => { o.team = v; draw(); })));
+      if (o.team === "1") body.appendChild(el(`<p class="muted" style="margin:-4px 0 8px;font-size:13px">팀마다 같은 캐릭터의 말 4개와 능력 카드 한 벌을 같이 써요.${o.mode === "online" ? " 팀전은 4명이 모였을 때만 돼요. 팀은 대기실에서 방장이 나눠요." : ""}</p>`));
+      else if (o.mode === "online") body.appendChild(el(`<p class="muted" style="margin:-4px 0 8px;font-size:13px">팀전은 4명이 모였을 때만 돼요.</p>`));
+      if (o.mode === "local") { // 사람 수: 팀전이면 4명으로 고정하고 2 · 3명은 못 누르게
+        const people = segment([2, 3, 4].map((n) => [n, `${n}명`]), Math.min(4, Number(o.people)), (v) => { o.people = v; draw(); });
+        if (o.team === "1") people.querySelectorAll("button").forEach((b, n) => { b.disabled = n < 2; });
+        body.appendChild(option("같이 하는 사람 수 (나 포함)", people));
       }
     }
     if (game !== "yacht" && game !== "yut" && o.mode === "local") {
@@ -536,7 +649,7 @@ function roomTeamB(r, players) {
 }
 
 function startLocal(game, o) {
-  const me = { name: profile.name, avatar: profile.avatar, intro: profile.intro, ai: false };
+  const me = { name: profile.name, avatar: profile.avatar, intro: profile.intro, title: profile.title, ai: false };
   const botAvatar = { name: ROBOT_NAMES[0], avatar: "robot", intro: "", ai: true };
   let seats, mySeats;
   if (game === "yut") {
@@ -645,6 +758,7 @@ net.on("room", (msg) => {
     syncSpectators();
     match.setHost(msg.room.host === net.myId());
     match.streaks = new Map(msg.room.members.map((x) => [x.cid, x.streak || 0]));
+    match.setRoomInfo(msg.room);
     const on = new Map(msg.room.members.map((x) => [x.cid, x.online]));
     const gone = new Map(msg.room.members.map((x) => [x.cid, x.gone]));
     match.setOffline(new Set(match.seats.map((s, i) => (on.get(s.cid) === false ? i : -1)).filter((i) => i >= 0)),
@@ -803,7 +917,7 @@ function startOnline(entry, replaying = false) {
   if (match) { match.destroy(); match = null; }
   online.wait = null;
   online.chat = null;
-  const seats = a.seats.map((s) => ({ cid: String(s.cid), name: String(s.name).slice(0, 12), avatar: a.game === "yut" ? (typeof s.yut_skin === "string" ? s.yut_skin : "") : s.avatar, intro: String(s.intro || "").slice(0, 30), ai: false }));
+  const seats = a.seats.map((s) => ({ cid: String(s.cid), name: String(s.name).slice(0, 12), avatar: a.game === "yut" ? (typeof s.yut_skin === "string" ? s.yut_skin : "") : s.avatar, intro: String(s.intro || "").slice(0, 30), title: TITLES[s.title] ? s.title : "", ai: false }));
   const me = seats.findIndex((s) => s.cid === net.myId());
   match = new Match({
     game: a.game, mode: "online", seats, mySeats: me >= 0 ? [me] : [], settings: { ...(a.settings || {}), seed: a.seed, startedAt: entry.at }, level: "normal",
@@ -812,6 +926,7 @@ function startOnline(entry, replaying = false) {
   });
   match.lastSeq = entry.seq;
   match.streaks = new Map((online.room?.members || []).map((x) => [x.cid, x.streak || 0]));
+  match.setRoomInfo(online.room);
   match.setNet(online.status);
   syncSpectators();
   show({ root: match.root, back: () => match?.exit() });
@@ -882,13 +997,23 @@ function chooseModeOnline(game) {
 function waitingScreen() {
   const room = online.room;
   if (!room) return lobbyScreen();
-  const root = el(`<section class="screen">
+  const root = el(`<section class="screen wait-screen">
     <div class="topbar"><button class="icon-btn" aria-label="방 나가기">←</button><h1></h1><span class="net-dot ${online.status}"></span><button class="icon-btn" data-k="rules" aria-label="규칙 보기">?</button></div>
     <div class="wait-grid"><div class="wait-main main"></div><div class="side-col"></div></div></section>`);
   const main = root.querySelector(".main");
   const chat = new ChatPanel((m) => net.send({ t: "chat", ...m }));
   root.querySelector(".side-col").appendChild(chat.root);
   online.chat = chat;
+  // 칭호가 한꺼번에 번쩍이지 않게 하나씩 돌아가며 빛냄. 화면을 다시 그려도 다음 차례에 이어서 빛남
+  let spotAt = 0;
+  const spotlight = setInterval(() => {
+    const badges = [...root.querySelectorAll(".title-badge:not(:is(.fx-stone, .fx-moss, .fx-slate, .fx-clay))")];
+    badges.forEach((b) => { b.classList.remove("spot"); b.previousElementSibling?.classList.remove("spot"); });
+    if (!badges.length) return;
+    const badge = badges[spotAt++ % badges.length];
+    badge.classList.add("spot");
+    badge.previousElementSibling?.classList.add("spot"); // 칭호 바로 앞의 이름도 같이
+  }, 2600);
   root.querySelector(".icon-btn").onclick = async () => {
     if (await confirmBox("방 나가기", "이 방에서 나갈까요?", "나가기", "남기")) leaveRoom();
   };
@@ -904,9 +1029,9 @@ function waitingScreen() {
     const specs = r.members.filter((x) => x.role === "spectator" && !(r.queue || []).includes(x.cid));
     root.querySelector("h1").textContent = `${GAME_NAMES[r.game]} · ${r.name}`;
     const link = `${location.origin}/?room=${r.id}`;
-    const tag = (x) => `${x.streak >= 2 ? `<span class="streak">${x.streak}연승</span>` : ""}${x.cid === r.host ? "<span class=\"pill\">방장</span>" : ""}${x.online ? "" : "<span class=\"pill\">연결 끊김</span>"}${isHost && x.cid !== me ? hostButtons(x) : ""}`;
+    const tag = (x) => `${streakHtml(x.streak)}${x.cid === r.host ? "<span class=\"pill\">방장</span>" : ""}${x.online ? "" : "<span class=\"pill\">연결 끊김</span>"}${isHost && x.cid !== me ? hostButtons(x) : ""}`;
     const playerPanel = r.game === "yut" ? "" : `<div class="card">
-        <div class="sec-title">플레이어 <span class="muted">${players.length} / ${r.max}명</span></div><div class="people pl"></div>
+        <div class="sec-title">${r.max === 2 ? "다음 대진" : "플레이어"} <span class="muted">${r.max === 2 ? (queue.length ? "이긴 사람은 계속, 진 사람은 줄 맨 뒤로" : "2명이 앉으면 시작해요") : `${players.length} / ${r.max}명`}</span></div><div class="people pl${r.max === 2 ? " vs" : ""}"></div>
       </div>`;
     const queuePanel = queue.length || specs.length ? `<div class="card">
         ${queue.length ? `<div class="sec-title">대기 줄 <span class="muted">진 사람은 줄 맨 뒤로, 이긴 사람은 계속!</span></div><div class="people qu"></div>` : ""}
@@ -919,7 +1044,8 @@ function waitingScreen() {
       ${playerPanel}${queuePanel}
       <div class="card ${r.game === "yut" ? "yut-wait-card" : ""}"><div class="sec-title">${r.game === "yut" ? "윷놀이 대기실" : `게임 설정${isHost ? "" : ` <span class="muted">방장이 정해요</span>`}`}</div><div class="settings"></div>
         <div class="row start-row" style="justify-content:flex-end;margin-top:6px"></div></div>`;
-    if (r.game !== "yut") main.querySelector(".pl").innerHTML = players.map((x) => personHtml(x, { extra: tag(x), cls: x.online ? "" : "off" })).join("") || `<div class="empty">아직 아무도 없어요</div>`;
+    if (r.max === 2) main.querySelector(".pl").innerHTML = [0, 1].map((k) => (players[k] ? personHtml(players[k], { extra: tag(players[k]), cls: players[k].online ? "" : "off" }) : `<div class="empty">상대를 기다려요</div>`)).join(`<div class="vs-mark">VS</div>`);
+    else if (r.game !== "yut") main.querySelector(".pl").innerHTML = players.map((x) => personHtml(x, { extra: tag(x), cls: x.online ? "" : "off" })).join("") || `<div class="empty">아직 아무도 없어요</div>`;
     if (queue.length) main.querySelector(".qu").innerHTML = queue.map((x, k) => personHtml(x, { extra: tag(x), cls: x.online ? "" : "off", sub: `${k + 1}번째 대기${x.intro ? " · " + x.intro : ""}` })).join("");
     if (specs.length) main.querySelector(".sp").innerHTML = specs.map((x) => personHtml({ ...x, name: `${x.name} (관전)` }, { extra: tag(x), cls: x.online ? "" : "off" })).join("");
     main.querySelector('[data-k="qr"]').onclick = () => showQr(r, link);
@@ -1045,8 +1171,8 @@ function waitingScreen() {
         const pickedSkin = YUT_ROOM_SKINS.find((c) => c.id === (teamMode ? teamSkins[currentTeam] : p.avatar));
         const previewSkin = pickedSkin?.id;
         const card = el(`<article class="yut-room-player" data-player="${esc(p.cid)}" data-team="${currentTeam}">
-          <div class="yut-player-top">${teamMode && isHost ? `<button type="button" class="team-drag-handle" aria-label="\uD50C\uB808\uC774\uC5B4 \uD300 \uC774\uB3D9" title="\uB04C\uC5B4\uC11C \uD300 \uC774\uB3D9">?</button>` : ""}<span class="yut-character-preview">${previewSkin ? `<svg viewBox="-11 -27 22 29" aria-hidden="true">${yutCharSvg(previewSkin)}</svg>` : `<span class="yut-character-none">?</span>`}</span>
-            <div class="yut-player-label"><strong>${esc(p.name)}</strong><span class="yut-picked-name">${pickedSkin ? `${esc(pickedSkin.name)} 말` : "말을 골라 주세요"}</span>
+          <div class="yut-player-top">${teamMode && isHost ? `<button type="button" class="team-drag-handle" aria-label="\uD50C\uB808\uC774\uC5B4 \uD300 \uC774\uB3D9" title="\uB04C\uC5B4\uC11C \uD300 \uC774\uB3D9"><svg viewBox="0 0 12 18" width="12" height="18" aria-hidden="true" fill="currentColor"><circle cx="3" cy="3" r="1.7"/><circle cx="9" cy="3" r="1.7"/><circle cx="3" cy="9" r="1.7"/><circle cx="9" cy="9" r="1.7"/><circle cx="3" cy="15" r="1.7"/><circle cx="9" cy="15" r="1.7"/></svg></button>` : ""}<span class="yut-character-preview">${previewSkin ? `<svg viewBox="-11 -27 22 29" aria-hidden="true">${yutCharSvg(previewSkin)}</svg>` : `<span class="yut-character-none">?</span>`}</span>
+            <div class="yut-player-label"><strong><span class="${titleFx(p.title)}">${esc(p.name)}</span>${titleBadge(p.title)}</strong><span class="yut-picked-name">${pickedSkin ? `${esc(pickedSkin.name)} 말` : "말을 골라 주세요"}</span>
               <div class="yut-player-tags">${tag(p)}</div></div>
           </div><div class="yut-character-picker" role="group" aria-label="${esc(p.name)} 말 캐릭터"></div>
           ${teamMode && isHost ? `<button type="button" class="team-move-btn">${currentTeam === "A" ? "B팀으로 →" : "← A팀으로"}</button>` : ""}
@@ -1121,7 +1247,7 @@ function waitingScreen() {
 
   update();
   online.wait = { update };
-  show({ root, back: () => root.querySelector(".icon-btn").click(), destroy: () => { online.wait = null; online.chat = null; } });
+  show({ root, back: () => root.querySelector(".icon-btn").click(), destroy: () => { clearInterval(spotlight); online.wait = null; online.chat = null; } });
   chat.system(`방 코드 ${room.id} — 친구에게 링크를 보내 보세요!`);
 }
 

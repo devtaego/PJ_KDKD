@@ -2,7 +2,7 @@
 // 실행: node --test web/tests/engines.test.mjs   (Node 20 이상)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Position, perft, bestMove, sameMove, gameOver } from "../static/js/engine/chess.js";
+import { Position, perft, bestMove, sameMove, gameOver, materialInfo } from "../static/js/engine/chess.js";
 import { Board, BLACK, aiMove } from "../static/js/engine/omok.js";
 import { score, YachtGame, aiPickCategory, aiHolds, CATEGORIES, CAT_EXAMPLES } from "../static/js/engine/yacht.js";
 import { questionFor, QUESTIONS } from "../static/js/party.js";
@@ -12,6 +12,16 @@ import { THROW_ODDS, abilityOdds, START_HAND } from "../static/js/data/yut_abili
 test("체스: 시작 위치 수 생성 (perft 1~3)", () => {
   const pos = new Position();
   assert.deepEqual([1, 2, 3].map((d) => perft(pos, d)), [20, 400, 8902]);
+});
+
+test("체스: 잡은 기물과 점수 차이", () => {
+  const board = new Position().board.map((row) => [...row]);
+  assert.deepEqual(materialInfo(board), { taken: { w: [], b: [] }, diff: 0 });
+  board[0][3] = null; // 흑 퀸이 잡힘
+  assert.deepEqual(materialInfo(board), { taken: { w: ["Q"], b: [] }, diff: 9 });
+  board[6][0] = null; // 백 폰이 승급: 폰이 잡힌 것으로 세지 않음
+  board[1][0] = "wQ"; // 그 자리에 있던 흑 폰은 잡힘
+  assert.deepEqual(materialInfo(board), { taken: { w: ["Q", "P"], b: [] }, diff: 18 });
 });
 
 test("체스: 바보의 체크메이트", () => {
@@ -31,6 +41,18 @@ test("체스: 컴퓨터는 난이도마다 둘 수 있는 수를 고름", () => 
     const m = bestMove(pos, level);
     assert.ok(pos.legalMoves().some((x) => sameMove(x, m)), level);
   }
+});
+
+test("체스: 어려움은 한 수 메이트 · 공짜 퀸을 놓치지 않고, 잡히는 자리에 퀸을 두지 않음", () => {
+  const mate = new Position(true); // 백 Ra1, Kg6 / 흑 Kg8 → Ra8#
+  mate.board[7][0] = "wR"; mate.board[2][6] = "wK"; mate.board[0][6] = "bK"; mate.castling = "";
+  assert.ok(sameMove(bestMove(mate, "hard", { timeMs: 200 }), [7, 0, 0, 0, null]));
+  const hang = new Position(true); // 흑 퀸이 d5에 공짜로 있음
+  hang.board[7][4] = "wK"; hang.board[0][4] = "bK"; hang.board[7][3] = "wR"; hang.board[3][3] = "bQ"; hang.castling = "";
+  assert.ok(sameMove(bestMove(hang, "hard", { timeMs: 200 }), [7, 3, 3, 3, null]));
+  const poisoned = new Position(true); // Qxd5는 폰에게 잡힘 (d5 폰을 e6 폰이 지킴)
+  poisoned.board[7][4] = "wK"; poisoned.board[0][4] = "bK"; poisoned.board[7][3] = "wQ"; poisoned.board[3][3] = "bP"; poisoned.board[2][4] = "bP"; poisoned.castling = "";
+  assert.ok(!sameMove(bestMove(poisoned, "hard", { timeMs: 300 }), [7, 3, 3, 3, null]));
 });
 
 test("오목: 정확히 5목은 승리, 장목(6목)은 아님", () => {
@@ -55,6 +77,17 @@ test("오목: 컴퓨터(어려움)는 열린 4를 막음", () => {
   for (const [r, c] of [[7, 3], [0, 0], [7, 4], [0, 2], [7, 5], [0, 4], [7, 6]]) b.place(r, c);
   const [r, c] = aiMove(b, "hard");
   assert.ok((r === 7 && c === 2) || (r === 7 && c === 7), `${r},${c}`);
+});
+
+test("오목: 난이도마다 둘 수 있는 수를 고르고, 어려움은 열린 3을 그냥 두지 않음", () => {
+  const b = new Board("free");
+  for (const [r, c] of [[7, 5], [0, 0], [7, 6], [0, 14], [7, 7]]) b.place(r, c);
+  for (const level of ["easy", "normal", "hard"]) {
+    const [r, c] = aiMove(b, level, { timeMs: 100 });
+    assert.ok(b.legal(r, c), level);
+  }
+  const [r, c] = aiMove(b, "hard", { timeMs: 200 });
+  assert.ok(r === 7 && [3, 4, 8, 9].includes(c), `${r},${c}`);
 });
 
 test("야추: 족보 점수", () => {
@@ -305,6 +338,22 @@ test("윷: 팀전 능력 카드는 A팀 · B팀 두 벌이고, 같이 줄어듦"
   h.use(0, { opp: { seat: 3, idx: 0 } }, 1);
   assert.equal(h.players[1].pieces[0].node, 12);
   assert.deepEqual(h.players[3].hand, ["kingbat"]);
+});
+
+test("윷: 윷 · 모가 나오면 더 던지기 전에 먼저 옮겨도 됨", () => {
+  const g = yutGame(2, { mode: "basic" });
+  g.throw(seedFor(4));
+  assert.equal(g.phase, "throw");
+  assert.ok(g.move(0, 0, 1)); // 더 던지기 전에 윷으로 먼저 이동
+  assert.equal(g.players[0].pieces[0].node, 4);
+  assert.deepEqual(g.pending, []);
+  assert.equal(g.current, 0); // 던질 기회는 그대로 남아 차례가 안 넘어감
+  assert.equal(g.phase, "throw");
+  assert.equal(g.move(0, 0, 1), false); // 쓸 결과가 없으면 못 옮김
+  g.throw(seedFor(2));
+  g.move(0, 0, 1);
+  assert.equal(g.players[0].pieces[0].node, 6);
+  assert.equal(g.current, 1);
 });
 
 test("윷: 능력 — 폭탄 · 어쩔티비 · 갓생 · 미사일", () => {

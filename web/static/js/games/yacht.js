@@ -9,6 +9,8 @@ const AI_SHAKE_MS = 650; // 컴퓨터도 잠깐 흔든 뒤 던짐
 const TAP_SHAKE_MS = 420; // 버튼을 톡 누르면 이만큼 흔든 뒤 자동으로 던짐
 const TAKEOVER_MS = 6000; // 차례인 사람의 연결이 이만큼 끊겨 있으면 컴퓨터가 대신 둠
 
+const ROLL_COOLDOWN_MS = 450; // 주사위가 멈춘 뒤 결과를 볼 시간
+
 export function create(m) {
   const game = new YachtGame(m.seats.map((s) => s.name), m.seats.map((s, i) => (s.ai ? i : -1)).filter((i) => i >= 0));
   let aiTimer = null;
@@ -52,7 +54,10 @@ export function create(m) {
   m.root.querySelector(".game-layout").appendChild(m.chat.root);
 
   const myTurn = () => !game.over && !m.result && m.controls(game.current);
-  const canRoll = () => myTurn() && game.rollsLeft > 0 && !tray.isRolling();
+  // 던진 뒤 답이 오기 전(온라인) · 굴러가는 중 · 멈춘 직후에는 다시 못 던짐 (연타 막기)
+  let rollSent = false;
+  let rollReadyAt = 0;
+  const canRoll = () => myTurn() && game.rollsLeft > 0 && !rollSent && !tray.isRolling() && performance.now() >= rollReadyAt;
 
   const tray = new DiceTray({
     onCupDown: () => startShake(),
@@ -61,7 +66,12 @@ export function create(m) {
       if (myTurn() && game.rolled && game.rollsLeft > 0 && !tray.isRolling()) m.submit({ type: "hold", i }, game.current);
     },
   });
-  tray.onSettled = () => { render(); celebrateYachtRoll(); };
+  tray.onSettled = () => {
+    rollReadyAt = performance.now() + ROLL_COOLDOWN_MS;
+    m.later(render, ROLL_COOLDOWN_MS + 20);
+    render();
+    celebrateYachtRoll();
+  };
   root.querySelector(".tray-slot").appendChild(tray.el);
 
   // ------------------------------------------------------------ 컵: 꾹 눌러 흔들고 놓으면 던지기
@@ -115,6 +125,8 @@ export function create(m) {
     tray.setShaking(false);
     if (!myTurn() || game.rollsLeft === 0) { render(); return; }
     celebratedYacht = "";
+    rollSent = true;
+    m.later(() => { if (rollSent) { rollSent = false; render(); } }, 4000); // 답을 못 받아도 영영 막히지 않게
     m.submit({ type: "roll", dice: [0, 1, 2, 3, 4].map(rollDie), power: Math.round(power * 100) / 100 }, game.current);
   }
 
@@ -265,6 +277,7 @@ export function create(m) {
       const dice = Array.isArray(a.dice) && a.dice.length === 5 && a.dice.every((v) => Number.isInteger(v) && v >= 1 && v <= 6) ? a.dice : null;
       if (!dice) return;
       const free = game.held.map((h, i) => (h ? -1 : i)).filter((i) => i >= 0);
+      rollSent = false;
       if (!game.roll(dice)) return;
       clearTimeout(remoteShake);
       const power = typeof a.power === "number" ? Math.min(Math.max(a.power, 0.8), 1.45) : 1.1;
@@ -382,7 +395,7 @@ export function create(m) {
     if (m.replaying) tray.settleInstant(game.dice);
 
     // 컵 버튼 + 추천 기록
-    cup.disabled = !myTurn() || game.rollsLeft === 0 || rolling;
+    cup.disabled = !myTurn() || game.rollsLeft === 0 || rolling || rollSent || performance.now() < rollReadyAt;
     if (shakeStart === null) {
       cup.innerHTML = !myTurn() ? `${esc(p.name)} 님 차례` : game.rollsLeft === 0 ? "점수를 골라요" : `${game.rollsLeft === 3 ? "컵 흔들기" : "다시 던지기"} <kbd>Space</kbd>`;
     }

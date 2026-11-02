@@ -28,7 +28,7 @@ const app = document.getElementById("app");
 let profile = { name: "", avatar: "cat", intro: "", ...store.get("profile", {}) };
 let current = null; // 지금 화면 { root, back?, destroy? }
 let match = null;
-const online = { room: null, status: "closed", chat: null, lobby: null, wait: null };
+const online = { room: null, status: "closed", chat: null, lobby: null, wait: null, manage: null };
 let pendingCode = new URLSearchParams(location.search).get("room");
 
 // ---------------------------------------------------------------- 배경: 타이틀과 같은 픽셀 장면을 모든 화면 뒤에 은은하게
@@ -301,7 +301,7 @@ function about() {
 function teamSkinPicker(team, picked, taken, onPick) {
   const box = el(`<div class="yut-team-skin"><span class="yut-team-skin-title">${team}팀 말 ${picked ? "" : "· 골라 주세요"}</span><div class="yut-character-picker" role="group" aria-label="${team}팀 말 캐릭터"></div></div>`);
   const picker = box.querySelector(".yut-character-picker");
-  const locked = onPick ? "" : `disabled title="방장이나 이 팀 사람만 고를 수 있어요"`;
+  const locked = onPick ? "" : `disabled title="이 팀 사람만 고를 수 있어요"`;
   const controls = el(`<div class="yut-picker-controls"><button type="button" class="yut-character-choice yut-character-default${!picked ? " selected" : ""}" aria-pressed="${!picked}" ${locked}><span class="yut-default-icon">?</span><span>선택 안 함</span></button><button type="button" class="yut-character-choice yut-random-choice" ${locked}>&#127922; <span>랜덤</span></button></div>`);
   if (onPick) {
     controls.querySelector(".yut-character-default").onclick = () => onPick("");
@@ -640,9 +640,10 @@ net.on("room", (msg) => {
   const prev = online.room;
   online.room = msg.room;
   announceStreaks(prev, msg.room);
+  online.manage?.();
   if (match?.online) {
     syncSpectators();
-    match.isHost = msg.room.host === net.myId();
+    match.setHost(msg.room.host === net.myId());
     match.streaks = new Map(msg.room.members.map((x) => [x.cid, x.streak || 0]));
     const on = new Map(msg.room.members.map((x) => [x.cid, x.online]));
     const gone = new Map(msg.room.members.map((x) => [x.cid, x.gone]));
@@ -691,7 +692,8 @@ net.on("fx", (msg) => match?.online && match.onFx(msg));
 
 net.on("notice", (msg) => {
   const text = msg.kind === "join" ? `${msg.name} 님이 들어왔어요${msg.role === "spectator" ? " (관전)" : ""}`
-    : msg.kind === "kick" ? `방장이 ${msg.name} 님을 내보냈어요` : `${msg.name} 님이 나갔어요`;
+    : msg.kind === "kick" ? `방장이 ${msg.name} 님을 내보냈어요`
+      : msg.kind === "host" ? `${msg.name} 님이 새 방장이 됐어요` : `${msg.name} 님이 나갔어요`;
   if (msg.kind === "join") play("join");
   (match?.online ? match.chat : online.chat)?.system(text);
 });
@@ -756,6 +758,45 @@ function leaveRoom(toHome = false) {
   if (toHome) homeScreen(); else lobbyScreen();
 }
 
+/** 방장용 버튼: 내보내기 · 방장 넘기기 (대기실과 게임 중 방 관리 창에서 함께 씀) */
+function hostButtons(x) {
+  const data = `data-name="${esc(x.name)}"`;
+  return `${x.online ? `<button class="btn ghost small" data-host-to="${esc(x.cid)}" ${data}>방장 넘기기</button>` : ""}<button class="btn ghost small kick" data-kick="${esc(x.cid)}" ${data}>내보내기</button>`;
+}
+
+function bindHostButtons(box) {
+  box.querySelectorAll("[data-kick]").forEach((b) => {
+    b.onclick = async () => {
+      const playing = online.room?.status === "playing" ? " 게임 중이면 그 사람은 나간 것으로 처리돼요." : "";
+      if (await confirmBox("내보내기", `${b.dataset.name} 님을 이 방에서 내보낼까요? 다시 들어올 수 없어요.${playing}`, "내보내기", "취소")) net.send({ t: "kick", pid: b.dataset.kick });
+    };
+  });
+  box.querySelectorAll("[data-host-to]").forEach((b) => {
+    b.onclick = async () => {
+      if (await confirmBox("방장 넘기기", `${b.dataset.name} 님에게 방장을 넘길까요?`, "넘기기", "취소")) net.send({ t: "host", pid: b.dataset.hostTo });
+    };
+  });
+}
+
+/** 게임 중 방 관리 창: 방 사람 목록 + 내보내기 · 방장 넘기기 */
+function manageRoomModal() {
+  const body = el(`<div class="manage-list"></div>`);
+  let close = () => {};
+  const draw = () => {
+    const r = online.room;
+    if (!r || r.host !== net.myId()) { close(); online.manage = null; return; }
+    const seated = new Set(match?.seats.map((s) => s.cid));
+    body.innerHTML = r.members.map((x) => {
+      const sub = `${seated.has(x.cid) ? "플레이어" : "관전"}${x.online ? "" : " · 연결 끊김"}`;
+      return personHtml({ ...x, name: seated.has(x.cid) ? x.name : `${x.name} (관전)` }, { sub, cls: x.online ? "" : "off", extra: x.cid === r.host ? `<span class="pill">방장</span>` : hostButtons(x) });
+    }).join("");
+    bindHostButtons(body);
+  };
+  draw();
+  close = modal("방 관리", body);
+  online.manage = () => { if (body.isConnected) draw(); else online.manage = null; };
+}
+
 function startOnline(entry, replaying = false) {
   const a = entry.a;
   if (!MODULES[a.game] || !Array.isArray(a.seats)) return;
@@ -766,7 +807,7 @@ function startOnline(entry, replaying = false) {
   const me = seats.findIndex((s) => s.cid === net.myId());
   match = new Match({
     game: a.game, mode: "online", seats, mySeats: me >= 0 ? [me] : [], settings: { ...(a.settings || {}), seed: a.seed, startedAt: entry.at }, level: "normal",
-    module: MODULES[a.game], isHost: online.room?.host === net.myId(), replaying,
+    module: MODULES[a.game], isHost: online.room?.host === net.myId(), replaying, onManage: manageRoomModal,
     onExit: () => leaveRoom(), onAgain: () => net.send({ t: "reset" }),
   });
   match.lastSeq = entry.seq;
@@ -863,7 +904,7 @@ function waitingScreen() {
     const specs = r.members.filter((x) => x.role === "spectator" && !(r.queue || []).includes(x.cid));
     root.querySelector("h1").textContent = `${GAME_NAMES[r.game]} · ${r.name}`;
     const link = `${location.origin}/?room=${r.id}`;
-    const tag = (x) => `${x.streak >= 2 ? `<span class="streak">${x.streak}연승</span>` : ""}${x.cid === r.host ? "<span class=\"pill\">방장</span>" : ""}${x.online ? "" : "<span class=\"pill\">연결 끊김</span>"}${isHost && x.cid !== me ? `<button class="btn ghost small kick" data-kick="${esc(x.cid)}" data-name="${esc(x.name)}">내보내기</button>` : ""}`;
+    const tag = (x) => `${x.streak >= 2 ? `<span class="streak">${x.streak}연승</span>` : ""}${x.cid === r.host ? "<span class=\"pill\">방장</span>" : ""}${x.online ? "" : "<span class=\"pill\">연결 끊김</span>"}${isHost && x.cid !== me ? hostButtons(x) : ""}`;
     const playerPanel = r.game === "yut" ? "" : `<div class="card">
         <div class="sec-title">플레이어 <span class="muted">${players.length} / ${r.max}명</span></div><div class="people pl"></div>
       </div>`;
@@ -910,7 +951,7 @@ function waitingScreen() {
       const board = roster.querySelector(".yut-roster-board");
       const lists = {};
       const chooseSkin = (button, targetPid) => {
-        if (button.disabled || (targetPid !== me && !isHost)) return;
+        if (button.disabled || targetPid !== me) return;
         let skin = button.dataset.skin || "";
         if (button.classList.contains("yut-random-choice")) {
           const available = YUT_ROOM_SKINS.filter((choice) => !players.some((player) => player.cid !== targetPid && player.avatar === choice.id));
@@ -918,8 +959,7 @@ function waitingScreen() {
           skin = available[Math.floor(Math.random() * available.length)].id;
         }
         if (!net.isOpen()) { toast("서버 연결을 확인한 뒤 다시 선택해 주세요"); return; }
-        // 방장 본인의 말은 현재 연결 ID로 저장해 방장 권한/대상 ID 불일치에 영향받지 않게 한다.
-        net.send({ t: "yut_skin", ...(targetPid === me ? {} : { pid: targetPid }), skin });
+        net.send({ t: "yut_skin", skin });
         // 서버의 room 방송을 기다리지 않고 즉시 미리보기를 갱신한다.
         const target = online.room?.members.find((member) => member.cid === targetPid);
         if (target) target.yut_skin = skin;
@@ -950,7 +990,7 @@ function waitingScreen() {
       if (teamMode) {
         for (const team of ["A", "B"]) {
           const other = team === "A" ? "B" : "A";
-          const canPick = isHost || (mine?.role === "player" && teamOfCid(me) === team);
+          const canPick = mine?.role === "player" && teamOfCid(me) === team; // 자기 팀 말만 (방장도 마찬가지)
           const pick = canPick ? (id) => {
             if (!net.isOpen()) { toast("서버 연결을 확인한 뒤 다시 선택해 주세요"); return; }
             net.send({ t: "yut_team_skin", team, skin: id });
@@ -1019,7 +1059,7 @@ function waitingScreen() {
           card.querySelector(".team-move-btn").onclick = () => movePlayerToTeam(p.cid, card.dataset.team === "A" ? "B" : "A");
         }
         if (teamMode) card.querySelector(".yut-character-picker").remove(); // 말은 팀 칸에서 고름
-        else if (p.cid === me || isHost) {
+        else if (p.cid === me) { // 말은 본인 것만 (방장도 마찬가지)
           const picker = card.querySelector(".yut-character-picker");
           const controls = el(`<div class="yut-picker-controls"><button type="button" class="yut-character-choice yut-character-default${!pickedSkin ? " selected" : ""}" aria-pressed="${!pickedSkin}"><span class="yut-default-icon">?</span><span>\uC120\uD0DD \uC548 \uD568</span></button><button type="button" class="yut-character-choice yut-random-choice">&#127922; <span>\uB79C\uB364</span></button></div>`);
           controls.querySelector(".yut-character-default").addEventListener("click", (event) => chooseSkin(event.currentTarget, p.cid));
@@ -1046,13 +1086,9 @@ function waitingScreen() {
       settings.appendChild(option("한 수 시간", isHost ? segment(Object.entries(omok.TURN_LIMITS).map(([k, v]) => [k, v[0]]), s.turn || "none", change("turn")) : el(`<div>${esc(omok.TURN_LIMITS[s.turn]?.[0] || "무제한")}</div>`)));
       settings.appendChild(option("방장의 돌", isHost ? segment([["b", "흑"], ["w", "백"], ["random", "무작위"]], s.color || "b", change("color")) : el(`<div>${{ b: "흑", w: "백", random: "무작위" }[s.color] || "흑"}</div>`)));
     }
-    if (isHost && r.game !== "yut") settings.appendChild(option("방 공개", segment([["", "열린 방 목록에 보이기"], ["1", "비공개 (코드로만)"]], s.private || "", change("private"))));
+    if (isHost) settings.appendChild(option("방 공개", segment([["", "열린 방 목록에 보이기"], ["1", "비공개 (코드로만)"]], s.private || "", change("private"))));
 
-    main.querySelectorAll("[data-kick]").forEach((b) => {
-      b.onclick = async () => {
-        if (await confirmBox("내보내기", `${b.dataset.name} 님을 이 방에서 내보낼까요? 다시 들어올 수 없어요.`, "내보내기", "취소")) net.send({ t: "kick", pid: b.dataset.kick });
-      };
-    });
+    bindHostButtons(main);
 
     const startRow = main.querySelector(".start-row");
     if (mine) {

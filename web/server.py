@@ -434,10 +434,8 @@ class Hub:
             if fx:
                 await self.to_room(room, {"t": "fx", "from": client.pid, "fx": fx})
         elif t == "yut_skin" and room.game == "yut" and room.status != "playing":
-            target = self.by_pid.get(str(msg.get("pid") or client.pid))
-            if target is None or target.room != room.id or room.role_of(target.cid) != "player":
-                return
-            if target is not client and client.cid != room.host:
+            target = client  # 말은 본인 것만 고름 (방장도 남의 말은 못 고름)
+            if room.role_of(target.cid) != "player":
                 return
             skin = msg.get("skin")
             if not isinstance(skin, str) or (skin and skin not in YUT_SKINS):
@@ -450,9 +448,8 @@ class Hub:
             team, skin = msg.get("team"), msg.get("skin")
             if team not in room.team_skins or not isinstance(skin, str) or (skin and skin not in YUT_SKINS):
                 return
-            if client.cid != room.host and (room.role_of(client.cid) != "player"
-                                            or room.yut_team_of(client.cid, client.pid) != team):
-                return
+            if room.role_of(client.cid) != "player" or room.yut_team_of(client.cid, client.pid) != team:
+                return  # 자기 팀 말만 고름 (방장도 상대 팀 말은 못 고름)
             if skin and room.team_skins["B" if team == "A" else "A"] == skin:
                 return
             room.team_skins[team] = skin
@@ -469,6 +466,13 @@ class Hub:
             await self.leave(target, silent=True)
             await self.to_room(room, {"t": "notice", "kind": "kick", "name": target.profile["name"]})
             await target.send({"t": "rooms", "rooms": self.public_rooms()})
+        elif t == "host" and client.cid == room.host:  # 방장 넘기기 (연결된 사람에게만)
+            target = self.by_pid.get(str(msg.get("pid")))
+            if target is None or target is client or target.room != room.id or target.gone_at is not None:
+                return
+            room.host = target.cid
+            await self.to_room(room, {"t": "notice", "kind": "host", "name": target.profile["name"]})
+            await self.send_room(room)
         elif t == "seat":  # 플레이어 <-> 관전자, 꽉 찼으면 줄 서기
             role = room.role_of(client.cid)
             if msg.get("role") == "spectator":

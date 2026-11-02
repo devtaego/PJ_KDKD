@@ -301,6 +301,15 @@ function about() {
 function teamSkinPicker(team, picked, taken, onPick) {
   const box = el(`<div class="yut-team-skin"><span class="yut-team-skin-title">${team}팀 말 ${picked ? "" : "· 골라 주세요"}</span><div class="yut-character-picker" role="group" aria-label="${team}팀 말 캐릭터"></div></div>`);
   const picker = box.querySelector(".yut-character-picker");
+  if (onPick) {
+    const controls = el(`<div class="yut-picker-controls"><button type="button" class="yut-character-choice yut-character-default${!picked ? " selected" : ""}" aria-pressed="${!picked}"><span class="yut-default-icon">?</span><span>선택 안 함</span></button><button type="button" class="yut-character-choice yut-random-choice">&#127922; <span>랜덤</span></button></div>`);
+    controls.querySelector(".yut-character-default").onclick = () => onPick("");
+    controls.querySelector(".yut-random-choice").onclick = () => {
+      const available = YUT_ROOM_SKINS.filter((skin) => skin.id !== taken && skin.id !== picked);
+      onPick(available[Math.floor(Math.random() * available.length)].id);
+    };
+    picker.appendChild(controls);
+  }
   for (const skin of YUT_ROOM_SKINS) {
     const button = el(`<button type="button" class="yut-character-choice${picked === skin.id ? " selected" : ""}" aria-pressed="${picked === skin.id}" aria-label="${esc(skin.name)} 말" ${!onPick || taken === skin.id ? "disabled" : ""}><svg viewBox="-11 -27 22 29" aria-hidden="true">${yutCharSvg(skin.id)}</svg><span>${esc(skin.name)}</span></button>`);
     if (onPick) button.onclick = () => onPick(skin.id);
@@ -461,6 +470,7 @@ function chooseMode(game) {
       body.appendChild(option("모드", segment(Object.entries(yut.MODES), o.chaos, (v) => { o.chaos = v; })));
       if (o.team !== "1") body.appendChild(option("말 개수", segment([["2", "2개 (빨리)"], ["3", "3개"], ["4", "4개 (길게)"]], o.pieces, (v) => { o.pieces = v; })));
       if (o.mode === "local") body.appendChild(option("같이 하는 사람 수 (나 포함)", segment([2, 3, 4].map((n) => [n, `${n}명`]), Math.min(4, o.people), (v) => { o.people = v; if (Number(v) !== 4) o.team = ""; draw(); })));
+      if (o.mode === "local" && Number(o.people) !== 4) body.appendChild(el(`<p class="muted" style="margin:-4px 0 8px;font-size:13px">2:2 팀전은 4명을 고르면 선택할 수 있어요.</p>`));
       if (o.mode === "online" || Number(o.people) === 4) { // 팀전은 4명일 때만 (1 · 3번 자리 A팀, 2 · 4번 자리 B팀)
         body.appendChild(option("팀", segment([["", "개인전"], ["1", "2:2 팀전"]], o.team || "", (v) => { o.team = v; draw(); })));
         if (o.team === "1") body.appendChild(el(`<p class="muted" style="margin:-4px 0 8px;font-size:13px">팀마다 같은 캐릭터의 말 4개와 능력 카드 한 벌을 같이 써요.${o.mode === "online" ? " 팀전은 4명이 모였을 때만 돼요. 팀은 대기실에서 방장이 나눠요." : ""}</p>`));
@@ -598,6 +608,7 @@ net.on("welcome", (msg) => {
 net.on("rooms", (msg) => online.lobby?.update(msg.rooms));
 net.on("error", (msg) => toast(msg.msg));
 net.on("sleep", () => toast("오래 쉬어서 연결을 잠시 쉬게 했어요. 화면을 누르면 다시 이어져요", 4000));
+net.on("replaced", () => toast("다른 탭에서 게임을 열었어요. 이 화면을 누르면 여기로 돌아와요", 4000));
 
 net.on("photos", (msg) => { // 방 사람들의 프로필 사진 (한 번만 받아 두고 계속 씀)
   for (const [pid, url] of Object.entries(msg.photos || {})) setPhoto(pid, url);
@@ -689,24 +700,52 @@ net.on("reset", () => {
   waitingScreen();
 });
 
-function createRoom(game, settings) {
+const ROOM_ANSWER_MS = 4000; // 이만큼 답이 없으면 연결이 죽은 것으로 보고 새로 연결해 한 번 더 보냄
+const ROOM_GIVE_UP_MS = 60000; // 잠든 무료 서버가 깨어나는 시간까지 기다린 뒤 포기
+let roomRequest = null; // 진행 중인 방 만들기 · 참가 (두 번 눌러도 방이 두 개 생기지 않게)
+
+/** 방 만들기 · 참가 메시지를 보내고, 들어갈 때까지 지켜봄. isAnswer(room): 원하던 방이 왔는지 */
+function requestRoom(msg, isAnswer, failText) {
+  if (roomRequest) { toast("서버 응답을 기다리는 중이에요..."); return; }
   connect();
-  const go = () => net.send({ t: "create", game, settings });
-  if (net.isOpen()) go();
-  else {
-    toast("서버에 연결하는 중...");
-    const off = net.on("welcome", () => { off(); go(); });
-  }
+  let answerTimer = null;
+  let giveUpTimer = null;
+  let resent = false;
+  const offs = [];
+  const finish = (text) => {
+    offs.forEach((off) => off());
+    clearTimeout(answerTimer);
+    clearTimeout(giveUpTimer);
+    roomRequest = null;
+    if (text) toast(text, 3500);
+  };
+  const send = () => {
+    net.send(msg);
+    clearTimeout(answerTimer);
+    answerTimer = setTimeout(() => {
+      if (resent) { finish(failText); return; }
+      resent = true;
+      net.reconnect();
+    }, ROOM_ANSWER_MS);
+  };
+  roomRequest = finish;
+  offs.push(
+    net.on("room", (m) => { if (isAnswer(m.room)) finish(); }),
+    net.on("error", () => finish()), // 서버가 이유를 알려 줌 (전역 처리에서 안내)
+    net.on("welcome", (m) => { if (m.room && isAnswer(m.room)) finish(); else send(); }),
+  );
+  giveUpTimer = setTimeout(() => finish(failText), ROOM_GIVE_UP_MS);
+  if (net.isOpen()) send();
+  else toast("서버에 연결하는 중... (잠들어 있던 서버는 깨어나는 데 30초쯤 걸려요)", 4000);
+}
+
+function createRoom(game, settings) {
+  const before = online.room?.id;
+  requestRoom({ t: "create", game, settings }, (room) => room.id !== before, "방을 만들지 못했어요. 잠시 뒤에 다시 눌러 주세요");
 }
 
 function joinRoom(code) {
-  connect();
-  const go = () => net.send({ t: "join", room: code });
-  if (net.isOpen()) go();
-  else {
-    toast("서버에 연결하는 중...");
-    const off = net.on("welcome", () => { off(); go(); });
-  }
+  requestRoom({ t: "join", room: code }, (room) => room.id === code, "방에 들어가지 못했어요. 잠시 뒤에 다시 눌러 주세요");
 }
 
 function leaveRoom(toHome = false) {

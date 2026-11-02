@@ -58,6 +58,14 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
             resp = await self.client.get(path)
             self.assertEqual(resp.status, 200, path)
 
+    async def test_new_tab_tells_old_tab_it_was_replaced(self):
+        old = await self.connect("aaaaaaaa1", "태고")
+        new = await self.connect("aaaaaaaa1", "태고")
+        while not old.closed:  # 옛 탭은 이 코드를 보고 자동으로 다시 붙지 않음 (탭끼리 밀어내기 방지)
+            await asyncio.wait_for(old.receive(), 2)
+        self.assertEqual(old.close_code, 4001)
+        await new.close()
+
     async def test_room_flow(self):
         a = await self.connect("aaaaaaaa1", "태고")
         b = await self.connect("bbbbbbbb2", "민수")

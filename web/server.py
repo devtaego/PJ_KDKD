@@ -584,7 +584,7 @@ async def ws_handler(request):
         client = hub.clients[cid] = Client(cid, ip)
         hub.by_pid[client.pid] = client
     elif client.ws is not None and not client.ws.closed:
-        await client.ws.close()  # 같은 사람이 새 탭에서 들어오면 옛 연결은 정리
+        await client.ws.close(code=4001, message=b"replaced")  # 같은 사람이 새 탭에서 들어오면 옛 연결은 정리
     client.ws = ws
     client.ip = ip
     client.gone_at = None

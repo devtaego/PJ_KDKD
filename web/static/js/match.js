@@ -14,10 +14,9 @@ export class Match {
    * seats: [{name, avatar, intro, ai, cid}], mySeats: 이 기기가 조작하는 자리 번호들
    * settings: 게임별 설정, level: 컴퓨터 난이도
    */
-  constructor({ game, mode, seats, mySeats, settings, level, module, onExit, onAgain, isHost = true }) {
-    Object.assign(this, { game, mode, seats, mySeats, settings, level, module, onExit, onAgain, isHost });
+  constructor({ game, mode, seats, mySeats, settings, level, module, onExit, onAgain, isHost = true, replaying = false }) {
+    Object.assign(this, { game, mode, seats, mySeats, settings, level, module, onExit, onAgain, isHost, replaying });
     this.online = mode === "online";
-    this.replaying = false;
     this.lastSeq = 0;
     this.result = null;
     this.resultView = null;
@@ -180,7 +179,7 @@ export class Match {
   /** 온라인 채팅 메시지 */
   onChat(msg) {
     const seat = this.seats.findIndex((s) => s.cid === msg.from);
-    this.showChat(msg.name, msg, seat);
+    this.showChat(seat < 0 ? `${msg.name} (관전)` : msg.name, msg, seat); // 자리에 없는 사람은 관전자
   }
 
   // ------------------------------------------------------------ 끝
@@ -273,6 +272,7 @@ export class Match {
   }
 
   async exit(force = false) {
+    if (!force && this.g.cancelInput?.()) return;
     if (!force && !this.result && (this.online ? this.mySeats.length > 0 : true)) {
       const ok = await confirmBox("나가기", this.online ? "지금 나가면 이 판은 항복으로 처리돼요. 나갈까요?" : "진행 중인 판을 그만둘까요?", "나가기", "계속하기");
       if (!ok) return;

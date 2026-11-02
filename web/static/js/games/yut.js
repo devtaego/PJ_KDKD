@@ -10,6 +10,7 @@ import { animateYutToss } from "./yut_toss.js";
 
 export const PLAYER_COLORS = ["#FF5C8A", "#4DABF7", "#FFC94D", "#3DDC97"];
 export const MODES = { basic: "기본", special: "특수능력", chaos: "막장" };
+const ABILITY_NOTE_MS = 4500; // 쓴 능력 카드 설명이 떠 있는 시간 (읽을 시간을 넉넉히)
 
 /** 판의 칸 좌표 (위에서 내려다본 0~100 정사각형) */
 const POS = (() => {
@@ -37,7 +38,7 @@ const proj = (x, y) => [CX + (x - 50) * SX, CY + (y - 50) * SY];
 const SP = Object.fromEntries(Object.entries(POS).map(([n, [x, y]]) => [n, proj(x, y)]));
 const BIG = new Set([0, 5, 10, 15, CENTER]);
 // 대기 말 자리 (판 위아래 띠): 0 왼쪽 아래, 1 오른쪽 아래, 2 오른쪽 위, 3 왼쪽 위
-const DOCKS = [[10, 202], [132, 202], [132, 24], [10, 24]];
+const DOCKS = [[10, 202], [118, 202], [118, 24], [10, 24]];
 // 윷가락 4개의 평평한 면 개수 (빽도는 표시가 있는 첫 가락만 평평)
 const FLATS = { "-1": [1, 0, 0, 0], 1: [0, 1, 0, 0], 2: [1, 1, 0, 0], 3: [1, 1, 1, 0], 4: [1, 1, 1, 1], 5: [0, 0, 0, 0] };
 
@@ -56,7 +57,7 @@ export function create(m) {
     return name && !name.includes("[object Object]") ? name.slice(0, 12) : `플레이어 ${i + 1}`;
   });
   const game = new YutGame(seatNames, { pieces, mode, seed: Number(m.settings.seed) || 1, teams: m.settings.team === "1" });
-  const seatDocks = seatNames.length === 2 ? [DOCKS[3], DOCKS[2]] : DOCKS;
+  const seatDocks = seatNames.length === 2 || game.teams ? [DOCKS[3], DOCKS[2]] : DOCKS;
   const TEAM_NAMES = ["A팀", "B팀"];
   const teamOf = (i) => TEAM_NAMES[i % 2];
   // 온라인은 대기실에서 미리 고른 말을 사용하고, 한 기기 모드는 게임 시작 때 직접 고름
@@ -112,7 +113,7 @@ export function create(m) {
   const hintEl = sideStack.querySelector(".yut-hint");
   const handEl = sideStack.querySelector(".hand");
   const logEl = side.querySelector(".yut-log");
-  side.querySelector(".mode-line").textContent = `${MODES[mode]} 모드${game.teams ? ` · 2:2 팀전 (A팀 ${seatNames[0]} · ${seatNames[2]} / B팀 ${seatNames[1]} · ${seatNames[3]})` : ""} · 말 ${pieces}개씩${mode !== "basic" ? ` · 시작할 때 능력 카드 ${START_HAND[mode]}장` : ""}`;
+  side.querySelector(".mode-line").textContent = `${MODES[mode]} 모드${game.teams ? ` · 2:2 팀전 (A팀 ${seatNames[0]} · ${seatNames[2]} / B팀 ${seatNames[1]} · ${seatNames[3]})` : ""} · ${game.teams ? "팀마다 말" : "말"} ${game.pieceCount}개${game.teams ? "" : "씩"}${mode !== "basic" ? ` · 시작할 때 ${game.teams ? "팀마다 " : ""}능력 카드 ${START_HAND[mode]}장` : ""}`;
   side.querySelector(".odds-btn").onclick = () => showOdds(mode);
 
   const myTurn = () => !game.over && !m.result && m.controls(game.current);
@@ -121,7 +122,7 @@ export function create(m) {
   const cur = () => game.players[game.current];
   const firstWaiting = (s = game.current) => game.players[s].pieces.findIndex((q) => q.node === START);
 
-  const canMoveOwner = (s2) => game.movers(game.current).includes(s2);
+  const canMoveOwner = (s2) => game.ally(game.current, s2);
   /** 이 말로 갈 수 있는 칸 → 쓸 결과 번호들 */
   function destinations(idx, owner = game.current) {
     const out = new Map();
@@ -170,8 +171,21 @@ export function create(m) {
       skipCardRoulette();
       return;
     }
-    if (e.code !== "Space" || e.target.closest?.("input, textarea") || document.querySelector(".modal-back")) return;
+    if (e.target.closest?.("input, textarea") || document.querySelector(".modal-back")) return;
+    const canMoveNow = sel !== null && !tossing && !anim && !targeting && myTurn() && game.phase === "move";
+    const digit = /^Digit([1-9])$/.exec(e.code); // 숫자키: 고른 말을 N번째 결과로 옮기기
+    if (digit && canMoveNow) {
+      const res = +digit[1] - 1;
+      if ([...destinations(sel, selOwner).values()].flat().includes(res)) act({ type: "move", piece: sel, res, owner: selOwner });
+      return;
+    }
+    if (e.code !== "Space") return;
     e.preventDefault();
+    if (canMoveNow) { // 스페이스: 갈 곳이 하나뿐이면 바로 옮김
+      const ds = [...destinations(sel, selOwner).values()];
+      if (ds.length === 1) act({ type: "move", piece: sel, res: ds[0][0], owner: selOwner });
+      return;
+    }
     throwBtn.click();
   };
   document.addEventListener("keydown", onKey);
@@ -196,10 +210,10 @@ export function create(m) {
     if (targeting) {
       const tg = targeting.def.target;
       if (tg === "oppPiece" && pc && !game.ally(game.current, seat)) act({ type: "ability", hand: targeting.hand, t: { opp: { seat, idx } } });
-      else if (tg === "ownPiece" && pc && seat === game.current) act({ type: "ability", hand: targeting.hand, t: { own: idx } });
+      else if (tg === "ownPiece" && pc && game.ally(game.current, seat)) act({ type: "ability", hand: targeting.hand, t: { own: idx } });
       else if (tg === "node" && nd && !pc && +nd.dataset.node > 0) act({ type: "ability", hand: targeting.hand, t: { node: +nd.dataset.node } });
       else if (tg === "swap") {
-        if (targeting.own === undefined && pc && seat === game.current) { targeting.own = idx; render(); return; }
+        if (targeting.own === undefined && pc && game.ally(game.current, seat)) { targeting.own = idx; render(); return; }
         if (targeting.own !== undefined && pc && !game.ally(game.current, seat)) act({ type: "ability", hand: targeting.hand, t: { own: targeting.own, opp: { seat, idx } } });
         else return;
       } else return;
@@ -217,12 +231,13 @@ export function create(m) {
       if (destinations(idx, seat).size) { sel = idx; selOwner = seat; m.sfx("click"); render(); }
       return;
     }
-    if (nd && +nd.dataset.node === 0 && firstWaiting() >= 0) { sel = firstWaiting(); selOwner = game.current; render(); }
+    if (nd && +nd.dataset.node === 0 && firstWaiting() >= 0) { sel = firstWaiting(); selOwner = game.team(game.current); render(); }
   });
 
   function apply(a, at, seat) {
     if (game.over || seat !== game.current) return;
     const sd = Number.isInteger(a.seed) ? a.seed : 0;
+    const before = game.current;
     let ok = false;
     if (a.type === "throw") ok = game.throw(sd);
     else if (a.type === "move" && Number.isInteger(a.piece) && Number.isInteger(a.res)) ok = game.move(a.piece, a.res, sd, Number.isInteger(a.owner) ? a.owner : game.current);
@@ -233,6 +248,9 @@ export function create(m) {
     targeting = null;
     if (!m.replaying) playEvents();
     if (game.over) end();
+    else if (!m.replaying && m.online && before !== game.current && m.controls(game.current)) { // 다른 일을 보다가도 내 차례를 놓치지 않게
+      m.later(() => { if (m.controls(game.current) && !game.over) { m.sfx("pop"); shout("내 차례!", "good"); } }, 1300);
+    }
   }
 
   function resign(seat) {
@@ -245,7 +263,7 @@ export function create(m) {
     const winners = game.winners.length ? game.winners : game.winner !== null ? [game.winner] : [];
     const losers = game.teams ? order.filter((i) => !winners.includes(i))
       : order.length > 1 ? [order[order.length - 1]].filter((i) => !winners.includes(i)) : [];
-    const scores = Object.fromEntries(order.map((i) => [i, `${game.teams ? `${teamOf(i)} · ` : ""}${game.finished(i)}/${pieces} 도착`]));
+    const scores = Object.fromEntries(order.map((i) => [i, `${game.teams ? `${teamOf(i)} · ` : ""}${game.finished(i)}/${game.pieceCount} 도착`]));
     const title = !winners.length ? "게임 끝" : game.teams ? `${teamOf(winners[0])} (${winners.map((i) => seatNames[i]).join(" · ")}) 승리!` : `${seatNames[winners[0]]} 승리!`;
     m.finish({ title, sub: `${MODES[mode]} 윷놀이${game.teams ? " · 2:2 팀전" : ""}`, winners, losers, order, scores, moves: game.turnNo });
   }
@@ -262,6 +280,14 @@ export function create(m) {
       fxEl.appendChild(s);
       setTimeout(() => s.remove(), 1600);
     }, at - now);
+  }
+
+  /** 쓴 능력 카드의 이름과 설명을 판 위쪽에 띄움 (클릭을 막지 않고, 읽을 시간이 지나면 저절로 사라짐) */
+  function showAbilityNote(def, seat) {
+    fxEl.querySelector(".yut-ability-note")?.remove();
+    const note = el(`<div class="yut-ability-note" style="--tier:${TIERS[def.tier].color};--life:${ABILITY_NOTE_MS}ms"><small>${esc(seatNames[seat])} · ${TIERS[def.tier].name}</small><b>${esc(def.name)}</b><span>${esc(def.desc)}</span></div>`);
+    fxEl.appendChild(note);
+    m.later(() => note.remove(), ABILITY_NOTE_MS);
   }
 
   function playEvents() {
@@ -286,7 +312,8 @@ export function create(m) {
       else if (e.kind === "ability") {
         const d = ABILITY_BY_ID[e.id];
         m.sfx("pop");
-        shout(d.shout, `tier-${d.tier} big`, `${TIERS[d.tier].name} · ${d.name}`);
+        shout(d.shout, `tier-${d.tier} big`);
+        showAbilityNote(d, e.seat);
         if (d.tier === "legend") { root.classList.remove("shake"); void root.offsetWidth; root.classList.add("shake"); }
       } else if (e.kind === "blocked") shout("어쩔티비~ 막았다!", "good");
       else if (e.kind === "coin") shout(e.heads ? "앞면! 가즈아!!" : "뒷면… 출발점으로", e.heads ? "good" : "bad");
@@ -313,7 +340,7 @@ export function create(m) {
     const victims = game.events.filter((c) => c.kind === "catch" && c.node === e.to).map((c) => ({
       seat: c.victim, idxs: game.players[c.victim].pieces.map((q, i) => [q, i]).filter(([q]) => q.node === START).slice(-c.count).map(([, i]) => i),
     }));
-    const atDest = game.players.reduce((n, pl, s2) => n + (game.ally(e.seat, s2) ? pl.pieces.filter((q) => q.node === e.to).length : 0), 0);
+    const atDest = game.players[game.team(e.seat)].pieces.filter((q) => q.node === e.to).length;
     const stacked = e.to !== HOME && atDest > e.count;
     const parts = e.parts || [[e.seat, e.count, []]];
     const bombed = bomb ? parts.flatMap(([s, , idxs = []]) => idxs.map((i) => [s, i])) : [];
@@ -349,12 +376,13 @@ export function create(m) {
         m.later(() => stage?.classList.remove("throw-impact"), 360);
       },
       onSettled: () => {
-        const steps = value === -1 ? "1칸 뒤로" : value === 0 ? "차례를 넘깁니다" : `${value}칸 앞으로`;
+        const nakKept = value === 0 && game.pending.length > 0; // 낙이어도 앞에서 던진 결과는 남음
+        const steps = value === -1 ? "1칸 뒤로" : value === 0 ? (nakKept ? "앞 결과는 그대로 써요" : "차례를 넘깁니다") : `${value}칸 앞으로`;
         const result = el(value === 0
           ? `<div class="toss-cap revealed bad toss-result"><b>낙</b><span>${steps}</span></div>`
           : `<div class="toss-cap revealed toss-result${value >= 4 ? " good" : value === -1 ? " bad" : ""}"><b>${RESULT_NAMES[value]}</b><span>${steps}</span>${value >= 4 ? "<span>한 번 더 던지기!</span>" : ""}</div>`);
         tossEl.append(result);
-        if (value === 0) shout("낙! 차례를 넘겨요", "bad");
+        if (value === 0) shout(nakKept ? "낙! 앞 결과로 옮겨요" : "낙! 차례를 넘겨요", "bad");
         else if (value >= 4) m.sfx("pop");
         tossing = false;
         tossingSeat = null;
@@ -368,7 +396,11 @@ export function create(m) {
   /** 서 있는 말 하나 (발끝이 x, y): 자리 색 받침 위에 캐릭터 */
   function tokenSvg(x, y, seat, { sc = 1, cls = "", data = "", count = 0, shield = false, ring = "", skin = skins[seat] } = {}) {
     const c = PLAYER_COLORS[seat];
+    // 업힌 말: 뒤에 겹쳐 그리고, 머리 옆에 큰 배지로 개수 표시
+    const behind = Array.from({ length: Math.max(0, Math.min(count, 4) - 1) }, (_, k) =>
+      `<g transform="translate(${-3.4 * (k + 1)} ${-1.3 * (k + 1)}) scale(0.92)" opacity="${0.92 - k * 0.14}">${charSvg(skin)}</g>`).reverse().join("");
     return `<g class="yb-piece ${cls}" ${data} transform="translate(${x} ${y}) scale(${sc})">
+      ${count > 1 ? `<title>말 ${count}개 업힘</title>` : ""}
       <ellipse class="yb-hit" rx="7" ry="11" cy="-10"/>
       <ellipse class="yb-shadow" rx="5.6" ry="2.3" cy="0.8"/>
       ${ring ? `<ellipse class="yb-ring ${ring}" rx="6.8" ry="2.9" cy="0.2"/>` : ""}
@@ -377,8 +409,9 @@ export function create(m) {
         <ellipse rx="5" ry="2.1" cy="0.7" fill="${shade(c, -0.45)}"/>
         <ellipse rx="5" ry="2.1" cy="-0.5" fill="${c}"/>
         <ellipse rx="3.4" ry="1.2" cy="-0.8" fill="${shade(c, 0.35)}"/>
+        ${behind}
         <g transform="translate(0 -0.6)">${charSvg(skin)}</g>
-        ${count > 1 ? `<g transform="translate(5.2 -19)"><circle r="2.8" class="yb-badge"/><text y="1.15" class="yb-count">×${count}</text></g>` : ""}
+        ${count > 1 ? `<g transform="translate(7.6 -20.5)"><circle r="5" class="yb-badge"/><text y="1.9" class="yb-count">×${count}</text></g>` : ""}
       </g></g>`;
   }
 
@@ -450,15 +483,15 @@ export function create(m) {
     parts.push(`<g class="yb-go" transform="translate(${BR[0] + 9.5} ${SP[0][1] + 2})"><g class="yb-go-in"><path d="M0 -36 L8 -25 H3.2 V0 H-3.2 V-25 H-8Z" transform="scale(0.55)"/></g></g>`);
     for (const [node, owner] of Object.entries(game.bombs)) {
       const [x, y] = SP[node];
-      parts.push(`<g class="yb-bomb" transform="translate(${x} ${y - 2.6})"><circle r="2.8" fill="#1E1B18" stroke="${PLAYER_COLORS[owner]}" stroke-width="0.6"/><circle cx="-0.9" cy="-0.9" r="0.8" fill="rgba(255,255,255,0.4)"/><path d="M1.6 -2 q1.5 -2 3 -1" stroke="#C9A36B" stroke-width="0.6" fill="none"/><circle cx="4.6" cy="-3" r="0.9" fill="#FF8A3D"/></g>`);
+      parts.push(`<g class="yb-bomb" transform="translate(${x} ${y - 2.6})"><circle r="2.8" fill="#1E1B18" stroke="${PLAYER_COLORS[game.team(owner)]}" stroke-width="0.6"/><circle cx="-0.9" cy="-0.9" r="0.8" fill="rgba(255,255,255,0.4)"/><path d="M1.6 -2 q1.5 -2 3 -1" stroke="#C9A36B" stroke-width="0.6" fill="none"/><circle cx="4.6" cy="-3" r="0.9" fill="#FF8A3D"/></g>`);
     }
     // 말 (판 위): 칸마다 주인별로 묶어서, 앞(아래)에 있는 말을 나중에 그림
     const tokens = [];
     const pickableFor = (seat, onBoard) => targeting && ((targeting.def.target === "oppPiece" && !game.ally(game.current, seat) && onBoard) ||
-      (targeting.def.target === "ownPiece" && seat === game.current && (onBoard || ["gazua", "yeongkkeul"].includes(targeting.def.id))) ||
-      (targeting.def.target === "swap" && onBoard && (targeting.own === undefined ? seat === game.current : !game.ally(game.current, seat))));
+      (targeting.def.target === "ownPiece" && game.ally(game.current, seat) && (onBoard || ["gazua", "yeongkkeul"].includes(targeting.def.id))) ||
+      (targeting.def.target === "swap" && onBoard && (targeting.own === undefined ? game.ally(game.current, seat) : !game.ally(game.current, seat))));
     const byNode = {};
-    game.players.forEach((p, s) => p.pieces.forEach((pc, i) => {
+    game.sides().forEach((s) => game.players[s].pieces.forEach((pc, i) => {
       if (pc.node === START || pc.node === HOME) return;
       ((byNode[pc.node] ||= {})[s] ||= []).push(i);
     }));
@@ -482,7 +515,7 @@ export function create(m) {
       const list = Object.entries(owners);
       list.forEach(([s, idxs], k) => {
         const seat = +s, [x, y] = SP[node];
-        const off = list.length > 1 ? (k - (list.length - 1) / 2) * 6 : 0;
+        const off = list.length > 1 ? (k - (list.length - 1) / 2) * 9 : 0;
         const own = mine && canMoveOwner(seat);
         const canMove = moving && own && destinations(idxs[0], seat).size > 0;
         const ring = moving && own && sel === idxs[0] && selOwner === seat ? "sel" : canMove && sel === null ? "can" : "";
@@ -493,15 +526,17 @@ export function create(m) {
         })]);
       });
     }
-    // 대기 말: 자리마다 판 위아래 띠에
-    game.players.forEach((p, s) => {
+    // 대기 말: 자리마다(팀전은 팀마다) 판 위아래 띠에
+    game.sides().forEach((s) => {
+      const p = game.players[s];
       const [dx, dy] = seatDocks[s];
       const waiting = p.pieces.map((pc, i) => [pc, i]).filter(([pc, i]) => pc.node === START && !hiddenStart.has(`${s}:${i}`));
       const finished = p.pieces.map((pc, i) => [pc, i]).filter(([pc]) => pc.node === HOME).map(([, i]) => i);
-      const turn = game.current === s && !game.over;
+      const turn = game.team(game.current) === s && !game.over;
+      const tagX = dx + Math.max(37, (p.pieces.length - 1) * 7.6 + 26); // 차례 표시가 대기 말을 가리지 않게
       tokens.push([dy - 30, `<g class="yb-dock${turn ? " on" : ""}"><rect x="${dx - 8}" y="${dy - 18}" width="90" height="22" rx="5" style="--pc:${PLAYER_COLORS[s]}"/>
-        <text x="${dx + 77}" y="${dy - 5.5}" class="yb-dock-name" fill="${PLAYER_COLORS[s]}" text-anchor="end">${esc(seatNames[s].slice(0, 10))}</text>
-        ${turn ? `<g transform="translate(${dx + 37} ${dy - 13})"><g class="yb-turn-tag"><rect x="-19" y="-6" width="38" height="12" rx="6" style="--pc:${PLAYER_COLORS[s]}"/><text y="2.1">\uCC28\uB840!</text></g></g>` : ""}</g>`]);
+        <text x="${dx + 77}" y="${dy - 5.5}" class="yb-dock-name" fill="${PLAYER_COLORS[s]}" text-anchor="end">${esc(game.sideName(s).slice(0, 10))}</text>
+        ${turn ? `<g transform="translate(${tagX} ${dy - 13})"><g class="yb-turn-tag"><rect x="-19" y="-6" width="38" height="12" rx="6" style="--pc:${PLAYER_COLORS[s]}"/><text y="2.1">\uCC28\uB840!</text></g></g>` : ""}</g>`]);
       const dockPieces = [...waiting.map(([, i]) => ({ i, finished: false })), ...finished.map((i) => ({ i, finished: true }))];
       dockPieces.forEach(({ i, finished: isFinished }, k) => {
         if (isFinished) {
@@ -525,7 +560,7 @@ export function create(m) {
       const opp = node !== HOME && game.players.some((p, s2) => !game.ally(game.current, s2) && p.pieces.some((q) => q.node === node && q.shield < game.turnNo));
       const mineThere = node !== HOME && game.players.some((p, s2) => game.ally(game.current, s2) && p.pieces.some((q) => q.node === node));
       const boom = node !== HOME && game.bombs[node] !== undefined;
-      const tag = node === HOME ? "골인!" : boom ? "폭탄!" : opp ? "잡기!" : mineThere ? "업기" : "";
+      const tag = node === HOME ? "골인!" : boom ? "폭탄!" : opp ? "잡기!" : mineThere ? "업기" : node === 0 ? "출발점" : "";
       const kind = node === HOME ? "home" : boom || opp ? "hot" : mineThere ? "stack" : "";
       const label = tag ? `${names} · ${tag}` : names;
       const [x, y] = SP[node === HOME ? 0 : node];
@@ -554,7 +589,7 @@ export function create(m) {
 
   function visibleHand() {
     const player = cur();
-    return m.mode === "local" ? player.hand : (m.mySeats.length ? game.players[m.mySeats[0]].hand : []);
+    return m.mode === "local" ? player.hand : (m.mySeats.length ? game.players[m.mySeats[0]].hand : []); // 팀전이면 팀이 같이 쓰는 카드
   }
 
   function renderHand() {
@@ -645,11 +680,13 @@ export function create(m) {
   function renderPlayerCards() {
     playerCardsEl.innerHTML = game.players.map((player, seat) => {
       const finished = player.pieces.filter((piece) => piece.node === HOME).length;
-      const remaining = player.pieces.length - finished;
+      const waiting = player.pieces.filter((piece) => piece.node === START).length;
+      const onBoardCount = player.pieces.length - finished - waiting;
       const turn = (tossing ? tossingSeat : game.current) === seat && !game.over;
-      return `<article class="yut-player-mini${turn ? " turn" : ""}" style="--pc:${PLAYER_COLORS[seat]}">
-        <span class="yut-mini-avatar"><svg viewBox="-11 -27 22 29" aria-hidden="true">${charSvg(skins[seat])}</svg></span>
-        <span class="yut-mini-info"><strong>${esc(seatNames[seat])}</strong><small>골인 ${finished} · 남은 말 ${remaining}</small></span>
+      const side = game.team(seat);
+      return `<article class="yut-player-mini${turn ? " turn" : ""}" style="--pc:${PLAYER_COLORS[side]}">
+        <span class="yut-mini-avatar"><svg viewBox="-11 -27 22 29" aria-hidden="true">${charSvg(skins[side])}</svg></span>
+        <span class="yut-mini-info"><strong>${esc(seatNames[seat])}</strong><small>골인 ${finished} · 판 ${onBoardCount} · 대기 ${waiting}</small></span>
         ${game.teams ? `<span class="yut-mini-team t${seat % 2}">${teamOf(seat)}</span>` : ""}
         ${turn ? `<span class="yut-mini-turn">차례</span>` : ""}</article>`;
     }).join("");
@@ -660,7 +697,7 @@ export function create(m) {
     const p = cur();
     const shownSeat = tossing && tossingSeat !== null ? tossingSeat : game.current;
     const shownPlayer = game.players[shownSeat];
-    turnStatusEl.innerHTML = `<b style="color:${PLAYER_COLORS[shownSeat]}">${esc(shownPlayer.name)}</b> ${game.teams ? `<span class="ys-team t${shownSeat % 2}">${teamOf(shownSeat)}</span>` : ""} 차례 <span>${tossing ? "윷 결과 확인 중" : game.phase === "move" ? `말 이동 · 남은 결과 ${game.pending.length}개` : game.throws > 1 ? `추가로 ${game.throws}번 던질 수 있어요` : "윷 던지기"}</span>`;
+    turnStatusEl.innerHTML = `<b style="color:${PLAYER_COLORS[game.team(shownSeat)]}">${esc(shownPlayer.name)}</b> ${game.teams ? `<span class="ys-team t${shownSeat % 2}">${teamOf(shownSeat)}</span>` : ""} 차례 <span>${tossing ? "윷 결과 확인 중" : game.phase === "move" ? `말 이동 · 남은 결과 ${game.pending.length}개` : game.throws > 1 ? `추가로 ${game.throws}번 던질 수 있어요` : "윷 던지기"}</span>`;
     drawBoard();
     renderPlayerCards();
     // 던지기 버튼과 남은 결과
@@ -679,11 +716,15 @@ export function create(m) {
     else if (dealing) hintEl.textContent = "시작 능력 카드를 뽑고 있어요. 잠시만 기다려 주세요.";
     else if (targeting) {
       const t = targeting.def.target;
-      hintEl.textContent = `「${targeting.def.name}」 ${t === "oppPiece" ? "상대 말을 눌러요" : t === "ownPiece" ? "내 말을 눌러요" : t === "node" ? "폭탄을 놓을 빈칸을 눌러요 (말 있는 칸·출발점 제외)" : targeting.own === undefined ? "먼저 내 말을 눌러요" : "바꿀 상대 말을 눌러요"} · 카드를 다시 누르면 취소`;
+      hintEl.textContent = `「${targeting.def.name}」 ${t === "oppPiece" ? "상대 말을 눌러요" : t === "ownPiece" ? "내 말을 눌러요" : t === "node" ? "폭탄을 놓을 빈칸을 눌러요 (말 있는 칸·출발점 제외)" : targeting.own === undefined ? "먼저 내 말을 눌러요" : "바꿀 상대 말을 눌러요"} · 카드를 다시 누르거나 Esc로 취소`;
     } else if (!mine) hintEl.textContent = `${p.name} 님 차례${game.phase === "move" ? " · 말 옮기는 중" : ""}`;
     else if (game.phase === "throw") hintEl.textContent = game.pending.length ? `윷·모가 나왔어요! 한 번 더 던져요 (${game.throws}회 남음) · 결과 ${game.pending.length}개는 다음에 옮겨요` : `윷을 던져요${game.abilitiesOn ? " (능력 카드는 한 차례에 한 장)" : ""}`;
-    else hintEl.textContent = sel !== null ? `선택한 말로 결과 ${game.pending.length}개 중 하나를 옮겨요 · 말풍선 또는 아래 결과 버튼 누르기` : "옮길 말을 눌러요. 갈 수 있는 칸의 결과 말풍선이나 아래 결과 버튼을 누르면 이동해요.";
+    else hintEl.textContent = sel !== null ? `선택한 말로 결과 ${game.pending.length}개 중 하나를 옮겨요 · 말풍선 · 결과 버튼 · 숫자키(갈 곳이 하나면 Space)` : "옮길 말을 눌러요. 갈 수 있는 칸의 결과 말풍선이나 아래 결과 버튼을 누르면 이동해요.";
     renderHand();
+    if (game.abilitiesOn && game.teams) { // 팀전: 지금 보이는 카드가 어느 팀 카드인지
+      const handSeat = m.mode === "local" ? game.current : m.mySeats[0];
+      if (handSeat !== undefined) sideStack.querySelector(".hand-header strong").textContent = `${teamOf(handSeat)} 공용 능력 카드`;
+    }
     // 기록
     logEl.innerHTML = game.log.slice(-9).map((l) => `<div class="yl yl-${l.kind}">${esc(l.text)}</div>`).join("");
     logEl.scrollTop = logEl.scrollHeight;
@@ -699,5 +740,13 @@ export function create(m) {
     if (await confirmBox("기권", `${seatNames[seat]} 님, 정말 기권할까요?`, "기권", "계속")) m.submit({ type: "resign" }, seat);
   }
 
-  return { el: root, sideEl: sideStack, apply, resign, render, destroy: () => { clearInterval(dealInterval); skipCardRoulette = null; dealModalClose?.(); dealModalClose = null; tossCancel?.(); tossCancel = null; document.removeEventListener("keydown", onKey); } };
+  /** Esc: 능력 대상을 고르는 중이면 나가기 대신 고르기만 취소 */
+  function cancelInput() {
+    if (!targeting) return false;
+    targeting = null;
+    render();
+    return true;
+  }
+
+  return { el: root, sideEl: sideStack, apply, resign, render, cancelInput, destroy: () => { clearInterval(dealInterval); skipCardRoulette = null; dealModalClose?.(); dealModalClose = null; tossCancel?.(); tossCancel = null; document.removeEventListener("keydown", onKey); } };
 }

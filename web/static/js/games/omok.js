@@ -5,6 +5,7 @@ import { el, toast, confirmBox } from "../ui.js";
 
 const UNDO_LIMIT = 2;
 const COLOR_NAME = { [BLACK]: "흑", [WHITE]: "백" };
+export const TURN_LIMITS = { none: ["무제한", 0], s30: ["1수 30초", 30] }; // 한 수 시간 제한 (초)
 
 export function create(m) {
   const rule = m.settings.rule === "free" ? "free" : "33";
@@ -15,18 +16,41 @@ export function create(m) {
   let winLine = [];
   let aiTimer = null;
   let over = false;
+  const limit = (TURN_LIMITS[m.settings.turn] || TURN_LIMITS.none)[1] * 1000;
+  let turnAt = Number(m.settings.startedAt) || m.now(); // 지금 수가 시작된 시각 (온라인은 서버 시각이라 모든 기기가 같음)
+  let flagSent = false;
+  let lastSec = null;
 
   const root = el(`<div class="board-wrap" style="width:100%">
     <div class="seat-strip omok-strip"></div>
     <div class="omok-board" role="grid" aria-label="오목판"></div></div>`);
   const strip = root.querySelector(".seat-strip");
   const boardEl = root.querySelector(".omok-board");
-  const side = el(`<div class="card"><h3>오목 · ${RULES[rule][0]}</h3><div class="muted">${RULES[rule][1]}</div><div class="muted info" style="margin-top:6px"></div></div>`);
+  const side = el(`<div class="card"><h3>오목 · ${RULES[rule][0]}</h3><div class="muted">${RULES[rule][1]}${limit ? ` · ${TURN_LIMITS[m.settings.turn][0]}` : ""}</div><div class="muted info" style="margin-top:6px"></div></div>`);
 
   const seatOf = (color) => (color === BLACK ? 0 : 1);
   const turnSeat = () => seatOf(board.turn);
   const myTurn = () => !over && !m.result && m.controls(turnSeat());
   const lastMover = () => (board.moves.length ? seatOf(board.moves.length % 2 === 1 ? BLACK : WHITE) : null);
+
+  // ------------------------------------------------------------ 한 수 시간 제한
+  const secondsLeft = () => Math.max(0, Math.ceil((limit - (m.now() - turnAt)) / 1000));
+  const tick = limit ? setInterval(() => {
+    if (over || m.result || m.seats[turnSeat()].ai) return;
+    const sec = secondsLeft();
+    const node = root.querySelector(`[data-turn-clock="${turnSeat()}"]`);
+    if (node) {
+      node.textContent = `${sec}초`;
+      node.classList.toggle("low", sec <= 10);
+    }
+    if (sec !== lastSec) {
+      lastSec = sec;
+      if (sec > 0 && sec <= 5 && m.controls(turnSeat())) m.sfx("tick");
+    }
+    if (sec > 0 || flagSent) return;
+    if (!m.online) { flagSent = true; m.submit({ type: "flag" }, turnSeat()); }
+    else if (m.mySeats.length) { flagSent = true; m.submit({ type: "flag" }); } // 시간이 다 된 쪽이 끊겨도 상대가 알림
+  }, 200) : null;
 
   // ------------------------------------------------------------ 판 그리기
   function drawBoard() {
@@ -147,12 +171,19 @@ export function create(m) {
     if (a.type === "place") {
       if (seat !== turnSeat() || !Number.isInteger(a.r) || !Number.isInteger(a.c) || !board.legal(a.r, a.c)) return;
       pending = null;
+      turnAt = at;
+      flagSent = false;
       const color = board.place(a.r, a.c);
       m.sfx("place");
       winLine = board.winLine(a.r, a.c, color);
       if (winLine.length) end([seatOf(color)], `${COLOR_NAME[color]} 5목 완성!`);
       else if (board.full()) end([], "판이 꽉 찼어요");
+    } else if (a.type === "flag") {
+      if (!limit || at - turnAt < limit - 500) { flagSent = false; return; } // 아직 시간이 남았으면 무시 (기기 시계 차이)
+      end([1 - turnSeat()], `${COLOR_NAME[board.turn]} 시간 초과`);
     } else if (a.type === "undo" && !m.online) {
+      turnAt = at; // 무른 뒤에는 무른 시각부터 다시 잼 (모든 기기가 같은 값)
+      flagSent = false;
       if (m.mode === "ai") {
         const human = m.seats.findIndex((s) => !s.ai);
         undoMoves(1);
@@ -174,6 +205,8 @@ export function create(m) {
       undoUsed[pending.seat]++;
       pending = null;
       undoMoves(1);
+      turnAt = at;
+      flagSent = false;
       if (!m.replaying) toast("한 수 물렀어요");
     } else if (a.type === "undo_no") {
       if (!pending || seat === pending.seat) return;
@@ -208,7 +241,9 @@ export function create(m) {
       if (turn && m.seats[i].ai) bits.push("생각 중...");
       else if (turn && m.controls(i) && m.mode !== "local") bits.push("내 차례");
       if (m.mode !== "ai") bits.push(`무르기 ${UNDO_LIMIT - undoUsed[i]}번`);
-      return seatCard(m, i, { sub: bits.join(" · "), turn, extra: `<span class="stone ${i === 0 ? "b" : "w"}"></span>` });
+      const running = limit && turn && !m.seats[i].ai;
+      const clock = running ? `<span class="clock run" data-turn-clock="${i}">${secondsLeft()}초</span>` : "";
+      return seatCard(m, i, { sub: bits.join(" · "), turn, extra: `${clock}<span class="stone ${i === 0 ? "b" : "w"}"></span>` });
     }).join("");
     side.querySelector(".info").textContent = `${board.moves.length}수째`;
     drawBoard();
@@ -217,5 +252,5 @@ export function create(m) {
     maybeAi();
   }
 
-  return { el: root, sideEl: side, apply, resign, render };
+  return { el: root, sideEl: side, apply, resign, render, destroy: () => clearInterval(tick) };
 }

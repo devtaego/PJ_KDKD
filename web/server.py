@@ -36,7 +36,7 @@ else:
 RANKING_FILE = os.environ.get("KIDK_RANKING_FILE", os.path.join(HERE, "ranking.json"))
 
 GAMES = {"chess": 2, "omok": 2, "yacht": 6, "yut": 4}  # 게임 -> 최대 플레이어 수
-SETTING_KEYS = {"time", "color", "rule", "private", "pieces", "chaos", "team", "tb"}  # 방 설정으로 받는 값
+SETTING_KEYS = {"time", "turn", "color", "rule", "private", "pieces", "chaos", "team", "tb"}  # 방 설정으로 받는 값
 FX_KINDS = {"teabag", "taunt", "shake"}
 YUT_SKINS = {"penguin", "tiger", "rabbit", "frog", "bear", "cat", "chick", "fox"}  # 기록 없이 전달하는 효과
 MAX_MSG = 100_000  # 메시지 하나 최대 크기 (프로필 사진 포함해도 충분)
@@ -165,6 +165,7 @@ class Room:
         self.host = host  # cid
         self.members = []  # [cid, role] 들어온 순서대로. role: player / spectator
         self.yut_skins = {}  # cid -> character id; empty means unselected
+        self.team_skins = {"A": "", "B": ""}  # 윷놀이 팀전: 팀마다 같이 쓰는 말
         self.status = "waiting"  # waiting / playing / done
         self.log = []  # 이번 판의 수 (늦게 들어온 사람과 재접속한 사람이 다시 계산하는 재료)
         self.seq = 0
@@ -193,6 +194,14 @@ class Room:
                 return role
         return None
 
+    def yut_team_of(self, cid, pid):
+        """윷놀이 팀전에서 이 사람의 팀. 방장이 안 나눴으면 들어온 순서로 2 · 4번째가 B팀 (app.js roomTeamB와 같음)."""
+        tb = self.settings.get("tb")
+        if tb is not None:
+            return "B" if pid in tb.split(",") else "A"
+        players = self.players()
+        return "B" if cid in players and players.index(cid) % 2 == 1 else "A"
+
 
 class Hub:
     def __init__(self):
@@ -220,7 +229,7 @@ class Hub:
                             "streak": room.streak.get(cid, 0),
                             "yut_skin": room.yut_skins.get(cid, "") if room.game == "yut" else "", **c.profile})
         return {"id": room.id, "name": room.name, "game": room.game, "settings": room.settings,
-                "host": self.pid(room.host), "status": room.status, "members": members, "max": GAMES[room.game],
+                "team_skins": room.team_skins, "host": self.pid(room.host), "status": room.status, "members": members, "max": GAMES[room.game],
                 "queue": [self.pid(c) for c in room.queue], "grace": GRACE}
 
     def room_summary(self, room):
@@ -353,6 +362,10 @@ class Hub:
             room.status = "playing"
             room.seat_cids, a["seats"] = self.seats_for_start(room, a.pop("order", None))
             room.seat_names = [self.clients[c].profile["name"] for c in room.seat_cids]
+            settings = a.get("settings")
+            if room.game == "yut" and isinstance(settings, dict) and settings.get("team") == "1":
+                for i, seat in enumerate(a["seats"]):  # 자리 순서가 A, B, A, B
+                    seat["yut_skin"] = room.team_skins["B" if i % 2 else "A"]
             room.losers = []
             if room.game == "yut":
                 a["seed"] = secrets.randbits(31)  # 시작 카드 나눠 주기도 서버가 정한 씨앗으로
@@ -432,6 +445,17 @@ class Hub:
             if skin and any(cid != target.cid and room.role_of(cid) == "player" and room.yut_skins.get(cid) == skin for cid, _ in room.members):
                 return
             room.yut_skins[target.cid] = skin
+            await self.send_room(room)
+        elif t == "yut_team_skin" and room.game == "yut" and room.status != "playing":
+            team, skin = msg.get("team"), msg.get("skin")
+            if team not in room.team_skins or not isinstance(skin, str) or (skin and skin not in YUT_SKINS):
+                return
+            if client.cid != room.host and (room.role_of(client.cid) != "player"
+                                            or room.yut_team_of(client.cid, client.pid) != team):
+                return
+            if skin and room.team_skins["B" if team == "A" else "A"] == skin:
+                return
+            room.team_skins[team] = skin
             await self.send_room(room)
         elif t == "settings" and client.cid == room.host and room.status != "playing":
             room.settings = clean_settings(msg.get("settings"))

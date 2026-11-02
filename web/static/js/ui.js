@@ -157,7 +157,7 @@ export class ChatPanel {
   constructor(onSend) {
     this.onSend = onSend;
     this.recentSent = [];
-    this.root = el(`<div class="card chat"><h3>채팅</h3><div class="chat-log" aria-live="polite"></div>
+    this.root = el(`<div class="card chat"><h3>채팅</h3><div class="chat-specs" hidden></div><div class="chat-log" aria-live="polite"></div>
       <div class="sticker-bar"></div>
       <form class="chat-form"><input type="text" maxlength="100" placeholder="말 걸어 보기..." enterkeyhint="send" aria-label="채팅 입력"><button class="btn primary small">보내기</button></form></div>`);
     this.log = this.root.querySelector(".chat-log");
@@ -202,6 +202,13 @@ export class ChatPanel {
     if (sticker) line.insertAdjacentHTML("beforeend", stickerSvg(sticker, 28));
     if (text) line.append(text);
     this.push(line);
+  }
+
+  /** 지금 구경 중인 사람들 (게임 중에만 씀) */
+  setSpectators(names) {
+    const box = this.root.querySelector(".chat-specs");
+    box.hidden = !names.length;
+    box.textContent = names.map((name) => `${name} (관전)`).join(" · ");
   }
 
   system(text) { this.push(el(`<div class="msg sys">${esc(text)}</div>`)); }

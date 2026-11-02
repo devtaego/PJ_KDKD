@@ -55,7 +55,7 @@ export const TITLES = {
   q_sound: { emoji: "🔇", name: "음소거 장인", fx: "fx-clay", group: "숨은 재미", how: "소리 버튼 20번 누르기" },
   q_flip: { emoji: "🌀", name: "멀미왕", fx: "fx-dice", group: "숨은 재미", how: "체스판 20번 돌리기" },
   q_logo: { emoji: "👆", name: "로고 덕후", fx: "fx-jade", group: "숨은 재미", how: "로고 30번 누르기" },
-  q_tap: { emoji: "🖱️", name: "손가락 장인", fx: "fx-gold", group: "숨은 재미", how: "칭호 목록을 100번 누르기" },
+  q_tap: { emoji: "🖱️", name: "손가락 장인", fx: "fx-gold", group: "숨은 재미", how: "칭호 등록 버튼 100번 누르기" },
 
   lose_3: { emoji: "🫠", name: "오늘은 아닌가 봐", fx: "fx-stone", group: "패배의 전당", how: "3연패" },
   lose_5: { emoji: "🧂", name: "짠맛 전문가", fx: "fx-slate", group: "패배의 전당", how: "5연패" },

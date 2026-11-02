@@ -144,7 +144,7 @@ const QUIRKS = {
   sound: { title: "q_sound", goal: 20 },
   flip: { title: "q_flip", goal: 20 },
   logo: { title: "q_logo", goal: 30 },
-  tap: { title: "q_tap", goal: 100 },
+  register: { title: "q_tap", goal: 100 },
 };
 let quirkCounts = store.get("quirks", {});
 window.addEventListener("quirk", async ({ detail: { key, value } }) => {
@@ -183,7 +183,6 @@ function titlesScreen() {
     <div class="card"><div class="title-count"></div><div class="title-rows"></div></div></section>`);
   root.querySelector(".topbar .icon-btn").onclick = () => homeScreen();
   const rows = root.querySelector(".title-rows");
-  rows.addEventListener("click", (e) => { if (e.target.closest(".title-row")) countQuirk("tap"); });
   const listed = Object.entries(TITLES).filter(([, t]) => !t.hidden);
   const draw = () => {
     root.querySelector(".titles-me").innerHTML = `<span class="${titleFx(profile.title)}">${esc(profile.name || "닉네임을 정해 주세요")}</span>${titleBadge(profile.title)}`;
@@ -231,7 +230,7 @@ function titlesScreen() {
   onTitleCode = draw;
   const input = root.querySelector("#title-code");
   const submit = () => { redeemCode(input.value); input.value = ""; };
-  root.querySelector('[data-k="redeem"]').onclick = submit;
+  root.querySelector('[data-k="redeem"]').onclick = () => { countQuirk("register"); submit(); };
   input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) submit(); });
   show({ root, back: () => homeScreen(), destroy: () => { onTitlesChanged = null; onTitleCode = null; } });
 }
@@ -266,7 +265,6 @@ function titleScreen() {
     { label: () => "게임 시작", go: () => homeScreen() },
     { label: () => "방 목록", go: () => (profile.name ? lobbyScreen() : homeScreen(true)) },
     { label: () => "기록", go: () => rankingModal() },
-    { label: () => "칭호", go: () => titlesScreen() },
     { label: () => "게임 기획 의도", go: () => about() },
   ];
   let sel = 0;

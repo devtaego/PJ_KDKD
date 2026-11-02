@@ -235,14 +235,17 @@ label.field > span { display: block; color: var(--muted); font-size: 14px; margi
 .clock.run { box-shadow: 0 0 0 2px var(--gold); }
 
 /* 채팅 */
-.chat { display: flex; flex-direction: column; gap: 8px; }
-.chat-log { height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px; font-size: 15px; }
-.chat-log .msg { word-break: break-word; }
+.chat { display: flex; flex-direction: column; gap: 8px; min-width: 0; max-width: 100%; }
+.chat-specs { color: var(--muted); font-size: 12px; line-height: 1.3; overflow-wrap: anywhere; }
+.chat-specs[hidden] { display: none; }
+.chat-log { height: 190px; overflow-x: hidden; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px; font-size: 15px; }
+.chat-log .msg { overflow-wrap: anywhere; min-width: 0; }
 .chat-log .msg b { color: var(--gold); font-weight: normal; margin-right: 6px; }
 .chat-log .msg.sys { color: var(--muted); font-size: 13px; }
 .chat-log .msg .sticker { vertical-align: middle; }
-.chat-form { display: flex; gap: 6px; }
-.chat-form input { padding: 9px 12px; font-size: 16px; }
+.chat-form { display: flex; gap: 6px; min-width: 0; }
+.chat-form input { flex: 1 1 0; min-width: 0; padding: 9px 12px; font-size: 16px; }
+.chat-form .btn { flex: none; white-space: nowrap; }
 .sticker-bar { display: flex; gap: 4px; flex-wrap: wrap; }
 .sticker-bar button { border: 0; background: var(--panel); border-radius: 10px; padding: 4px; }
 .pop {
@@ -310,14 +313,15 @@ label.field > span { display: block; color: var(--muted); font-size: 14px; margi
 .yacht-screen .game-layout > .side { grid-area: side; }
 .yacht-screen .yacht-chat {
   grid-area: chat; align-self: stretch; min-width: 0; padding: 9px 11px;
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, .88fr); gap: 6px 10px; align-items: center;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 6px 10px; align-items: center; /* 좁으면 스티커 · 입력 칸이 위아래로 */
 }
-.yacht-screen .yacht-chat h3 { grid-column: 1 / -1; margin: 0; font-size: 14px; }
+.yacht-screen .yacht-chat h3, .yacht-screen .yacht-chat .chat-specs { grid-column: 1 / -1; margin: 0; font-size: 14px; }
+.yacht-screen .yacht-chat .chat-specs { font-size: 12px; }
 .yacht-screen .yacht-chat .chat-log { height: 78px; min-height: 68px; max-height: 88px; grid-column: 1 / -1; }
-.yacht-screen .yacht-chat .sticker-bar { grid-column: 1; min-width: 0; flex-wrap: nowrap; gap: 3px; }
+.yacht-screen .yacht-chat .sticker-bar { min-width: 0; flex-wrap: nowrap; gap: 3px; }
 .yacht-screen .yacht-chat .sticker-bar button { padding: 2px; }
 .yacht-screen .yacht-chat .sticker-bar .sticker { width: 24px !important; height: 24px !important; }
-.yacht-screen .yacht-chat .chat-form { grid-column: 2; min-width: 0; }
+.yacht-screen .yacht-chat .chat-form { min-width: 0; }
 .yacht-screen .yacht-chat .chat-form input { min-width: 0; padding: 7px 9px; font-size: 14px; }
 .yacht-screen .yacht-chat .chat-form .btn { flex: none; padding: 7px 11px; font-size: 13px; }
 .streak { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: linear-gradient(90deg, #FF8A4C, #FF5C8A); color: #fff; white-space: nowrap; vertical-align: 1px; margin-left: 4px; }
@@ -585,8 +589,8 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
 .ticket .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .start-row .btn.big { min-width: 180px; }
 .side-col { display: flex; min-width: 0; min-height: 0; }
-.side-col .chat { flex: 1; min-height: 0; height: min(640px, calc(100dvh - 220px)); }
-.wait-grid .chat-log { flex: 1 1 0; height: auto; min-height: 0; max-height: 100%; overflow-y: auto; }
+.side-col .chat { flex: 1; min-height: 280px; height: min(640px, calc(100dvh - 220px)); } /* 창이 낮아도 입력 칸이 카드 밖으로 안 나가게 */
+.wait-grid .chat-log { flex: 1 1 0; height: auto; min-height: 60px; max-height: 100%; overflow-y: auto; }
 
 /* 게임 화면 오른쪽 카드 */
 .movelist { background: var(--input); border-radius: 10px; padding: 8px; box-shadow: inset 0 0 0 1px var(--edge); }
@@ -616,9 +620,8 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
   .yacht-screen .game-layout { grid-template-rows: auto; grid-template-areas: "main" "side" "chat"; } /* 폰: 트레이 → 점수표 → 채팅 */
   .home-main { order: -1; } /* 폰: 게임 고르기가 먼저 보이게 (프로필은 그 아래) */
   .opt { grid-template-columns: 1fr; gap: 6px; } /* 폰: 설정 이름은 위, 선택 버튼은 아래 */
-  .yacht-screen .yacht-chat { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .yacht-screen .yacht-chat { gap: 6px; }
   .yacht-screen .yacht-chat .chat-log { height: 68px; min-height: 58px; max-height: 72px; }
-  .yacht-screen .yacht-chat .sticker-bar, .yacht-screen .yacht-chat .chat-form { grid-column: 1; }
   .side { order: 2; }
 }
 @media (max-width: 640px) {
@@ -886,6 +889,19 @@ input[type=text]:focus { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rg
 .yb-count { font-size: 3.6px; text-anchor: middle; fill: #fff; font-weight: bold; paint-order: stroke; stroke: rgba(0, 0, 0, 0.6); stroke-width: 0.8; pointer-events: none; }
 .yb-shield { fill: rgba(124, 231, 255, 0.25); stroke: #7CE7FF; stroke-width: 0.6; stroke-dasharray: 1.2 0.8; }
 .yut-fx { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+/* 쓴 능력 카드 설명: 판 위쪽에 잠깐, 클릭은 그대로 판으로 통과 */
+.yut-ability-note {
+  position: absolute; top: 3%; left: 50%; z-index: 6; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  width: min(86%, 400px); padding: 10px 16px; border: 2px solid var(--tier); border-radius: 16px; background: rgba(20, 16, 44, 0.93);
+  color: #fff; text-align: center; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); transform: translateX(-50%);
+  animation: ability-note-in 0.22s ease-out, ability-note-out 0.4s ease-in calc(var(--life) - 0.4s) forwards;
+}
+.yut-ability-note small { color: var(--tier); font-size: 13px; }
+.yut-ability-note b { font-size: 20px; font-weight: normal; }
+.yut-ability-note span { font-size: 15px; line-height: 1.35; }
+@keyframes ability-note-in { from { opacity: 0; transform: translate(-50%, -10px); } }
+@keyframes ability-note-out { to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .yut-ability-note { animation: none; } }
 .yut-shout {
   grid-area: 1 / 1; font-size: clamp(26px, 5vw, 46px); color: #fff; text-align: center; padding: 0 12px;
   -webkit-text-stroke: 5px #1A1446; paint-order: stroke fill; text-shadow: 0 5px 0 rgba(0, 0, 0, 0.35);
@@ -1277,8 +1293,8 @@ html[data-theme] .yut-hint { color: var(--chip-text); text-shadow: 1px 1px 0 var
 .yb-piece.movable .yb-bob { animation: bob 0.9s ease-in-out infinite alternate; }
 .yb-piece.selected .yb-bob { animation: bob 0.45s ease-in-out infinite alternate; }
 @keyframes bob { to { transform: translateY(-1.6px); } }
-.yb-badge { fill: #1E1B18; stroke: #fff; stroke-width: 0.5; }
-.yb-count { font-size: 2.9px; text-anchor: middle; fill: #fff; pointer-events: none; }
+.yb-badge { fill: #FFC94D; stroke: #1E1B18; stroke-width: 0.9; }
+.yb-count { font-size: 5.4px; font-weight: 900; text-anchor: middle; fill: #1E1B18; stroke: none; paint-order: normal; pointer-events: none; }
 .yb-shield { fill: rgba(124, 231, 255, 0.25); stroke: #7CE7FF; stroke-width: 0.6; stroke-dasharray: 1.2 0.8; }
 .yb-dock rect { fill: rgba(0, 0, 0, 0.28); stroke: var(--pc); stroke-width: 0.6; stroke-opacity: 0.6; }
 .yb-dock.on rect { fill: color-mix(in srgb, var(--pc) 30%, rgba(0, 0, 0, 0.3)); stroke-width: 1.1; stroke-opacity: 1; }
@@ -1527,7 +1543,8 @@ button.ys-char { cursor: pointer; box-shadow: inset 0 0 0 2px var(--gold); anima
   .yut-player-mini { padding: 5px; }
   .yut-screen .board-wrap { --yw: min(100%, calc((100dvh - 190px) * 200 / 208), 520px); }
 }
-.yut-screen .game-layout > .side { height: calc(100dvh - 102px); min-height: 0; gap: 8px; }
+/* 창이 낮아도 채팅이 카드 밖으로 튀어나오지 않게: 높이를 고정하지 않고, 남는 높이만 채팅이 채움 (모자라면 페이지가 스크롤) */
+.yut-screen .game-layout > .side { min-height: calc(100dvh - 102px); gap: 8px; }
 .yut-screen .yut-side-stack { gap: 7px; flex: 0 0 auto; }
 .yut-screen .yut-player-card-list,.yut-screen .yut-control-card,.yut-screen .yut-log-card { padding: 8px; }
 .yut-screen .yut-player-card-list h3 { margin-bottom: 5px; }
@@ -1542,12 +1559,19 @@ button.ys-char { cursor: pointer; box-shadow: inset 0 0 0 2px var(--gold); anima
 .yut-screen .hand-track .ability-card { min-height: 58px; padding: 4px 5px; }
 .yut-screen .hand-track .ac-desc { -webkit-line-clamp: 1; }
 .yut-screen .yut-log { max-height: 64px; }
-.yut-screen .side > .chat { flex: 1 1 0; min-height: 150px; height: auto; }
-.yut-screen .side > .chat .chat-log { flex: 1 1 48px; height: auto; min-height: 48px; }
+.yut-screen { overflow-x: clip; } /* 던진 윷가락이 판 밖으로 날아도 가로 스크롤이 생기지 않게 */
+.yut-screen .side > .chat { flex: 1 1 auto; height: auto; } /* 최소 높이는 내용(제목 · 기록 · 스티커 · 입력 칸)만큼 */
+.yut-screen .side > .chat .chat-log { flex: 1 1 96px; height: auto; min-height: 96px; }
 .yut-screen .side > .chat .sticker-bar { flex: 0 0 auto; }
 .yut-screen .side > .chat .chat-form { flex: 0 0 auto; }
 @media (max-width: 900px) {
-  .yut-screen .game-layout > .side { height: auto; }
+  .yut-screen .game-layout > .side { min-height: 0; }
   .yut-screen .side > .chat { flex: none; min-height: 250px; }
   .yut-screen .side > .chat .chat-log { min-height: 90px; }
 }
+
+/* 윷놀이 팀전: 팀이 같이 쓰는 말 고르기 */
+.yut-team-skin { margin-bottom: 10px; }
+.yut-team-skin-title { color: var(--team-accent, var(--text)); font-size: 13px; }
+.yut-team-skin .yut-character-picker { margin-top: 5px; }
+.yut-team-skin .yut-character-choice:disabled { opacity: 0.35; cursor: not-allowed; }

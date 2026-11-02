@@ -206,6 +206,23 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         await a.close()
         await b.close()
 
+    async def test_yut_team_shares_one_character(self):
+        a, b, _ = await self.two_players("yut", {"team": "1"})
+        await self.until(a, "room")  # 방장 쪽에 남은 참가 알림을 먼저 비움
+        await b.send_json({"t": "yut_team_skin", "team": "A", "skin": "penguin"})  # b는 B팀이라 A팀 말은 못 고름
+        await b.send_json({"t": "ping", "c": 82})
+        self.assertEqual((await self.until(b, "pong"))["c"], 82)
+        await a.send_json({"t": "yut_team_skin", "team": "A", "skin": "tiger"})
+        room = (await self.until(a, "room"))["room"]
+        self.assertEqual(room["team_skins"], {"A": "tiger", "B": ""})
+        await self.until(b, "room")
+        await b.send_json({"t": "yut_team_skin", "team": "B", "skin": "tiger"})  # 상대 팀과 같은 말은 안 됨
+        await b.send_json({"t": "yut_team_skin", "team": "B", "skin": "rabbit"})
+        room = (await self.until(b, "room"))["room"]
+        self.assertEqual(room["team_skins"], {"A": "tiger", "B": "rabbit"})
+        await a.close()
+        await b.close()
+
     async def test_yut_host_can_choose_own_character(self):
         a, b, _ = await self.two_players("yut")
         await self.until(a, "room")  # 방장 쪽에 참가 알림으로 전송된 최신 방 정보를 비움

@@ -297,14 +297,27 @@ function about() {
 }
 
 // ---------------------------------------------------------------- 게임 · 모드 고르기
+/** 팀전: 팀이 같이 쓸 말 고르기. 상대 팀이 고른 말은 못 고름 (onPick이 없으면 보기만) */
+function teamSkinPicker(team, picked, taken, onPick) {
+  const box = el(`<div class="yut-team-skin"><span class="yut-team-skin-title">${team}팀 말 ${picked ? "" : "· 골라 주세요"}</span><div class="yut-character-picker" role="group" aria-label="${team}팀 말 캐릭터"></div></div>`);
+  const picker = box.querySelector(".yut-character-picker");
+  for (const skin of YUT_ROOM_SKINS) {
+    const button = el(`<button type="button" class="yut-character-choice${picked === skin.id ? " selected" : ""}" aria-pressed="${picked === skin.id}" aria-label="${esc(skin.name)} 말" ${!onPick || taken === skin.id ? "disabled" : ""}><svg viewBox="-11 -27 22 29" aria-hidden="true">${yutCharSvg(skin.id)}</svg><span>${esc(skin.name)}</span></button>`);
+    if (onPick) button.onclick = () => onPick(skin.id);
+    picker.appendChild(button);
+  }
+  return box;
+}
+
 function localYutSetup(o) {
   const count = Math.min(4, Math.max(2, Number(o.people) || 2));
   const ids = YUT_ROOM_SKINS.map((skin) => skin.id);
   o.yutSkins = Array(4).fill("");
+  o.teamSkins = { A: "", B: "" };
   if (!Array.isArray(o.teamPick) || o.teamPick.length !== 4) o.teamPick = ["A", "B", "A", "B"];
   const root = el(`<section class="yut-room-setup local-yut-setup" aria-label="플레이어와 말 준비">
     <div class="yut-setup-head"><div><strong>${o.team === "1" ? "팀과 말 정하기" : "플레이어별 말 고르기"}</strong>
-      <span>${o.team === "1" ? "플레이어 카드를 끌어 팀을 나누고, 각자 말을 골라요" : "각 플레이어가 사용할 말을 골라요. 말은 서로 달라야 해요"}</span></div>
+      <span>${o.team === "1" ? "플레이어 카드를 끌어 팀을 나누고, 팀마다 같이 쓸 말을 골라요" : "각 플레이어가 사용할 말을 골라요. 말은 서로 달라야 해요"}</span></div>
       ${o.team === "1" ? `<div class="team-totals"><span class="team-count team-a"><b data-team-count="A">0</b> / 2 A팀</span><span class="team-count team-b"><b data-team-count="B">0</b> / 2 B팀</span></div>` : ""}
     </div><div class="yut-roster-board ${o.team === "1" ? "teams" : "solo"}"></div>
     ${o.team === "1" ? `<p class="team-status" aria-live="polite"></p>` : ""}<p class="yut-skin-status" aria-live="polite"></p>
@@ -316,7 +329,7 @@ function localYutSetup(o) {
   for (const [team, label] of columns) {
     const column = el(`<section class="yut-team-column team-${team.toLowerCase()}" data-local-team="${team}">
       <div class="yut-team-column-head"><strong>${label}</strong>${teamMode ? `<span><b data-column-count="${team}">0</b>명</span>` : `<span>${count}명</span>`}</div>
-      <div class="yut-team-members"></div></section>`);
+      ${teamMode ? `<div class="yut-team-skin-slot" data-skin-slot="${team}"></div>` : ""}<div class="yut-team-members"></div></section>`);
     lists[team] = column.querySelector(".yut-team-members");
     if (teamMode) {
       column.addEventListener("dragover", (event) => { event.preventDefault(); column.classList.add("drop-over"); });
@@ -332,9 +345,15 @@ function localYutSetup(o) {
   const playerNames = Array.from({ length: count }, (_, i) => i === 0 ? `${profile.name || "나"} (나)` : `친구 ${i}`);
   function drawCards() {
     for (const list of Object.values(lists)) list.replaceChildren();
+    if (teamMode) {
+      for (const team of ["A", "B"]) {
+        const other = team === "A" ? "B" : "A";
+        root.querySelector(`[data-skin-slot="${team}"]`).replaceChildren(teamSkinPicker(team, o.teamSkins[team], o.teamSkins[other], (id) => { o.teamSkins[team] = id; drawCards(); }));
+      }
+    }
     playerNames.forEach((name, i) => {
-      const skin = YUT_ROOM_SKINS.find((item) => item.id === o.yutSkins[i]);
       const team = teamMode ? (o.teamPick[i] === "B" ? "B" : "A") : "A";
+      const skin = YUT_ROOM_SKINS.find((item) => item.id === (teamMode ? o.teamSkins[team] : o.yutSkins[i]));
       const preview = skin ? `<svg viewBox="-11 -27 22 29" aria-hidden="true">${yutCharSvg(skin.id)}</svg>` : `<span class="yut-character-none">?</span>`;
       const pickedLabel = skin ? `${esc(skin.name)} \uB9D0` : "\uC120\uD0DD \uC548 \uD568";
       const card = el(`<article class="yut-room-player local-yut-player" data-local-player="${i}">
@@ -350,6 +369,11 @@ function localYutSetup(o) {
         card.querySelector(".team-move-btn").onclick = () => { o.teamPick[i] = team === "A" ? "B" : "A"; drawCards(); };
       }
       const picker = card.querySelector(".yut-character-picker");
+      if (teamMode) { // 말은 팀 칸에서 고름
+        picker.remove();
+        lists[team].appendChild(card);
+        return;
+      }
       const controls = el(`<div class="yut-picker-controls"><button type="button" class="yut-character-choice yut-character-default${!skin ? " selected" : ""}" aria-pressed="${!skin}"><span class="yut-default-icon">?</span><span>\uC120\uD0DD \uC548 \uD568</span></button><button type="button" class="yut-character-choice yut-random-choice">&#127922; <span>\uB79C\uB364</span></button></div>`);
       controls.querySelector(".yut-character-default").onclick = () => { o.yutSkins[i] = ""; drawCards(); };
       controls.querySelector(".yut-random-choice").onclick = () => { const available = YUT_ROOM_SKINS.filter((choice) => !o.yutSkins.some((id, player) => player !== i && player < count && id === choice.id)); if (available.length) { o.yutSkins[i] = available[Math.floor(Math.random() * available.length)].id; drawCards(); } };
@@ -374,14 +398,18 @@ function localYutSetup(o) {
       status.textContent = ready ? "팀 배정 완료 · A팀과 B팀 2명씩" : `${count}명 선택 · 네 명을 A팀과 B팀 2명씩 나눠요`;
       status.classList.toggle("ready", ready);
     }
-    const skinIds = o.yutSkins.slice(0, count).filter((id) => ids.includes(id));
-    const skinsReady = skinIds.length === count && new Set(skinIds).size === count;
+    const skinIds = (teamMode ? [o.teamSkins.A, o.teamSkins.B] : o.yutSkins.slice(0, count)).filter((id) => ids.includes(id));
+    const skinNeed = teamMode ? 2 : count;
+    const skinsReady = skinIds.length === skinNeed && new Set(skinIds).size === skinNeed;
     const skinStatus = root.querySelector(".yut-skin-status");
-    skinStatus.textContent = skinsReady ? "\uB9D0 \uC120\uD0DD \uC644\uB8CC" : `\uCE90\uB9AD\uD130 ${skinIds.length}/${count}\uBA85 \uC120\uD0DD \u00B7 \uBAA8\uB450 \uACE8\uB77C \uC8FC\uC138\uC694`;
+    skinStatus.textContent = skinsReady ? "\uB9D0 \uC120\uD0DD \uC644\uB8CC" : teamMode ? `팀 말 ${skinIds.length}/2팀 선택 · 두 팀 말을 서로 다르게 골라 주세요` : `\uCE90\uB9AD\uD130 ${skinIds.length}/${count}\uBA85 \uC120\uD0DD \u00B7 \uBAA8\uB450 \uACE8\uB77C \uC8FC\uC138\uC694`;
     skinStatus.classList.toggle("ready", skinsReady);
   }
   drawCards();
-  return { root, ready: () => o.yutSkins.slice(0, count).every((id) => ids.includes(id)) && new Set(o.yutSkins.slice(0, count)).size === count && (!teamMode || (count === 4 && o.teamPick.slice(0, count).filter((team) => team !== "B").length === 2)) };
+  const skinsChosen = () => teamMode
+    ? ids.includes(o.teamSkins.A) && ids.includes(o.teamSkins.B) && o.teamSkins.A !== o.teamSkins.B
+    : o.yutSkins.slice(0, count).every((id) => ids.includes(id)) && new Set(o.yutSkins.slice(0, count)).size === count;
+  return { root, skinsChosen, ready: () => skinsChosen() && (!teamMode || (count === 4 && o.teamPick.slice(0, count).filter((team) => team !== "B").length === 2)) };
 }
 
 function localYutLobbyScreen(o) {
@@ -395,7 +423,7 @@ function localYutLobbyScreen(o) {
   root.querySelector(".yut-lobby-roster").appendChild(setup.root);
   const start = root.querySelector(".local-yut-start");
   const readyText = root.querySelector(".yut-local-ready");
-  const refresh = () => { const ready = setup.ready(); const picked = o.yutSkins.slice(0, Number(o.people)).filter((id) => YUT_CHAR_IDS.has(id)).length; start.disabled = !ready; readyText.textContent = ready ? "\uB9D0\uACFC \uD300 \uC900\uBE44\uAC00 \uC644\uB8CC\uB410\uC5B4\uC694" : picked < Number(o.people) ? `\uCE90\uB9AD\uD130 ${picked}/${Number(o.people)}\uBA85\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694` : "\uD300\uC744 A\uD300\uACFC B\uD300\uC5D0 \uB450 \uBA85\uC529 \uB098\uB220 \uC8FC\uC138\uC694"; };
+  const refresh = () => { const ready = setup.ready(); const picked = o.yutSkins.slice(0, Number(o.people)).filter((id) => YUT_CHAR_IDS.has(id)).length; start.disabled = !ready; readyText.textContent = ready ? "\uB9D0\uACFC \uD300 \uC900\uBE44\uAC00 \uC644\uB8CC\uB410\uC5B4\uC694" : !setup.skinsChosen() ? (o.team === "1" ? "두 팀의 말을 서로 다르게 골라 주세요" : `\uCE90\uB9AD\uD130 ${picked}/${Number(o.people)}\uBA85\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694`) : "\uD300\uC744 A\uD300\uACFC B\uD300\uC5D0 \uB450 \uBA85\uC529 \uB098\uB220 \uC8FC\uC138\uC694"; };
   const observer = new MutationObserver(refresh);
   observer.observe(setup.root, { childList: true, subtree: true });
   root.querySelector(".topbar .icon-btn").onclick = () => homeScreen();
@@ -407,7 +435,7 @@ function localYutLobbyScreen(o) {
 
 function chooseMode(game) {
   const saved = store.get(`opts.${game}`, {});
-  const o = { mode: "ai", level: "normal", time: "none", color: game === "omok" ? "b" : "w", rule: "33", bots: 1, people: 2, friend: "친구", pieces: "3", chaos: "chaos", ...saved };
+  const o = { mode: "ai", level: "normal", time: "none", turn: "none", color: game === "omok" ? "b" : "w", rule: "33", bots: 1, people: 2, friend: "친구", pieces: "3", chaos: "chaos", ...saved };
   if (game === "yut" && o.mode === "ai") o.mode = "local"; // 윷놀이는 사람끼리만 (컴퓨터 대전 없음)
   const body = el(`<div></div>`);
   let close;
@@ -423,6 +451,7 @@ function chooseMode(game) {
     }
     if (game === "omok") {
       body.appendChild(option("규칙", segment([["33", "쌍삼 금지"], ["free", "자유룰"]], o.rule, (v) => { o.rule = v; })));
+      body.appendChild(option("한 수 시간", segment(Object.entries(omok.TURN_LIMITS).map(([k, v]) => [k, v[0]]), o.turn, (v) => { o.turn = v; })));
       if (o.mode !== "local") body.appendChild(option(o.mode === "online" ? "방장(나)의 돌" : "내 돌", segment([["b", "흑 (먼저)"], ["w", "백"], ["random", "무작위"]], o.color, (v) => { o.color = v; })));
     }
     if (game === "yacht" && o.mode === "ai") body.appendChild(option("컴퓨터 수", segment([1, 2, 3, 4, 5].map((n) => [n, `${n}명`]), o.bots, (v) => { o.bots = v; })));
@@ -430,11 +459,12 @@ function chooseMode(game) {
     if (game === "yut") {
       if (o.mode === "local" && Number(o.people) !== 4) o.team = "";
       body.appendChild(option("모드", segment(Object.entries(yut.MODES), o.chaos, (v) => { o.chaos = v; })));
-      body.appendChild(option("말 개수", segment([["2", "2개 (빨리)"], ["3", "3개"], ["4", "4개 (길게)"]], o.pieces, (v) => { o.pieces = v; })));
+      if (o.team !== "1") body.appendChild(option("말 개수", segment([["2", "2개 (빨리)"], ["3", "3개"], ["4", "4개 (길게)"]], o.pieces, (v) => { o.pieces = v; })));
       if (o.mode === "local") body.appendChild(option("같이 하는 사람 수 (나 포함)", segment([2, 3, 4].map((n) => [n, `${n}명`]), Math.min(4, o.people), (v) => { o.people = v; if (Number(v) !== 4) o.team = ""; draw(); })));
       if (o.mode === "online" || Number(o.people) === 4) { // 팀전은 4명일 때만 (1 · 3번 자리 A팀, 2 · 4번 자리 B팀)
         body.appendChild(option("팀", segment([["", "개인전"], ["1", "2:2 팀전"]], o.team || "", (v) => { o.team = v; draw(); })));
-        if (o.mode === "online") body.appendChild(el(`<p class="muted" style="margin:-4px 0 8px;font-size:13px">팀전은 4명이 모였을 때만 돼요. 팀은 대기실에서 방장이 나눠요.</p>`));
+        if (o.team === "1") body.appendChild(el(`<p class="muted" style="margin:-4px 0 8px;font-size:13px">팀마다 같은 캐릭터의 말 4개와 능력 카드 한 벌을 같이 써요.${o.mode === "online" ? " 팀전은 4명이 모였을 때만 돼요. 팀은 대기실에서 방장이 나눠요." : ""}</p>`));
+        else if (o.mode === "online") body.appendChild(el(`<p class="muted" style="margin:-4px 0 8px;font-size:13px">팀전은 4명이 모였을 때만 돼요.</p>`));
       }
     }
     if (game !== "yacht" && game !== "yut" && o.mode === "local") {
@@ -464,7 +494,7 @@ function chooseMode(game) {
       store.set(`opts.${game}`, o);
       close();
       if (o.mode === "online") {
-        const base = game === "chess" ? { time: o.time, color: o.color } : game === "omok" ? { rule: o.rule, color: o.color }
+        const base = game === "chess" ? { time: o.time, color: o.color } : game === "omok" ? { rule: o.rule, turn: o.turn, color: o.color }
           : game === "yut" ? { pieces: o.pieces, chaos: o.chaos, team: o.team || "" } : {};
         createRoom(game, { ...base, private: o.private || "" });
       }
@@ -505,7 +535,9 @@ function startLocal(game, o) {
       ...(i === 0 ? me : { name: `친구 ${i}`, intro: "", ai: false }),
       avatar: YUT_CHAR_IDS.has(skins[i]) ? skins[i] : "",
     }));
-    if (n === 4 && o.team === "1" && Array.isArray(o.teamPick)) seats = teamOrder(seats, (_, i) => o.teamPick[i] === "B");
+    if (n === 4 && o.team === "1" && Array.isArray(o.teamPick)) {
+      seats = teamOrder(seats, (_, i) => o.teamPick[i] === "B").map((s, i) => ({ ...s, avatar: o.teamSkins?.[i % 2 ? "B" : "A"] || s.avatar }));
+    }
     mySeats = seats.map((_, i) => i);
   } else if (game === "yacht") {
     if (o.mode === "ai") {
@@ -522,7 +554,7 @@ function startLocal(game, o) {
     seats = meFirst ? [me, other] : [other, me];
     mySeats = o.mode === "local" ? [0, 1] : [meFirst ? 0 : 1];
   }
-  const settings = game === "chess" ? { time: o.time } : game === "omok" ? { rule: o.rule } : game === "yut" ? { pieces: o.pieces, chaos: o.chaos, team: Number(o.people) === 4 ? o.team || "" : "" } : {};
+  const settings = game === "chess" ? { time: o.time } : game === "omok" ? { rule: o.rule, turn: o.turn } : game === "yut" ? { pieces: o.pieces, chaos: o.chaos, team: Number(o.people) === 4 ? o.team || "" : "" } : {};
   const begin = () => {
     if (match) { match.destroy(); match = null; }
     match = new Match({
@@ -597,6 +629,7 @@ net.on("room", (msg) => {
   online.room = msg.room;
   announceStreaks(prev, msg.room);
   if (match?.online) {
+    syncSpectators();
     match.isHost = msg.room.host === net.myId();
     match.streaks = new Map(msg.room.members.map((x) => [x.cid, x.streak || 0]));
     const on = new Map(msg.room.members.map((x) => [x.cid, x.online]));
@@ -609,10 +642,17 @@ net.on("room", (msg) => {
   else online.wait.update();
 });
 
+/** 게임 중: 자리에 없는 방 사람들을 관전자로 채팅 칸에 표시 */
+function syncSpectators() {
+  if (!match?.online || !online.room) return;
+  const seated = new Set(match.seats.map((s) => s.cid));
+  match.chat.setSpectators(online.room.members.filter((x) => !seated.has(x.cid)).map((x) => x.name));
+}
+
 net.on("log", (msg) => {
   const start = msg.acts.findIndex((e) => e.a.type === "start");
   if (start < 0) return;
-  startOnline(msg.acts[start]);
+  startOnline(msg.acts[start], true);
   match.replaying = true;
   for (const e of msg.acts.slice(start + 1)) match.receive(e);
   match.replaying = false;
@@ -629,7 +669,8 @@ net.on("act", (entry) => {
 net.on("chat", (msg) => {
   if (match?.online) match.onChat(msg);
   else if (online.chat) {
-    online.chat.add(msg.name, msg);
+    const member = online.room?.members.find((x) => x.cid === msg.from);
+    online.chat.add(member?.role === "spectator" ? `${msg.name} (관전)` : msg.name, msg);
     if (msg.sticker) play("pop");
   }
 });
@@ -675,7 +716,7 @@ function leaveRoom(toHome = false) {
   if (toHome) homeScreen(); else lobbyScreen();
 }
 
-function startOnline(entry) {
+function startOnline(entry, replaying = false) {
   const a = entry.a;
   if (!MODULES[a.game] || !Array.isArray(a.seats)) return;
   if (match) { match.destroy(); match = null; }
@@ -684,13 +725,14 @@ function startOnline(entry) {
   const seats = a.seats.map((s) => ({ cid: String(s.cid), name: String(s.name).slice(0, 12), avatar: a.game === "yut" ? (typeof s.yut_skin === "string" ? s.yut_skin : "") : s.avatar, intro: String(s.intro || "").slice(0, 30), ai: false }));
   const me = seats.findIndex((s) => s.cid === net.myId());
   match = new Match({
-    game: a.game, mode: "online", seats, mySeats: me >= 0 ? [me] : [], settings: { ...(a.settings || {}), seed: a.seed }, level: "normal",
-    module: MODULES[a.game], isHost: online.room?.host === net.myId(),
+    game: a.game, mode: "online", seats, mySeats: me >= 0 ? [me] : [], settings: { ...(a.settings || {}), seed: a.seed, startedAt: entry.at }, level: "normal",
+    module: MODULES[a.game], isHost: online.room?.host === net.myId(), replaying,
     onExit: () => leaveRoom(), onAgain: () => net.send({ t: "reset" }),
   });
   match.lastSeq = entry.seq;
   match.streaks = new Map((online.room?.members || []).map((x) => [x.cid, x.streak || 0]));
   match.setNet(online.status);
+  syncSpectators();
   show({ root: match.root, back: () => match?.exit() });
 }
 
@@ -798,7 +840,7 @@ function waitingScreen() {
         <div class="row start-row" style="justify-content:flex-end;margin-top:6px"></div></div>`;
     if (r.game !== "yut") main.querySelector(".pl").innerHTML = players.map((x) => personHtml(x, { extra: tag(x), cls: x.online ? "" : "off" })).join("") || `<div class="empty">아직 아무도 없어요</div>`;
     if (queue.length) main.querySelector(".qu").innerHTML = queue.map((x, k) => personHtml(x, { extra: tag(x), cls: x.online ? "" : "off", sub: `${k + 1}번째 대기${x.intro ? " · " + x.intro : ""}` })).join("");
-    if (specs.length) main.querySelector(".sp").innerHTML = specs.map((x) => personHtml(x, { extra: tag(x), cls: x.online ? "" : "off" })).join("");
+    if (specs.length) main.querySelector(".sp").innerHTML = specs.map((x) => personHtml({ ...x, name: `${x.name} (관전)` }, { extra: tag(x), cls: x.online ? "" : "off" })).join("");
     main.querySelector('[data-k="qr"]').onclick = () => showQr(r, link);
     main.querySelector('[data-k="share"]').onclick = async () => {
       const text = `KI득KI득 ${GAME_NAMES[r.game]} 같이 해요! 방 코드 ${r.id}`;
@@ -819,7 +861,7 @@ function waitingScreen() {
       const teamB = roomTeamB(r, players);
       const roster = el(`<section class="yut-room-setup" aria-label="윷놀이 준비">
         <div class="yut-setup-head"><div><strong>${teamMode ? "팀과 말 정하기" : "내 말 캐릭터 고르기"}</strong>
-          <span>${teamMode ? "플레이어 카드를 끌어다 놓거나 팀 이동 버튼을 누르세요" : "각자 사용할 말을 대기실에서 미리 골라요"}</span></div>
+          <span>${teamMode ? "플레이어 카드를 끌어다 놓거나 팀 이동 버튼을 누르세요 · 팀마다 말 하나를 같이 써요" : "각자 사용할 말을 대기실에서 미리 골라요"}</span></div>
           ${teamMode ? `<div class="team-totals"><span class="team-count team-a"><b data-team-count="A">0</b> / 2 A팀</span><span class="team-count team-b"><b data-team-count="B">0</b> / 2 B팀</span></div>` : `<span class="yut-skin-progress"></span>`}
         </div><div class="yut-roster-board ${teamMode ? "teams" : "solo"}"></div>
         ${teamMode ? `<p class="team-status" aria-live="polite"></p>` : ""}
@@ -848,7 +890,7 @@ function waitingScreen() {
       for (const [team, label] of columns) {
         const col = el(`<section class="yut-team-column team-${team.toLowerCase()}" data-team-column="${team}">
           <div class="yut-team-column-head"><strong>${label}</strong>${teamMode ? `<span><b data-column-count="${team}">0</b>명</span>` : `<span>${players.length}명</span>`}</div>
-          <div class="yut-team-members" data-team-list="${team}"></div>
+          ${teamMode ? `<div class="yut-team-skin-slot" data-skin-slot="${team}"></div>` : ""}<div class="yut-team-members" data-team-list="${team}"></div>
         </section>`);
         lists[team] = col.querySelector(".yut-team-members");
         if (isHost && teamMode) {
@@ -864,14 +906,30 @@ function waitingScreen() {
       }
       const playerCards = new Map();
       const teamOfCid = (cid) => teamMode && teamB.has(cid) ? "B" : "A";
+      const teamSkins = r.team_skins || { A: "", B: "" };
+      if (teamMode) {
+        for (const team of ["A", "B"]) {
+          const other = team === "A" ? "B" : "A";
+          const canPick = isHost || (mine?.role === "player" && teamOfCid(me) === team);
+          const pick = canPick ? (id) => {
+            if (!net.isOpen()) { toast("서버 연결을 확인한 뒤 다시 선택해 주세요"); return; }
+            net.send({ t: "yut_team_skin", team, skin: id });
+            teamSkins[team] = id;
+            online.wait?.update();
+            play("pop");
+          } : null;
+          roster.querySelector(`[data-skin-slot="${team}"]`).replaceChildren(teamSkinPicker(team, teamSkins[team], teamSkins[other], pick));
+        }
+      }
       const updateSetupStatus = () => {
-        const skinIds = players.map((p) => p.avatar);
+        const skinIds = teamMode ? [teamSkins.A, teamSkins.B] : players.map((p) => p.avatar);
         const validSkins = skinIds.filter((id) => YUT_ROOM_SKINS.some((c) => c.id === id));
         const uniqueSkins = new Set(validSkins);
-        const skinsReady = players.length >= 2 && validSkins.length === players.length && uniqueSkins.size === players.length;
+        const skinNeed = teamMode ? 2 : players.length;
+        const skinsReady = players.length >= 2 && validSkins.length === skinNeed && uniqueSkins.size === skinNeed;
         const selected = uniqueSkins.size;
         const skinStatus = roster.querySelector(".yut-skin-status");
-        skinStatus.textContent = skinsReady ? "\uC804\uC6D0 \uC11C\uB85C \uB2E4\uB978 \uCE90\uB9AD\uD130\uB97C \uACE8\uB790\uC5B4\uC694" : `\uB9D0 \uCE90\uB9AD\uD130 ${selected}/${players.length}\uBA85 \uC120\uD0DD`;
+        skinStatus.textContent = skinsReady ? (teamMode ? "\uB450 \uD300 \uB9D0\uC744 \uBAA8\uB450 \uACE8\uB790\uC5B4\uC694" : "\uC804\uC6D0 \uC11C\uB85C \uB2E4\uB978 \uCE90\uB9AD\uD130\uB97C \uACE8\uB790\uC5B4\uC694") : teamMode ? `팀 말 ${selected}/2팀 선택` : `\uB9D0 \uCE90\uB9AD\uD130 ${selected}/${players.length}\uBA85 \uC120\uD0DD`;
         skinStatus.classList.toggle("ready", skinsReady);
         const progress = roster.querySelector(".yut-skin-progress");
         if (progress) progress.textContent = `${selected}/${players.length}명 말 선택`;
@@ -904,7 +962,7 @@ function waitingScreen() {
       };
       for (const [i, p] of players.entries()) {
         const currentTeam = teamOfCid(p.cid);
-        const pickedSkin = YUT_ROOM_SKINS.find((c) => c.id === p.avatar);
+        const pickedSkin = YUT_ROOM_SKINS.find((c) => c.id === (teamMode ? teamSkins[currentTeam] : p.avatar));
         const previewSkin = pickedSkin?.id;
         const card = el(`<article class="yut-room-player" data-player="${esc(p.cid)}" data-team="${currentTeam}">
           <div class="yut-player-top">${teamMode && isHost ? `<button type="button" class="team-drag-handle" aria-label="\uD50C\uB808\uC774\uC5B4 \uD300 \uC774\uB3D9" title="\uB04C\uC5B4\uC11C \uD300 \uC774\uB3D9">?</button>` : ""}<span class="yut-character-preview">${previewSkin ? `<svg viewBox="-11 -27 22 29" aria-hidden="true">${yutCharSvg(previewSkin)}</svg>` : `<span class="yut-character-none">?</span>`}</span>
@@ -920,7 +978,8 @@ function waitingScreen() {
           dragHandle.addEventListener("dragend", () => { card.classList.remove("dragging"); board.querySelectorAll(".drop-over").forEach((x) => x.classList.remove("drop-over")); });
           card.querySelector(".team-move-btn").onclick = () => movePlayerToTeam(p.cid, card.dataset.team === "A" ? "B" : "A");
         }
-        if (p.cid === me || isHost) {
+        if (teamMode) card.querySelector(".yut-character-picker").remove(); // 말은 팀 칸에서 고름
+        else if (p.cid === me || isHost) {
           const picker = card.querySelector(".yut-character-picker");
           const controls = el(`<div class="yut-picker-controls"><button type="button" class="yut-character-choice yut-character-default${!pickedSkin ? " selected" : ""}" aria-pressed="${!pickedSkin}"><span class="yut-default-icon">?</span><span>\uC120\uD0DD \uC548 \uD568</span></button><button type="button" class="yut-character-choice yut-random-choice">&#127922; <span>\uB79C\uB364</span></button></div>`);
           controls.querySelector(".yut-character-default").addEventListener("click", (event) => chooseSkin(event.currentTarget, p.cid));
@@ -944,6 +1003,7 @@ function waitingScreen() {
       settings.appendChild(roster);
     } else if (r.game === "omok") {
       settings.appendChild(option("규칙", isHost ? segment([["33", "쌍삼 금지"], ["free", "자유룰"]], s.rule || "33", change("rule")) : el(`<div>${s.rule === "free" ? "자유룰" : "쌍삼 금지"}</div>`)));
+      settings.appendChild(option("한 수 시간", isHost ? segment(Object.entries(omok.TURN_LIMITS).map(([k, v]) => [k, v[0]]), s.turn || "none", change("turn")) : el(`<div>${esc(omok.TURN_LIMITS[s.turn]?.[0] || "무제한")}</div>`)));
       settings.appendChild(option("방장의 돌", isHost ? segment([["b", "흑"], ["w", "백"], ["random", "무작위"]], s.color || "b", change("color")) : el(`<div>${{ b: "흑", w: "백", random: "무작위" }[s.color] || "흑"}</div>`)));
     }
     if (isHost && r.game !== "yut") settings.appendChild(option("방 공개", segment([["", "열린 방 목록에 보이기"], ["1", "비공개 (코드로만)"]], s.private || "", change("private"))));
@@ -968,13 +1028,15 @@ function waitingScreen() {
       const go = el(`<button class="btn primary big">시작하기</button>`);
       const yutTeamReady = r.game !== "yut" || r.settings.team !== "1" ||
         (players.length === 4 && players.filter((p) => roomTeamB(r, players).has(p.cid)).length === 2);
-      const pickedSkins = players.map((p) => p.avatar).filter((id) => YUT_ROOM_SKINS.some((c) => c.id === id));
-      const yutSkinsReady = r.game !== "yut" || (players.length >= 2 && pickedSkins.length === players.length && new Set(pickedSkins).size === players.length);
+      const yutTeamGame = r.game === "yut" && r.settings.team === "1";
+      const pickedSkins = (yutTeamGame ? [r.team_skins?.A, r.team_skins?.B] : players.map((p) => p.avatar)).filter((id) => YUT_ROOM_SKINS.some((c) => c.id === id));
+      const skinNeed = yutTeamGame ? 2 : players.length;
+      const yutSkinsReady = r.game !== "yut" || (players.length >= 2 && pickedSkins.length === skinNeed && new Set(pickedSkins).size === skinNeed);
       go.disabled = players.length < need || r.status === "playing" || !players.every((x) => x.online) || !yutTeamReady || !yutSkinsReady;
       go.onclick = () => startRoomGame(r);
       startRow.appendChild(go);
       if (players.length < need) startRow.appendChild(el(`<div class="muted" style="width:100%;text-align:right">친구가 ${need - players.length}명 더 들어오면 시작할 수 있어요</div>`));
-      else if (r.game === "yut" && !yutSkinsReady) startRow.appendChild(el(`<div class="muted yut-start-note">모든 플레이어가 서로 다른 말 캐릭터를 골라야 시작할 수 있어요</div>`));
+      else if (r.game === "yut" && !yutSkinsReady) startRow.appendChild(el(`<div class="muted yut-start-note">${yutTeamGame ? "두 팀의 말을 서로 다르게 골라야 시작할 수 있어요" : "모든 플레이어가 서로 다른 말 캐릭터를 골라야 시작할 수 있어요"}</div>`));
       else if (r.game === "yut" && !yutTeamReady) startRow.appendChild(el(`<div class="muted yut-start-note">A팀과 B팀을 2명씩 배정해 주세요</div>`));
     } else {
       startRow.appendChild(el(`<div class="muted">방장이 시작하기를 기다리는 중...</div>`));
@@ -1015,7 +1077,7 @@ function startRoomGame(r) {
     order = teamOrder(order, (c) => tb.has(c));
     team = "1";
   }
-  const settings = r.game === "chess" ? { time: r.settings.time || "none" } : r.game === "omok" ? { rule: r.settings.rule || "33" }
+  const settings = r.game === "chess" ? { time: r.settings.time || "none" } : r.game === "omok" ? { rule: r.settings.rule || "33", turn: r.settings.turn || "none" }
     : r.game === "yut" ? { pieces: r.settings.pieces || "3", chaos: r.settings.chaos || "chaos", team } : {};
   net.send({ t: "act", a: { type: "start", game: r.game, settings, order } });
 }

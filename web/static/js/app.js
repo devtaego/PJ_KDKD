@@ -94,15 +94,33 @@ function equipTitle(id) {
   saveProfile();
   onTitlesChanged?.();
 }
+// 칭호를 얻으면 위에서 살짝 내려오는 알림. 한 번에 여러 개를 얻으면 하나씩 차례로 보여 줌
+const TITLE_POPUP_MS = 2600;
+const titlePopups = [];
+function nextTitlePopup() {
+  const id = titlePopups[0];
+  if (!id) return;
+  const popup = el(`<div class="title-popup" role="status"><span class="title-popup-label">칭호 획득!</span>${titleBadge(id)}${TITLES[id].how ? `<span class="title-popup-how">${esc(TITLES[id].how)}</span>` : ""}</div>`);
+  document.body.appendChild(popup);
+  play("pop");
+  setTimeout(() => {
+    popup.remove();
+    titlePopups.shift();
+    nextTitlePopup();
+  }, TITLE_POPUP_MS);
+}
+function showTitlePopup(id) {
+  titlePopups.push(id);
+  if (titlePopups.length === 1) nextTitlePopup();
+}
+
 net.on("title_grant", (msg) => {
   if (!TITLES[msg.title] || typeof msg.token !== "string") return;
   const fresh = !titleTokens[msg.title];
   titleTokens = { ...titleTokens, [msg.title]: msg.token };
   store.set("titles", titleTokens);
-  if (fresh) {
-    toast(`칭호 획득: ${TITLES[msg.title].name}!`, 3000);
-    play("pop");
-  } else if (msg.via === "code") toast("이미 가진 칭호예요");
+  if (fresh) showTitlePopup(msg.title);
+  else if (msg.via === "code") toast("이미 가진 칭호예요");
   if (msg.via === "code") equipTitle(msg.title); // 이겨서 받은 칭호는 직접 골라서 닮 (연패 칭호가 저절로 달리지 않게)
   else onTitlesChanged?.();
 });

@@ -91,11 +91,29 @@ export function connect(p) {
       emit("sleep", {});
       return;
     }
+    if (ev.code === 4001) { // 같은 브라우저의 다른 탭이 연결을 가져감 → 바로 되찾으면 탭끼리 계속 밀어내므로, 이 탭을 다시 쓸 때까지 기다림
+      sleeping = true;
+      emit("replaced", {});
+      return;
+    }
     if (wantOpen) {
       retry++;
       setTimeout(() => wantOpen && !sleeping && connect(profile), Math.min(1000 * retry, 5000));
     }
   };
+}
+
+/** 연결이 살아 있는지 모를 때 새로 연결 (죽은 연결은 닫히기까지 오래 걸려서 기다리지 않음) */
+export function reconnect() {
+  if (ws) {
+    ws.onclose = null;
+    ws.onmessage = null;
+    ws.close();
+    ws = null;
+  }
+  clearInterval(pingTimer);
+  emit("status", "closed");
+  connect(profile);
 }
 
 function wake() {

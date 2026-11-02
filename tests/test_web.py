@@ -12,7 +12,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "web"))
 
 try:
-    from aiohttp import web
+    from aiohttp import WSMsgType, web
     from aiohttp.test_utils import TestClient, TestServer
     os.environ["KIDK_RANKING_FILE"] = os.path.join(tempfile.mkdtemp(), "ranking.json")
     os.environ.pop("SUPABASE_URL", None)
@@ -57,6 +57,17 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         for path in ("/", "/js/app.js", "/style.css", "/fonts/Jua-Regular.ttf", "/healthz"):
             resp = await self.client.get(path)
             self.assertEqual(resp.status, 200, path)
+
+    async def test_new_tab_tells_old_tab_it_was_replaced(self):
+        old = await self.connect("aaaaaaaa1", "태고")
+        new = await self.connect("aaaaaaaa1", "태고")
+        # 옛 탭은 이 코드를 보고 자동으로 다시 붙지 않음 (탭끼리 밀어내기 방지)
+        # close_code는 답장을 보내다 실패하면 덮어써지므로, 서버가 보낸 닫기 메시지를 직접 확인
+        msg = await asyncio.wait_for(old.receive(), 15)
+        while msg.type is WSMsgType.TEXT:
+            msg = await asyncio.wait_for(old.receive(), 15)
+        self.assertEqual((msg.type, msg.data), (WSMsgType.CLOSE, 4001))
+        await new.close()
 
     async def test_room_flow(self):
         a = await self.connect("aaaaaaaa1", "태고")

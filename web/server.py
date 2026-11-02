@@ -39,8 +39,19 @@ RANKING_FILE = os.environ.get("KIDK_RANKING_FILE", os.path.join(HERE, "ranking.j
 GAMES = {"chess": 2, "omok": 2, "yacht": 6, "yut": 4}  # 게임 -> 최대 플레이어 수
 SETTING_KEYS = {"time", "turn", "color", "rule", "private", "pieces", "chaos", "team", "tb"}  # 방 설정으로 받는 값
 # 칭호: 화면 쪽 목록은 static/js/data/titles.js. 코드는 해시만 둠 (새 코드: sha256(대문자 코드).hexdigest())
-TITLE_IDS = {"dev", "kda", "first_win", "chess_s2", "chess_s3", "chess_s5", "chess_s7", "chess_s10", "omok_s2", "omok_s3", "omok_s5", "omok_s7", "omok_s10", "yacht_s2", "yacht_s3", "yacht_s5", "yacht_s7", "yacht_s10", "yut_win", "yut_s2", "yut_s3", "yut_s5", "yut_s7", "yut_s10", "first_game", "spectator", "draw", "teabag", "teabag3", "fast_win", "long_win", "night_win", "comeback", "yut_team", "yut_chaos", "lose_3", "lose_5", "lose_10"}
+TITLE_IDS = {"dev", "kda", "first_win", "chess_s2", "chess_s3", "chess_s5", "chess_s7", "chess_s10", "omok_s2", "omok_s3", "omok_s5", "omok_s7", "omok_s10", "yacht_s2", "yacht_s3", "yacht_s5", "yacht_s7", "yacht_s10", "yut_win", "yut_s2", "yut_s3", "yut_s5", "yut_s7", "yut_s10", "first_game", "spectator", "draw", "teabag", "teabag3", "fast_win", "long_win", "night_win", "comeback", "yut_team", "yut_chaos", "lose_3", "lose_5", "lose_10", "q_about", "q_rules", "q_theme", "q_wrong", "q_nick", "q_sound", "q_flip", "q_logo", "q_tap"}
+# 브라우저가 조건을 세서 신청하는 재미용 칭호 (서버가 확인할 수 없어서 이 목록만 받음. DEV · KDA · 승리 칭호는 신청 불가)
+QUIRK_TITLES = {"q_about", "q_rules", "q_theme", "q_nick", "q_sound", "q_flip", "q_logo", "q_tap"}
 TITLE_CODES = {
+    "106a2537b95173317a7f5fabfbcc4afc80141db5403df11358eeb62cafe21780": "q_about",
+    "b84510a19a4864b1c7c6c5d292c25429a778693ebaf5521ef7828c378c37feb6": "q_rules",
+    "f652b2dace6a7afb3029e6c38dbaff9eb27369102807e77de7af127a4f67956e": "q_theme",
+    "8e8f9adc59fb83d0ad7e6ef314267ede7b368d91dd94d0c4315ab38428cc1742": "q_wrong",
+    "0fc991270470d18b06115d08e6d772986f5f57712e7d17f8060b2f3ef3c0f867": "q_nick",
+    "9ebe220cfe767e4472ea8e4f6f58959ab216437954a1f84d8c3b50661ed48d15": "q_sound",
+    "c5910818b6417a45dfb03847eaeea5c115120f90cada9c70ff0e881d8c9965fc": "q_flip",
+    "54b2be7d438de4abdf83107fc3ce9083bfa3a3a916992e9beb7b30b4781f6581": "q_logo",
+    "26a6a24fda990a0b0bcabff77376c08c23ceda6cf45aca6137a7650dd8d5c935": "q_tap",
     "6c072a4839fe4be0aefdf8b989474e6988ae47003c0f12e9367a2e02769cfa61": "first_game",
     "80f48348c33b6f5200b27c236c58997e056705b3e97b8f3d58d372f74cf3aaa3": "spectator",
     "1a6c4739ecb533e82b65686ee0dbdf6c036586be4e343651de239fc4656d0aa2": "draw",
@@ -201,6 +212,7 @@ class Client:
         self.sent = {"all": [], "chat": [], "redeem": []}  # 최근 보낸 메시지 시각 (도배 막기)
         self.sent_chat = []
         self.teabag_wins = 0  # 이기고 티배깅한 판 수 (칭호용)
+        self.wrong_codes = 0  # 틀리게 넣은 칭호 코드 수 (칭호용)
 
     def allow(self, kind, limit):
         now = time.time()
@@ -548,6 +560,14 @@ class Hub:
             code = "".join(str(msg.get("code") or "").upper().split())[:40]
             title = title_from_code(code)
             await client.send({"t": "title_grant", "title": title, "token": title_token(client.cid, title), "via": "code"} if title else {"t": "title_bad"})
+            if not title:
+                client.wrong_codes += 1
+                if client.wrong_codes >= 5:
+                    await self.grant_titles(client.cid, ["q_wrong"])
+            return
+        if t == "quirk":  # 브라우저가 세어 본 재미용 칭호 신청
+            if client.allow("redeem", RATE_CHAT) and msg.get("title") in QUIRK_TITLES:
+                await self.grant_titles(client.cid, [msg["title"]])
             return
         if t == "title_backup":  # 가진 칭호의 복구 코드 받기
             title, token = msg.get("title"), msg.get("token")

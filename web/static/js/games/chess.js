@@ -3,7 +3,7 @@ import { Position, bestMove, moveSan, gameOver, sameMove, opponent, materialInfo
 import { askAi } from "../engine/ai_client.js";
 import { pieceSvg } from "../art.js";
 import { seatCard } from "../match.js";
-import { el, toast, confirmBox, modal } from "../ui.js";
+import { el, toast, confirmBox, modal, countQuirk } from "../ui.js";
 
 const UNDO_LIMIT = 2;
 export const TIME_MODES = { none: ["무제한", null], "10": ["10분", [600, 0]], "3+2": ["3분+2초", [180, 2]] };
@@ -320,7 +320,7 @@ export function create(m) {
       actions.push({ label: "무르기", onClick: askUndo, disabled: !canUndo() });
       actions.push({ label: "항복", onClick: resignMine });
     }
-    actions.push({ label: "⇅ 판 돌리기 (C)", short: "⇅", title: "판 방향 바꾸기 (단축키 C)", onClick: () => { flipped = !flipped; render(); } });
+    actions.push({ label: "⇅ 판 돌리기 (C)", short: "⇅", title: "판 방향 바꾸기 (단축키 C)", onClick: () => { flipped = !flipped; countQuirk("flip"); render(); } });
     m.setTopActions(actions);
     maybeAi();
   }
@@ -331,6 +331,7 @@ export function create(m) {
     if (e.target.closest?.("input, textarea, select, [contenteditable=true]") || document.querySelector(".modal-back")) return;
     e.preventDefault();
     flipped = !flipped;
+    countQuirk("flip");
     render();
   };
   document.addEventListener("keydown", onFlipKey);

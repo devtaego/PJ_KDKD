@@ -8,6 +8,9 @@ const SPEAKER = `<path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor" stroke="cur
 const WAVES = `<path d="M16 9.2a4 4 0 0 1 0 5.6M18.6 6.6a7.6 7.6 0 0 1 0 10.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`;
 const MUTE = `<path d="M16.5 9.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`;
 
+/** 재미용 칭호 조건 하나 세기 (app.js 가 듣고 저장함). value: 같은 값은 한 번만 세는 조건에서 씀 */
+export const countQuirk = (key, value = null) => window.dispatchEvent(new CustomEvent("quirk", { detail: { key, value } }));
+
 /** 오른쪽 위 스피커 버튼: 누르면 효과음 켜기 / 끄기 */
 export function soundButton(cls = "") {
   const b = el(`<button class="icon-btn sound-btn ${cls}" type="button"></button>`);
@@ -18,7 +21,7 @@ export function soundButton(cls = "") {
     b.classList.toggle("off", !soundOn());
   };
   paint();
-  b.onclick = (e) => { e.stopPropagation(); setSound(!soundOn()); paint(); play("click"); };
+  b.onclick = (e) => { e.stopPropagation(); setSound(!soundOn()); paint(); play("click"); countQuirk("sound"); };
   return b;
 }
 

@@ -71,6 +71,7 @@ export function create(m) {
   let sel = null; // 고른 말 번호 (업힌 말은 맨 앞 번호)
   let selOwner = null; // 고른 말의 주인 (팀전에서 내 말이 다 들어오면 같은 팀 말을 옮김)
   let armed = null; // 결과 버튼을 먼저 눌렀을 때 그 결과 번호 (다음에 누르는 말을 이 결과로 옮김)
+  let turnBarHtml = "", playerCardsHtml = ""; // 차례 상자 · 자리 카드도 같은 내용이면 그대로 둠 (칭호 효과가 처음부터 다시 시작되지 않게)
   let resultsHtml = ""; // 같은 내용이면 다시 그리지 않음 (누르는 도중에 버튼이 바뀌면 클릭이 사라져서)
   let targeting = null; // { hand, def, own? }
   let tossing = false;
@@ -745,8 +746,9 @@ export function create(m) {
         : (mine ? `말을 옮겨요 · 결과 ${game.pending.length}개` : "말 옮기는 중");
     turnBarEl.style.setProperty("--pc", PLAYER_COLORS[side]);
     turnBarEl.classList.toggle("mine", mine && !tossing && !anim && !game.over);
-    turnBarEl.innerHTML = `<span class="ytb-char"><svg viewBox="-11 -27 22 29" aria-hidden="true">${charSvg(skins[side])}</svg></span>
-      <b>${esc(seatNames[seat])}</b>${game.teams ? `<span class="ys-team t${seat % 2}">${teamOf(seat)}</span>` : ""}<span class="ytb-turn">차례</span><span class="ytb-task">${esc(task)}</span>`;
+    const nextTurnBar = `<span class="ytb-char"><svg viewBox="-11 -27 22 29" aria-hidden="true">${charSvg(skins[side])}</svg></span>
+      <b><span class="${titleFx(m.seats[seat].title)}">${esc(seatNames[seat])}</span></b>${titleBadge(m.seats[seat].title)}${game.teams ? `<span class="ys-team t${seat % 2}">${teamOf(seat)}</span>` : ""}<span class="ytb-turn">차례</span><span class="ytb-task">${esc(task)}</span>`;
+    if (nextTurnBar !== turnBarHtml) turnBarEl.innerHTML = turnBarHtml = nextTurnBar;
   }
 
   /** 차례가 넘어가면 판 위에 잠깐 알림 */
@@ -756,7 +758,7 @@ export function create(m) {
     lastTurnSeat = game.current;
     if (first) return;
     const side = game.team(game.current);
-    const flash = el(`<div class="yut-turn-flash" style="--pc:${PLAYER_COLORS[side]}"><svg viewBox="-11 -27 22 29" aria-hidden="true">${charSvg(skins[side])}</svg><span>${esc(seatNames[game.current])} 차례!</span></div>`);
+    const flash = el(`<div class="yut-turn-flash" style="--pc:${PLAYER_COLORS[side]}"><svg viewBox="-11 -27 22 29" aria-hidden="true">${charSvg(skins[side])}</svg><span><span class="${titleFx(m.seats[game.current].title)}">${esc(seatNames[game.current])}</span> 차례!</span></div>`);
     fxEl.appendChild(flash);
     m.later(() => flash.remove(), 1100);
     turnPause = true;
@@ -764,7 +766,7 @@ export function create(m) {
   }
 
   function renderPlayerCards() {
-    playerCardsEl.innerHTML = game.players.map((player, seat) => {
+    const nextCards = game.players.map((player, seat) => {
       const finished = player.pieces.filter((piece) => piece.node === HOME).length;
       const waiting = player.pieces.filter((piece) => piece.node === START).length;
       const onBoardCount = player.pieces.length - finished - waiting;
@@ -776,6 +778,7 @@ export function create(m) {
         ${game.teams ? `<span class="yut-mini-team t${seat % 2}">${teamOf(seat)}</span>` : ""}
         ${turn ? `<span class="yut-mini-turn">차례</span>` : ""}</article>`;
     }).join("");
+    if (nextCards !== playerCardsHtml) playerCardsEl.innerHTML = playerCardsHtml = nextCards;
   }
 
   function render() {

@@ -3,7 +3,7 @@
 // 온라인에서는 서버가 순서와 시각을 붙여 모두에게 똑같이 돌려주므로, 모든 기기가 같은 판을 계산함.
 import * as net from "./net.js";
 import { titleBadge, titleFx } from "./data/titles.js";
-import { streakHtml, el, ChatPanel, popAt, showResult, addLocalRecord, confirmBox, toast, modal, soundButton } from "./ui.js";
+import { countQuirk, streakHtml, el, ChatPanel, popAt, showResult, addLocalRecord, confirmBox, toast, modal, soundButton } from "./ui.js";
 import { avatarHtml, esc } from "./art.js";
 import { play } from "./sound.js";
 import { questionFor, replyLine, CHAT_AI_TEXTS, randomOf } from "./party.js";
@@ -410,6 +410,7 @@ export class Match {
 }
 
 export function showRules(game) {
+  countQuirk("rules", game);
   const body = el(`<div class="rules">${RULES_TEXT[game].map((p) => `<p>• ${esc(p)}</p>`).join("")}</div>`);
   modal(`${GAME_NAMES[game]} 규칙`, body);
 }

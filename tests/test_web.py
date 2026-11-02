@@ -370,6 +370,19 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("night_win", server.win_titles(room, 1, 0, now=18 * 3600 + 30))
         self.assertNotIn("night_win", server.win_titles(room, 1, 0, now=6 * 3600))
 
+    async def test_only_quirk_titles_can_be_claimed_and_wrong_codes_count(self):
+        a = await self.connect("aaaaaaaa1", "태고")
+        for title in ("dev", "kda", "chess_s10", "q_wrong", "없는칭호"):  # 신청 목록에 없으면 무시
+            await a.send_json({"t": "quirk", "title": title})
+        await a.send_json({"t": "quirk", "title": "q_logo"})
+        self.assertEqual((await self.until(a, "title_grant"))["title"], "q_logo")
+        b = await self.connect("bbbbbbbb2", "민수")  # 5초에 8번 제한에 걸리지 않게 다른 사람으로
+        for _ in range(5):
+            await b.send_json({"t": "redeem", "code": "wrong-code"})
+        self.assertEqual((await self.until(b, "title_grant"))["title"], "q_wrong")
+        for ws in (a, b):
+            await ws.close()
+
     async def test_same_nickname_blocked_and_reserved_name_replaced(self):
         a, b, code = await self.two_players("chess")
         c = await self.connect("cccccccc3", "민 수")  # 띄어쓰기만 다른 같은 이름

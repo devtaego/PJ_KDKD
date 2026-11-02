@@ -1,7 +1,7 @@
 // KI득KI득 웹판: 첫 화면 · 프로필 · 게임 고르기 · 온라인 방 목록 · 대기실 · 랭킹
 import * as net from "./net.js";
 import { ANIMALS, avatarHtml, photoToSpec, GAME_ICONS, esc, setPhoto } from "./art.js";
-import { el, toast, modal, confirmBox, segment, option, store, ChatPanel, personHtml, soundButton, streakHtml } from "./ui.js";
+import { el, toast, modal, confirmBox, segment, option, store, ChatPanel, personHtml, soundButton, streakHtml, countQuirk } from "./ui.js";
 import { TITLES, titleBadge, titleFx, isReservedName } from "./data/titles.js";
 import { play } from "./sound.js";
 import { Match, showRules } from "./match.js";
@@ -134,6 +134,34 @@ async function redeemCode(code) {
   net.send({ t: "redeem", code });
 }
 
+// 재미용 칭호: 브라우저가 횟수를 세어 두었다가 다 채우면 서버에 신청함. 쌓인 값은 브라우저에 남음
+// 값을 함께 보내는 조건은 서로 다른 값의 개수를 셈 (네 게임 규칙, 모든 테마)
+const QUIRKS = {
+  about: { title: "q_about", goal: 1 },
+  rules: { title: "q_rules", goal: 4 },
+  theme: { title: "q_theme", goal: THEMES.length },
+  nick: { title: "q_nick", goal: 10 },
+  sound: { title: "q_sound", goal: 20 },
+  flip: { title: "q_flip", goal: 20 },
+  logo: { title: "q_logo", goal: 30 },
+  tap: { title: "q_tap", goal: 100 },
+};
+let quirkCounts = store.get("quirks", {});
+window.addEventListener("quirk", async ({ detail: { key, value } }) => {
+  const quirk = QUIRKS[key];
+  if (!quirk || titleTokens[quirk.title]) return;
+  const seen = quirkCounts[key] ?? (value !== null ? [] : 0);
+  const next = value !== null ? [...new Set([...seen, value])] : seen + 1;
+  quirkCounts = { ...quirkCounts, [key]: next };
+  store.set("quirks", quirkCounts);
+  if ((value !== null ? next.length : next) < quirk.goal) return;
+  connect();
+  for (let i = 0; i < 40 && !net.isOpen(); i++) await new Promise((r) => setTimeout(r, 100));
+  if (net.isOpen()) net.send({ t: "quirk", title: quirk.title });
+});
+window.addEventListener("themechange", () => countQuirk("theme", currentTheme()));
+document.addEventListener("click", (e) => { if (e.target.closest?.(".title-logo, .logo")) countQuirk("logo"); });
+
 let titleCodes = store.get("titleCodes", {}); // 칭호 -> 복구 코드
 let onTitleCode = null;
 net.on("title_code", (msg) => {
@@ -155,6 +183,7 @@ function titlesScreen() {
     <div class="card"><div class="title-count"></div><div class="title-rows"></div></div></section>`);
   root.querySelector(".topbar .icon-btn").onclick = () => homeScreen();
   const rows = root.querySelector(".title-rows");
+  rows.addEventListener("click", (e) => { if (e.target.closest(".title-row")) countQuirk("tap"); });
   const listed = Object.entries(TITLES).filter(([, t]) => !t.hidden);
   const draw = () => {
     root.querySelector(".titles-me").innerHTML = `<span class="${titleFx(profile.title)}">${esc(profile.name || "닉네임을 정해 주세요")}</span>${titleBadge(profile.title)}`;
@@ -313,7 +342,12 @@ function homeScreen(focusName = false) {
   nick.value = profile.name;
   intro.value = profile.intro;
   nick.oninput = () => { profile.name = nick.value.trim(); saveProfile(); preview(); };
-  nick.onblur = () => { if (isReservedName(profile.name) && profile.title !== "dev") toast("운영자처럼 보이는 닉네임은 쓸 수 없어요"); };
+  let lastNick = profile.name;
+  nick.onblur = () => {
+    if (isReservedName(profile.name) && profile.title !== "dev") toast("운영자처럼 보이는 닉네임은 쓸 수 없어요");
+    if (lastNick && profile.name && profile.name !== lastNick) countQuirk("nick");
+    if (profile.name) lastNick = profile.name;
+  };
   intro.oninput = () => { profile.intro = intro.value.trim(); saveProfile(); preview(); };
 
   const pick = root.querySelector(".avatar-pick");
@@ -408,6 +442,7 @@ function themePicker() {
 }
 
 function about() {
+  countQuirk("about");
   const body = el(`<div class="rules">
     <section class="plan-hero">
       <div><span class="plan-kicker">KI득KI득 · ICEBREAKING GAMES</span><h3>어색함은 깨고,<br>친해짐은 빠르게</h3>
@@ -497,7 +532,7 @@ function localYutSetup(o) {
       const preview = skin ? `<svg viewBox="-11 -27 22 29" aria-hidden="true">${yutCharSvg(skin.id)}</svg>` : `<span class="yut-character-none">?</span>`;
       const pickedLabel = skin ? `${esc(skin.name)} \uB9D0` : "\uC120\uD0DD \uC548 \uD568";
       const card = el(`<article class="yut-room-player local-yut-player" data-local-player="${i}">
-        <div class="yut-player-top">${teamMode ? `<button type="button" class="team-drag-handle" aria-label="\uD50C\uB808\uC774\uC5B4 \uD300 \uC774\uB3D9" title="\uB04C\uC5B4\uC11C \uD300 \uC774\uB3D9"><svg viewBox="0 0 12 18" width="12" height="18" aria-hidden="true" fill="currentColor"><circle cx="3" cy="3" r="1.7"/><circle cx="9" cy="3" r="1.7"/><circle cx="3" cy="9" r="1.7"/><circle cx="9" cy="9" r="1.7"/><circle cx="3" cy="15" r="1.7"/><circle cx="9" cy="15" r="1.7"/></svg></button>` : ""}<span class="yut-character-preview">${preview}</span><div class="yut-player-label"><strong>${esc(name)}</strong><span class="yut-picked-name">${pickedLabel}</span></div></div>
+        <div class="yut-player-top">${teamMode ? `<button type="button" class="team-drag-handle" aria-label="\uD50C\uB808\uC774\uC5B4 \uD300 \uC774\uB3D9" title="\uB04C\uC5B4\uC11C \uD300 \uC774\uB3D9"><svg viewBox="0 0 12 18" width="12" height="18" aria-hidden="true" fill="currentColor"><circle cx="3" cy="3" r="1.7"/><circle cx="9" cy="3" r="1.7"/><circle cx="3" cy="9" r="1.7"/><circle cx="9" cy="9" r="1.7"/><circle cx="3" cy="15" r="1.7"/><circle cx="9" cy="15" r="1.7"/></svg></button>` : ""}<span class="yut-character-preview">${preview}</span><div class="yut-player-label"><strong><span class="${i === 0 ? titleFx(profile.title) : ""}">${esc(name)}</span>${i === 0 ? titleBadge(profile.title) : ""}</strong><span class="yut-picked-name">${pickedLabel}</span></div></div>
         <div class="yut-character-picker" role="group" aria-label="${esc(name)} \uB9D0 \uCE90\uB9AD\uD130 \uC120\uD0DD"></div>
         ${teamMode ? `<button type="button" class="team-move-btn">${team === "A" ? "B\uD300\uC73C\uB85C \u2192" : "\u2190 A\uD300\uC73C\uB85C"}</button>` : ""}
       </article>`);
@@ -1024,14 +1059,14 @@ function waitingScreen() {
   online.chat = chat;
   // 칭호가 한꺼번에 번쩍이지 않게 하나씩 돌아가며 빛냄. 화면을 다시 그려도 다음 차례에 이어서 빛남
   let spotAt = 0;
-  const spotlight = setInterval(() => {
+  const shine = () => {
     const badges = [...root.querySelectorAll(".title-badge:not(:is(.fx-stone, .fx-moss, .fx-slate, .fx-clay))")];
-    badges.forEach((b) => { b.classList.remove("spot"); b.previousElementSibling?.classList.remove("spot"); });
-    if (!badges.length) return;
-    const badge = badges[spotAt++ % badges.length];
-    badge.classList.add("spot");
-    badge.previousElementSibling?.classList.add("spot"); // 칭호 바로 앞의 이름도 같이
-  }, 2600);
+    const badge = badges[spotAt % badges.length];
+    root.querySelectorAll(".spot").forEach((node) => { if (node !== badge && node !== badge?.previousElementSibling) node.classList.remove("spot"); });
+    badge?.classList.add("spot");
+    badge?.previousElementSibling?.classList.add("spot"); // 칭호 바로 앞의 이름도 같이
+  };
+  const spotlight = setInterval(() => { spotAt++; shine(); }, 2600);
   root.querySelector(".icon-btn").onclick = async () => {
     if (await confirmBox("방 나가기", "이 방에서 나갈까요?", "나가기", "남기")) leaveRoom();
   };
@@ -1264,7 +1299,8 @@ function waitingScreen() {
   }
 
   update();
-  online.wait = { update };
+  online.wait = { update: () => { update(); shine(); } }; // 다시 그려도 빛나던 칭호는 바로 이어서 빛남
+  shine();
   show({ root, back: () => root.querySelector(".icon-btn").click(), destroy: () => { clearInterval(spotlight); online.wait = null; online.chat = null; } });
   chat.system(`방 코드 ${room.id} — 친구에게 링크를 보내 보세요!`);
 }

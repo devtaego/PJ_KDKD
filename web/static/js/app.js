@@ -3,7 +3,7 @@ import * as net from "./net.js";
 import { ANIMALS, avatarHtml, GAME_ICONS, esc, setPhoto } from "./art.js";
 import { cropPhoto, photoSource } from "./photo_crop.js";
 import { el, toast, modal, confirmBox, segment, option, store, ChatPanel, personHtml, soundButton, streakHtml, countQuirk } from "./ui.js";
-import { TITLES, titleBadge, titleFx, isReservedName } from "./data/titles.js";
+import { TITLES, COUNTED_TITLES, KEEP_ON_RESET, titleBadge, titleFx, isReservedName } from "./data/titles.js";
 import { play } from "./sound.js";
 import { Match, showRules } from "./match.js";
 import { GAME_NAMES, GAME_DESC } from "./rules.js";
@@ -122,6 +122,7 @@ net.on("title_grant", (msg) => {
   store.set("titles", titleTokens);
   if (fresh) showTitlePopup(msg.title);
   else if (msg.via === "code") toast("이미 가진 칭호예요");
+  checkCollection();
   if (msg.via === "code") equipTitle(msg.title); // 이겨서 받은 칭호는 직접 골라서 닮 (연패 칭호가 저절로 달리지 않게)
   else onTitlesChanged?.();
 });
@@ -135,6 +136,39 @@ net.on("title_grant_all", (msg) => {
   onTitlesChanged?.();
 });
 net.on("title_bad", () => toast("맞지 않는 코드예요"));
+net.on("welcome", () => checkCollection());
+
+/** 수집 칭호 조건을 채웠으면 서버에 확인을 부탁함 (표를 서버가 직접 확인하고 칭호를 줌) */
+function checkCollection() {
+  const count = COUNTED_TITLES.filter((id) => titleTokens[id]).length;
+  const complete = count === COUNTED_TITLES.length;
+  const due = (count * 2 >= COUNTED_TITLES.length && !titleTokens.col_half) || (count >= 30 && !titleTokens.col_30)
+    || (complete && !titleTokens.col_all) || (complete && titleTokens.reset_1 && !titleTokens.nth_all);
+  if (due && net.isOpen()) net.send({ t: "collect", tokens: titleTokens });
+}
+
+/** 칭호 초기화: 이 브라우저의 칭호를 지움. 한 번 더 물어본 뒤에만 지움 */
+async function resetTitles() {
+  const removing = Object.keys(titleTokens).filter((id) => !KEEP_ON_RESET.has(id));
+  if (!removing.length) { toast("지울 칭호가 없어요"); return; }
+  const ok = await confirmBox("칭호 초기화", `칭호 ${removing.length}개를 모두 지울까요? 복구 코드를 적어 두지 않았다면 되돌릴 수 없어요.`, "모두 지우기", "취소");
+  if (!ok) { countQuirk("resetCancel"); return; }
+  connect();
+  for (let i = 0; i < 40 && !net.isOpen(); i++) await new Promise((r) => setTimeout(r, 100));
+  if (net.isOpen()) net.send({ t: "collect", resetting: true, tokens: titleTokens }); // 다 모은 채 초기화했는지 확인 (무소유)
+  titleTokens = Object.fromEntries(Object.entries(titleTokens).filter(([id]) => KEEP_ON_RESET.has(id)));
+  titleCodes = Object.fromEntries(Object.entries(titleCodes).filter(([id]) => KEEP_ON_RESET.has(id)));
+  quirkCounts = Object.fromEntries(Object.entries(quirkCounts).filter(([key]) => key.startsWith("reset")));
+  store.set("titles", titleTokens);
+  store.set("titleCodes", titleCodes);
+  store.set("quirks", quirkCounts);
+  titlePopups.splice(1); // 방금 지운 칭호의 획득 알림이 뒤늦게 뜨지 않게
+  if (profile.title && !titleTokens[profile.title]) equipTitle("");
+  else onTitlesChanged?.();
+  countQuirk("reset1");
+  countQuirk("reset3");
+  toast(`칭호 ${removing.length}개를 지웠어요`, 3000);
+}
 
 async function redeemCode(code) {
   if (!code.trim()) { toast("칭호 코드를 넣어 주세요"); return; }
@@ -155,6 +189,9 @@ const QUIRKS = {
   flip: { title: "q_flip", goal: 20 },
   logo: { title: "q_logo", goal: 30 },
   register: { title: "q_tap", goal: 100 },
+  reset1: { title: "reset_1", goal: 1 },
+  reset3: { title: "reset_3", goal: 3 },
+  resetCancel: { title: "reset_cancel", goal: 5 },
 };
 let quirkCounts = store.get("quirks", {});
 window.addEventListener("quirk", async ({ detail: { key, value } }) => {
@@ -190,7 +227,9 @@ function titlesScreen() {
       <div class="join-code title-code"><input id="title-code" type="text" maxlength="40" placeholder="칭호 코드 입력" aria-label="칭호 코드" autocomplete="off"><button class="btn" data-k="redeem">등록</button></div>
       <p class="muted title-note">얻은 칭호는 이 브라우저에 계속 남아요. 브라우저 기록을 지우거나 다른 기기에서 쓰려면 <b>복구 코드</b>를 적어 두었다가 칭호 코드 칸에 넣으세요.</p>
     </div>
-    <div class="card"><div class="title-count"></div><div class="title-rows"></div></div></section>`);
+    <div class="card"><div class="title-count"></div><div class="title-rows"></div></div>
+    <div class="title-reset-row"><button type="button" class="btn ghost title-reset">칭호 초기화</button></div></section>`);
+  root.querySelector(".title-reset").onclick = resetTitles;
   root.querySelector(".topbar .icon-btn").onclick = () => homeScreen();
   const rows = root.querySelector(".title-rows");
   const listed = Object.entries(TITLES).filter(([, t]) => !t.hidden);
@@ -201,7 +240,8 @@ function titlesScreen() {
       off.onclick = () => equipTitle("");
       root.querySelector(".titles-me").appendChild(off);
     }
-    root.querySelector(".title-count").textContent = `획득 ${listed.filter(([id]) => titleTokens[id]).length} / ${listed.length}`;
+    const secret = listed.filter(([id, t]) => t.secret && titleTokens[id]).length;
+    root.querySelector(".title-count").textContent = `획득 ${COUNTED_TITLES.filter((id) => titleTokens[id]).length} / ${COUNTED_TITLES.length}${secret ? ` · 히든 ${secret}개` : ""}`;
     rows.innerHTML = "";
     let group = null;
     for (const [id, t] of listed) {

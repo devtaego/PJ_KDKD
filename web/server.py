@@ -39,9 +39,14 @@ RANKING_FILE = os.environ.get("KIDK_RANKING_FILE", os.path.join(HERE, "ranking.j
 GAMES = {"chess": 2, "omok": 2, "yacht": 6, "yut": 4}  # 게임 -> 최대 플레이어 수
 SETTING_KEYS = {"time", "turn", "color", "rule", "private", "pieces", "chaos", "team", "tb"}  # 방 설정으로 받는 값
 # 칭호: 화면 쪽 목록은 static/js/data/titles.js. 코드는 해시만 둠 (새 코드: sha256(대문자 코드).hexdigest())
-TITLE_IDS = {"dev", "kda", "first_win", "chess_s2", "chess_s3", "chess_s5", "chess_s7", "chess_s10", "omok_s2", "omok_s3", "omok_s5", "omok_s7", "omok_s10", "yacht_s2", "yacht_s3", "yacht_s5", "yacht_s7", "yacht_s10", "yut_win", "yut_s2", "yut_s3", "yut_s5", "yut_s7", "yut_s10", "first_game", "spectator", "draw", "teabag", "teabag3", "fast_win", "long_win", "night_win", "comeback", "yut_team", "yut_chaos", "lose_3", "lose_5", "lose_10", "q_about", "q_rules", "q_theme", "q_wrong", "q_nick", "q_sound", "q_flip", "q_logo", "q_tap"}
+TITLE_IDS = {"dev", "kda", "first_win", "chess_s2", "chess_s3", "chess_s5", "chess_s7", "chess_s10", "omok_s2", "omok_s3", "omok_s5", "omok_s7", "omok_s10", "yacht_s2", "yacht_s3", "yacht_s5", "yacht_s7", "yacht_s10", "yut_win", "yut_s2", "yut_s3", "yut_s5", "yut_s7", "yut_s10", "first_game", "spectator", "draw", "teabag", "teabag3", "fast_win", "long_win", "night_win", "comeback", "yut_team", "yut_chaos", "lose_3", "lose_5", "lose_10", "q_about", "q_rules", "q_theme", "q_wrong", "q_nick", "q_sound", "q_flip", "q_logo", "q_tap", "col_half", "col_30", "col_all", "reset_1", "reset_3", "reset_cancel", "muso", "nth_all"}
+# 코드 없이 조건을 채워야만 받는 칭호 (전체 해금 코드에는 포함)
+EARNED_ONLY_TITLES = {"col_half", "col_30", "col_all", "reset_1", "reset_3", "reset_cancel", "muso", "nth_all"}
 # 브라우저가 조건을 세서 신청하는 재미용 칭호 (서버가 확인할 수 없어서 이 목록만 받음. DEV · KDA · 승리 칭호는 신청 불가)
-QUIRK_TITLES = {"q_about", "q_rules", "q_theme", "q_nick", "q_sound", "q_flip", "q_logo", "q_tap"}
+QUIRK_TITLES = {"q_about", "q_rules", "q_theme", "q_nick", "q_sound", "q_flip", "q_logo", "q_tap", "reset_1", "reset_3", "reset_cancel"}
+# 전체 칭호 개수와 올컬렉 기준: DEV와 히든 칭호(숨은 재미 · 수집 · 초기화)는 뺌 (titles.js의 COUNTED_TITLES와 같음)
+COLLECT_TITLES = TITLE_IDS - {"dev", "q_wrong"} - QUIRK_TITLES - EARNED_ONLY_TITLES
+COLLECT_30 = 30
 # 전체 해금 코드(DEV 제외)의 해시. 저장소에 두지 않고 서버 환경 변수에만 둠 (없으면 이 기능은 꺼짐)
 ALL_TITLES_CODE = os.environ.get("ALL_TITLES_CODE_HASH", "")
 TITLE_CODES = {
@@ -97,9 +102,18 @@ TEABAG_STYLES = {"teabag", "stomp", "kick"}
 RESERVED_NAMES = {"개발자", "관리자", "운영자", "운영진", "dev", "admin", "administrator", "gm", "시스템", "system", "공지"}  # 운영자인 척 못 하게
 FX_KINDS = {"teabag", "taunt", "shake"}
 YUT_SKINS = {"penguin", "tiger", "rabbit", "frog", "bear", "cat", "chick", "fox"}  # 기록 없이 전달하는 효과
-MAX_MSG = 100_000  # 메시지 하나 최대 크기 (프로필 사진 포함해도 충분)
-MAX_PHOTO = 60_000
-MAX_ACT = 2_000  # 게임 수 하나의 최대 크기 (보통 100바이트 안팎)
+MAX_MSG = 40_000  # 메시지 하나 최대 크기 (프로필 사진 포함해도 충분)
+MAX_PHOTO = 20_000  # 96px 프로필 사진은 보통 몇 KB
+MAX_ACT = 600  # 게임 수 하나의 최대 크기 (보통 100바이트 안팎)
+MAX_MEMBERS = 30  # 한 방의 사람 수 상한 (플레이어 + 관전 + 대기 줄)
+MAX_LOG_BYTES = 512 * 1024  # 한 판의 기록이 차지하는 메모리 상한
+MIN_GAME_SECONDS = 3  # 이보다 짧은 판은 기록 · 칭호에 넣지 않음
+ROOM_SEND_INTERVAL = 0.25  # 방 정보는 이 간격으로 묶어서 보냄 (트래픽 절약)
+ROOMS_SEND_INTERVAL = 1.0  # 방 목록도 마찬가지
+HELLO_TIMEOUT = 10  # 접속 후 비밀 열쇠를 보내기까지 기다리는 시간(초)
+# 한 주소(IP) 전체에 거는 제한: (횟수, 초). 학교 와이파이는 반 전체가 같은 주소라 넉넉하게
+IP_LIMITS = {"msg": (200, 5), "connect": (120, 60), "join": (60, 60), "photo": (6, 60), "rooms": (60, 60),
+             "ranking": (20, 60), "record": (30, 60), "qr": (60, 60)}
 MAX_TEXT = 100
 MAX_LOG = 3000
 GRACE = 30  # 연결이 끊긴 사람의 자리를 지켜 주는 시간(초)
@@ -108,7 +122,7 @@ RATE_ALL, RATE_CHAT = 60, 8  # 메시지 전체 / 채팅 효과 최대 개수
 RATE_CHAT_MESSAGES = 8  # 실제 채팅 메시지 최대 개수 (RATE_WINDOW 기준)
 RATE_REPEAT_MESSAGES = 5  # 같은 내용은 짧은 시간에 최대 5회
 MAX_PER_IP = int(os.environ.get("KIDK_MAX_PER_IP", 60))  # 한 주소(IP)당 동시 연결 (학교 와이파이는 반 전체가 같은 주소)
-MAX_CLIENTS, MAX_ROOMS = 1000, 300  # 서버 전체 상한 (무료 서버가 버틸 만큼)
+MAX_CLIENTS, MAX_ROOMS = 1000, 150  # 서버 전체 상한 (무료 서버가 버틸 만큼)
 IDLE_LOBBY, IDLE_ROOM = 20 * 60, 45 * 60  # 이만큼(초) 아무것도 안 하면 연결을 끊어 서버가 잠들 수 있게 함
 ROOM_ADJ = ["용감한", "졸린", "신나는", "수줍은", "배고픈", "반짝이는", "느긋한", "씩씩한", "엉뚱한", "다정한"]
 ROOM_ANIMAL = ["판다", "여우", "토끼", "곰돌이", "병아리", "개구리", "고양이", "돼지", "펭귄", "다람쥐"]
@@ -275,6 +289,27 @@ def clean_profile(p):
     return c.profile if c.set_profile(p) or c.profile else None
 
 
+def collect_titles(cid, tokens, resetting=False):
+    """가진 칭호 표를 확인해서, 모은 수에 맞는 수집 칭호를 돌려줌."""
+    def owns(title):
+        token = tokens.get(title)
+        return isinstance(token, str) and hmac.compare_digest(token, title_token(cid, title))
+    count = sum(1 for title in COLLECT_TITLES if owns(title))
+    complete = count == len(COLLECT_TITLES)
+    if resetting:  # 다 모은 채로 초기화
+        return ["muso"] if complete else []
+    earned = []
+    if count * 2 >= len(COLLECT_TITLES):
+        earned.append("col_half")
+    if count >= COLLECT_30:
+        earned.append("col_30")
+    if complete:
+        earned.append("col_all")
+        if owns("reset_1"):  # 초기화한 뒤 다시 다 모음
+            earned.append("nth_all")
+    return earned
+
+
 def win_titles(room, streak, lost_before, now=None):
     """이긴 사람이 받는 칭호: 연승 단계와 이번 판의 조건"""
     now = time.time() if now is None else now
@@ -317,6 +352,10 @@ class Room:
         self.streak = {}  # cid -> 이 방에서 이어 온 연승 수
         self.lose_streak = {}  # cid -> 이 방에서 이어 온 연패 수
         self.started_at = 0  # 이번 판을 시작한 시각
+        self.log_bytes = 0  # 이번 판 기록의 크기
+        self.result_votes = {}  # cid -> (이긴 사람들, 진 사람들): 앉은 사람들이 각자 계산해 보낸 결과
+        self.sent_at = 0.0  # 방 정보를 마지막으로 보낸 시각
+        self.send_later = None  # 묶어서 보내려고 기다리는 작업
         self.teabag_ready = set()  # 지난 판을 이겨서 아직 티배깅하지 않은 cid (한 판에 한 번만 셈)
         self.losers = []  # 지난 판에 진 사람 (한 판 더 할 때 줄 맨 뒤로)
         self.banned = set()  # 방장이 내보낸 사람 (cid)
@@ -354,13 +393,29 @@ class Hub:
         self.by_pid = {}  # pid -> Client
         self.rooms = {}
         self.store = make_store(RANKING_FILE)
+        self.ip_hits = {}  # (주소, 종류) -> 최근 시각들
+        self.pending = {}  # 주소 -> 비밀 열쇠를 아직 안 보낸 연결 수
+        self.rooms_sent_at = 0.0
+        self.rooms_later = None
 
     def pid(self, cid):
         c = self.clients.get(cid)
         return c.pid if c else None
 
     def connections_from(self, ip):
-        return sum(1 for c in self.clients.values() if c.ip == ip and c.ws is not None and not c.ws.closed)
+        """이 주소가 차지한 자리 수. 끊긴 뒤 자리를 지켜 주는 사람도 셈 (열고 닫기만 반복해 자리를 채우지 못하게)."""
+        return sum(1 for c in self.clients.values() if c.ip == ip)
+
+    def ip_allow(self, ip, kind):
+        """주소 전체에 거는 횟수 제한."""
+        limit, window = IP_LIMITS[kind]
+        now = time.time()
+        times = [x for x in self.ip_hits.get((ip, kind), []) if now - x < window]
+        allowed = len(times) < limit
+        if allowed:
+            times.append(now)
+        self.ip_hits[(ip, kind)] = times
+        return allowed
 
     # ------------------------------------------------------------ 보내기
     def room_view(self, room):
@@ -388,11 +443,24 @@ class Hub:
                 "king": {"name": king_client.profile["name"], "streak": king[1]}
                 if king[1] >= 2 and king_client and king_client.profile else None}
 
-    async def send_room(self, room):
+    async def send_room(self, room, now=False):
+        """방 정보를 방 전체에 보냄. 짧은 시간에 여러 번 바뀌면 마지막 상태만 묶어서 보냄 (now: 바로 보내야 할 때)."""
+        wait = room.sent_at + ROOM_SEND_INTERVAL - time.time()
+        if wait > 0 and not now:
+            if room.send_later is None:
+                room.send_later = asyncio.ensure_future(self._send_room_later(room, wait))
+            return
+        room.sent_at = time.time()
         view = self.room_view(room)
         await asyncio.gather(*(self.clients[cid].send({"t": "room", "room": view})
                                for cid, _ in room.members if cid in self.clients))
         await self.send_rooms()
+
+    async def _send_room_later(self, room, wait):
+        await asyncio.sleep(wait)
+        room.send_later = None
+        if self.rooms.get(room.id) is room:
+            await self.send_room(room)
 
     async def send_photos(self, room, to=None, only=None):
         """프로필 사진은 방 정보와 따로 한 번만 보냄 (방이 바뀔 때마다 사진을 다시 보내지 않게)."""
@@ -411,9 +479,20 @@ class Hub:
         return [self.room_summary(r) for r in self.rooms.values() if not r.private]
 
     async def send_rooms(self):
+        wait = self.rooms_sent_at + ROOMS_SEND_INTERVAL - time.time()
+        if wait > 0:
+            if self.rooms_later is None:
+                self.rooms_later = asyncio.ensure_future(self._send_rooms_later(wait))
+            return
+        self.rooms_sent_at = time.time()
         rooms = self.public_rooms()
         await asyncio.gather(*(c.send({"t": "rooms", "rooms": rooms})
                                for c in self.clients.values() if c.room is None and c.profile))
+
+    async def _send_rooms_later(self, wait):
+        await asyncio.sleep(wait)
+        self.rooms_later = None
+        await self.send_rooms()
 
     async def to_room(self, room, obj):
         await asyncio.gather(*(self.clients[cid].send(obj) for cid, _ in room.members if cid in self.clients))
@@ -453,6 +532,9 @@ class Hub:
         if self.name_taken(room, client):
             await client.send({"t": "error", "msg": "이 방에 같은 닉네임이 있어요. 닉네임을 바꾼 뒤 다시 들어와 주세요."})
             return
+        if len(room.members) >= MAX_MEMBERS:
+            await client.send({"t": "error", "msg": "이 방은 사람이 너무 많아요. 다른 방을 이용해 주세요."})
+            return
         if client.room is not None:
             await self.leave(client)
         full = len(room.players()) >= GAMES[room.game]
@@ -464,7 +546,7 @@ class Hub:
         client.room = room.id
         await self.send_photos(room, to=client)
         await self.send_photos(room, only=client)
-        await self.send_room(room)
+        await self.send_room(room, now=True)
         if room.log:
             await client.send({"t": "log", "acts": room.log})
         await self.to_room(room, {"t": "notice", "kind": "join", "name": client.profile["name"], "role": role})
@@ -516,8 +598,12 @@ class Hub:
         entry = {"seq": room.seq, "at": now_ms(), "from": self.pid(cid), "a": a}
         if a.get("type") == "start":
             room.log = []
+            room.log_bytes = 0
+            room.result_votes = {}
             room.status = "playing"
             room.started_at = time.time()
+            a["game"] = room.game  # 방과 다른 게임으로 시작하거나 엉뚱한 설정을 보내지 못하게
+            a["settings"] = clean_settings(a.get("settings"))
             room.seat_cids, a["seats"] = self.seats_for_start(room, a.pop("order", None))
             room.seat_names = [self.clients[c].profile["name"] for c in room.seat_cids]
             settings = a.get("settings")
@@ -531,8 +617,10 @@ class Hub:
             a["dice"] = [secrets.randbelow(6) + 1 for _ in range(5)]  # 주사위는 서버가 굴림 (조작 방지)
         elif room.game == "yut":
             a["seed"] = secrets.randbits(31)  # 윷 결과 · 능력 뽑기 등 모든 무작위는 서버가 정한 씨앗으로
-        if len(room.log) < MAX_LOG:
+        size = len(json.dumps(entry))
+        if len(room.log) < MAX_LOG and room.log_bytes + size <= MAX_LOG_BYTES:
             room.log.append(entry)
+            room.log_bytes += size
         await self.to_room(room, {"t": "act", **entry})
 
     # ------------------------------------------------------------ 메시지 처리
@@ -540,14 +628,22 @@ class Hub:
         t = msg.get("t")
         if not client.allow("all", RATE_ALL) or (t == "fx" and not client.allow("chat", RATE_CHAT)):
             return  # 너무 빨리 보내면 버림
+        if not self.ip_allow(client.ip, "msg"):
+            return
         if t == "ping":
             await client.send({"t": "pong", "c": msg.get("c"), "s": now_ms()})
             return
         client.last_active = time.time()
         if t == "profile":
             old_name = client.profile["name"] if client.profile else None
-            photo_changed = client.set_profile(msg.get("profile"))
             room = self.rooms.get(client.room)
+            # 방 안에서 사진을 바꾸면 방 전체로 다시 보내지므로 주소마다 횟수를 제한 (넘으면 이전 사진 유지)
+            profile = msg.get("profile")
+            if (room and isinstance(profile, dict) and isinstance(profile.get("avatar"), str)
+                    and profile["avatar"].startswith("data:image/") and profile["avatar"] != client.photo
+                    and not self.ip_allow(client.ip, "photo")):
+                profile = {**profile, "avatar": client.photo or "cat"}
+            photo_changed = client.set_profile(profile)
             if room and client.profile:
                 if old_name and self.name_taken(room, client):  # 방 안에서 남과 같은 이름으로는 못 바꿈
                     client.profile["name"] = old_name
@@ -574,6 +670,11 @@ class Hub:
             if client.allow("redeem", RATE_CHAT) and msg.get("title") in QUIRK_TITLES:
                 await self.grant_titles(client.cid, [msg["title"]])
             return
+        if t == "collect":  # 모은 칭호 수 확인: 브라우저 말이 아니라 표를 서버가 직접 확인함
+            tokens = msg.get("tokens")
+            if client.allow("redeem", RATE_CHAT) and isinstance(tokens, dict):
+                await self.grant_titles(client.cid, collect_titles(client.cid, tokens, msg.get("resetting") is True))
+            return
         if t == "title_backup":  # 가진 칭호의 복구 코드 받기
             title, token = msg.get("title"), msg.get("token")
             if (client.allow("redeem", RATE_CHAT) and title in TITLE_IDS and isinstance(token, str)
@@ -584,12 +685,14 @@ class Hub:
             return
         room = self.rooms.get(client.room)
         if t == "rooms":
-            await client.send({"t": "rooms", "rooms": self.public_rooms()})
+            if self.ip_allow(client.ip, "rooms"):
+                await client.send({"t": "rooms", "rooms": self.public_rooms()})
         elif t == "ranking":
-            await client.send({"t": "ranking", "ranking": await self.store.all(), "store": self.store.kind})
+            if self.ip_allow(client.ip, "ranking"):
+                await client.send({"t": "ranking", "ranking": await self.store.all(), "store": self.store.kind})
         elif t == "create":
             game = msg.get("game")
-            if game not in GAMES:
+            if game not in GAMES or not self.ip_allow(client.ip, "join"):
                 return
             if len(self.rooms) >= MAX_ROOMS:
                 await client.send({"t": "error", "msg": "지금은 방이 너무 많아요. 잠시 뒤에 다시 만들어 주세요."})
@@ -602,7 +705,7 @@ class Hub:
             if target is None:
                 await client.send({"t": "error", "msg": "그 방은 없어요. 방 코드를 다시 확인해 주세요."})
                 return
-            if target is not room:
+            if target is not room and self.ip_allow(client.ip, "join"):
                 await self.join(client, target, "spectator" if msg.get("as") == "spectator" else "player")
         elif t == "leave":
             await self.leave(client)
@@ -684,8 +787,8 @@ class Hub:
                 return
             who = client.cid
             if a.get("type") == "start":  # 방장은 줄로 밀려나 관전 중이어도 다음 판을 시작할 수 있음
-                if client.cid != room.host or room.status == "playing" or not room.players():
-                    return
+                if client.cid != room.host or room.status == "playing" or len(room.players()) < 2:
+                    return  # 혼자서는 판을 시작할 수 없음 (혼자 이겼다고 기록을 쌓지 못하게)
             elif room.role_of(client.cid) != "player":
                 return
             elif room.status != "playing":
@@ -697,12 +800,37 @@ class Hub:
                     return
                 who = target.cid
             await self.act(room, who, a)
-        elif t == "result" and client.cid == room.host and room.status == "playing":
-            room.status = "done"
+        elif t == "result" and client.cid in room.seat_cids and room.status == "playing":
             players = list(dict.fromkeys(room.seat_names))  # 클라이언트가 보낸 이름 목록은 믿지 않음
             winners = [n for n in dict.fromkeys(clean_text(n, 12) for n in msg.get("winners", [])[:6]) if n in players]
             losers = [n for n in dict.fromkeys(clean_text(n, 12) for n in msg.get("losers", [])[:6])
                       if n in players and n not in winners]
+            room.result_votes[client.cid] = (tuple(sorted(winners)), losers)
+            # 앉은 사람 중 연결된 사람 둘이 같은 결과를 보내야 끝남 (남은 사람이 한 명이면 한 명으로 충분)
+            seated = [c for c in room.seat_cids if room.role_of(c) and self.clients[c].gone_at is None]
+            agree = sum(1 for key, _ in room.result_votes.values() if key == tuple(sorted(winners)))
+            if agree >= max(1, min(2, len(seated))):
+                await self.finish_game(room, client, players, winners, losers)
+        elif t == "reset" and client.cid == room.host:  # 한 판 더: 대기실로
+            room.status = "waiting"
+            room.log = []
+            if room.queue:  # 기다리는 사람이 있으면 진 사람은 줄 맨 뒤로, 줄 앞사람이 자리에 앉음
+                for cid in room.losers:
+                    if room.role_of(cid) == "player":
+                        room.set_role(cid, "spectator")
+                        room.queue.append(cid)
+                self.fill_seats(room)
+            room.losers = []
+            await self.to_room(room, {"t": "reset"})
+            await self.send_room(room, now=True)
+
+    async def finish_game(self, room, client, players, winners, losers):
+        """결과가 맞춰진 판을 끝냄. 너무 짧거나 한 주소에서 너무 많이 끝낸 판은 기록 · 칭호에 넣지 않음."""
+        room.status = "done"
+        counted = (time.time() - room.started_at >= MIN_GAME_SECONDS and len(players) >= 2
+                   and self.ip_allow(client.ip, "record"))
+        room.losers = [cid for cid, name in zip(room.seat_cids, room.seat_names) if name in losers]
+        if counted:
             for cid, name in zip(room.seat_cids, room.seat_names):
                 earned = ["first_game"]
                 if not winners:  # 무승부는 연승 · 연패를 그대로 둠
@@ -719,23 +847,9 @@ class Hub:
             for cid, role in room.members:
                 if role == "spectator":
                     await self.grant_titles(cid, ["spectator"])
-            room.losers = [cid for cid, name in zip(room.seat_cids, room.seat_names) if name in losers]
             room.teabag_ready = {cid for cid, name in zip(room.seat_cids, room.seat_names) if name in winners}
-            if players:
-                await self.store.add(room.game, players, winners)
-            await self.send_room(room)
-        elif t == "reset" and client.cid == room.host:  # 한 판 더: 대기실로
-            room.status = "waiting"
-            room.log = []
-            if room.queue:  # 기다리는 사람이 있으면 진 사람은 줄 맨 뒤로, 줄 앞사람이 자리에 앉음
-                for cid in room.losers:
-                    if room.role_of(cid) == "player":
-                        room.set_role(cid, "spectator")
-                        room.queue.append(cid)
-                self.fill_seats(room)
-            room.losers = []
-            await self.to_room(room, {"t": "reset"})
-            await self.send_room(room)
+            await self.store.add(room.game, players, winners)
+        await self.send_room(room, now=True)
 
     async def grant_titles(self, cid, titles):
         """칭호 표를 보내 줌 (이미 가졌으면 브라우저가 알아서 무시)"""
@@ -759,6 +873,7 @@ class Hub:
         while True:
             await asyncio.sleep(interval)
             now = time.time()
+            self.ip_hits = {k: v for k, v in self.ip_hits.items() if v and now - v[-1] < 120}
             for c in list(self.clients.values()):
                 limit = IDLE_ROOM if c.room else IDLE_LOBBY
                 if c.ws is not None and not c.ws.closed and now - c.last_active > limit:
@@ -785,16 +900,47 @@ def same_origin(request):
     return not origin or urlparse(origin).netloc == request.host
 
 
+async def read_hello(ws):
+    """접속 뒤 첫 메시지로 받은 비밀 열쇠 (주소에 넣으면 접속 기록에 남아서 이렇게 받음)."""
+    try:
+        m = await ws.receive(timeout=HELLO_TIMEOUT)
+        msg = json.loads(m.data) if m.type == WSMsgType.TEXT else None
+    except (asyncio.TimeoutError, ValueError):
+        return None
+    return clean_text(msg.get("cid"), 40) if isinstance(msg, dict) and msg.get("t") == "hello" else None
+
+
+def slots_full(ip):
+    return hub.connections_from(ip) >= MAX_PER_IP or len(hub.clients) >= MAX_CLIENTS
+
+
 async def ws_handler(request):
     if not same_origin(request):
         return web.Response(status=403, text="origin")
     ip = client_ip(request)
-    cid = clean_text(request.query.get("cid"), 40)
-    existing = hub.clients.get(cid) if len(cid) >= 16 else None
-    if existing is None and (hub.connections_from(ip) >= MAX_PER_IP or len(hub.clients) >= MAX_CLIENTS):
+    if not hub.ip_allow(ip, "connect"):
+        return web.Response(status=429, text="too many connections")
+    cid = clean_text(request.query.get("cid"), 40)  # 예전 화면(새로고침 전 탭)과의 호환용
+    if cid and hub.clients.get(cid) is None and slots_full(ip):
+        return web.Response(status=429, text="too many connections")
+    if not cid and hub.pending.get(ip, 0) >= MAX_PER_IP:
         return web.Response(status=429, text="too many connections")
     ws = web.WebSocketResponse(heartbeat=20, max_msg_size=MAX_MSG)
     await ws.prepare(request)
+    if not cid:
+        hub.pending[ip] = hub.pending.get(ip, 0) + 1
+        try:
+            cid = await read_hello(ws)
+        finally:
+            hub.pending[ip] -= 1
+            if not hub.pending[ip]:
+                del hub.pending[ip]
+        if cid is None:
+            await ws.close(code=4002, message=b"hello")
+            return ws
+        if hub.clients.get(cid) is None and slots_full(ip):
+            await ws.close(code=4029, message=b"too many connections")
+            return ws
     if len(cid) < 16:
         cid = secrets.token_hex(16)
     client = hub.clients.get(cid)
@@ -813,7 +959,7 @@ async def ws_handler(request):
     if room:  # 재접속: 사진 · 지금까지의 수를 다시 보내서 판을 이어 줌
         await hub.send_photos(room, to=client)
         await client.send({"t": "log", "acts": room.log})
-        await hub.send_room(room)
+        await hub.send_room(room, now=True)
     try:
         async for m in ws:
             if m.type != WSMsgType.TEXT:
@@ -847,6 +993,8 @@ async def qr(request):
     code = request.match_info["code"].upper()
     if len(code) != 4 or any(ch not in CODE_CHARS for ch in code):
         return web.Response(status=404)
+    if not hub.ip_allow(client_ip(request), "qr"):
+        return web.Response(status=429)
     scheme = request.headers.get("X-Forwarded-Proto", request.scheme).split(",")[0].strip()
     img = qrcode.make(f"{scheme}://{request.host}/?room={code}", image_factory=qrcode.image.svg.SvgPathImage,
                       box_size=10, border=2)
@@ -863,6 +1011,10 @@ async def headers(request, handler):
     resp = await handler(request)
     if request.path.endswith((".js", ".css", ".html", ".webmanifest", "/")):
         resp.headers["Cache-Control"] = "no-cache"
+    elif request.path.endswith((".png", ".svg", ".wav", ".ttf")) and "Cache-Control" not in resp.headers:
+        resp.headers["Cache-Control"] = "public, max-age=604800"  # 그림 · 소리 · 글꼴은 일주일 동안 다시 받지 않게 (트래픽 절약)
+    if request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip() == "https":
+        resp.headers["Strict-Transport-Security"] = "max-age=15552000"
     resp.headers["Content-Security-Policy"] = CSP  # 혹시 화면에 코드가 섞여 들어가도 실행되지 않게
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["Referrer-Policy"] = "same-origin"

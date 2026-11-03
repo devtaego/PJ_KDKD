@@ -47,20 +47,34 @@ export const TITLES = {
   teabag3: { emoji: "😈", name: "티배깅 장인", fx: "fx-clay", group: "별난 기록", how: "승리 후 티배깅 3판" },
   comeback: { emoji: "🔥", name: "역전의 명수", fx: "fx-neon", group: "별난 기록", how: "3연패 뒤 승리" },
 
-  q_about: { emoji: "📖", name: "기획서 정독", fx: "fx-stone", group: "숨은 재미", how: "게임 기획 의도 열어 보기" },
-  q_rules: { emoji: "🧑‍⚖️", name: "규칙 변호사", fx: "fx-moss", group: "숨은 재미", how: "네 게임 규칙 모두 보기" },
-  q_theme: { emoji: "🎨", name: "인테리어 업자", fx: "fx-clay", group: "숨은 재미", how: "기기 테마 전부 써 보기" },
-  q_wrong: { emoji: "🔑", name: "찍기 장인", fx: "fx-slate", group: "숨은 재미", how: "틀린 칭호 코드 5번 입력 (접속 중)" },
-  q_nick: { emoji: "🎭", name: "신분 세탁", fx: "fx-slate", group: "숨은 재미", how: "닉네임 10번 바꾸기" },
-  q_sound: { emoji: "🔇", name: "음소거 장인", fx: "fx-clay", group: "숨은 재미", how: "소리 버튼 20번 누르기" },
-  q_flip: { emoji: "🌀", name: "멀미왕", fx: "fx-dice", group: "숨은 재미", how: "체스판 20번 돌리기" },
-  q_logo: { emoji: "👆", name: "로고 덕후", fx: "fx-jade", group: "숨은 재미", how: "로고 30번 누르기" },
-  q_tap: { emoji: "🖱️", name: "손가락 장인", fx: "fx-gold", group: "숨은 재미", how: "칭호 등록 버튼 100번 누르기" },
+  q_about: { emoji: "📖", name: "기획서 정독", fx: "fx-stone", group: "숨은 재미", secret: true, how: "게임 기획 의도 열어 보기" },
+  q_rules: { emoji: "🧑‍⚖️", name: "규칙 변호사", fx: "fx-moss", group: "숨은 재미", secret: true, how: "네 게임 규칙 모두 보기" },
+  q_theme: { emoji: "🎨", name: "인테리어 업자", fx: "fx-clay", group: "숨은 재미", secret: true, how: "기기 테마 전부 써 보기" },
+  q_wrong: { emoji: "🔑", name: "찍기 장인", fx: "fx-slate", group: "숨은 재미", secret: true, how: "틀린 칭호 코드 5번 입력 (접속 중)" },
+  q_nick: { emoji: "🎭", name: "신분 세탁", fx: "fx-slate", group: "숨은 재미", secret: true, how: "닉네임 10번 바꾸기" },
+  q_sound: { emoji: "🔇", name: "음소거 장인", fx: "fx-clay", group: "숨은 재미", secret: true, how: "소리 버튼 20번 누르기" },
+  q_flip: { emoji: "🌀", name: "멀미왕", fx: "fx-dice", group: "숨은 재미", secret: true, how: "체스판 20번 돌리기" },
+  q_logo: { emoji: "👆", name: "로고 덕후", fx: "fx-jade", group: "숨은 재미", secret: true, how: "로고 30번 누르기" },
+  q_tap: { emoji: "🖱️", name: "손가락 장인", fx: "fx-gold", group: "숨은 재미", secret: true, how: "칭호 등록 버튼 100번 누르기" },
 
   lose_3: { emoji: "🫠", name: "오늘은 아닌가 봐", fx: "fx-stone", group: "패배의 전당", how: "3연패" },
   lose_5: { emoji: "🧂", name: "짠맛 전문가", fx: "fx-slate", group: "패배의 전당", how: "5연패" },
   lose_10: { emoji: "🥊", name: "인간 샌드백", fx: "fx-dice", group: "패배의 전당", how: "10연패" },
+
+  col_half: { emoji: "📒", name: "수집 중독 초기", fx: "fx-ice", group: "컬렉터", secret: true, how: "칭호 절반 모으기" },
+  col_30: { emoji: "🪙", name: "칭호 재벌", fx: "fx-gold", group: "컬렉터", secret: true, how: "칭호 30개 모으기" },
+  col_all: { emoji: "🏛️", name: "걸어 다니는 도감", fx: "fx-legend", group: "컬렉터", secret: true, how: "칭호 올컬렉 (DEV · 히든 제외)" },
+  reset_1: { emoji: "🧹", name: "초심 찾습니다", fx: "fx-stone", group: "컬렉터", secret: true, how: "칭호 초기화 1번" },
+  reset_3: { emoji: "🔁", name: "리셋 증후군", fx: "fx-clay", group: "컬렉터", secret: true, how: "칭호 초기화 3번" },
+  reset_cancel: { emoji: "🙊", name: "손이 떨려서", fx: "fx-slate", group: "컬렉터", secret: true, how: "초기화 확인창에서 취소 5번" },
+  muso: { emoji: "🧘", name: "무소유", fx: "fx-royal", group: "컬렉터", secret: true, how: "올컬렉 상태에서 초기화" },
+  nth_all: { emoji: "♾️", name: "N회차 플레이어", fx: "fx-cosmic", group: "컬렉터", secret: true, how: "초기화한 뒤 다시 올컬렉" },
 };
+
+// 전체 칭호 개수와 올컬렉 기준: DEV(hidden)와 히든 칭호(secret)는 뺌 (server.py의 COLLECT_TITLES와 같음)
+export const COUNTED_TITLES = Object.keys(TITLES).filter((id) => !TITLES[id].hidden && !TITLES[id].secret);
+// 초기화해도 남는 칭호 (DEV는 코드를 다시 넣지 않아도 되게, 초기화 칭호는 받자마자 사라지지 않게)
+export const KEEP_ON_RESET = new Set(["dev", "reset_1", "reset_3", "reset_cancel", "muso", "nth_all"]);
 
 /** 칭호 뱃지 HTML (모르는 칭호면 빈칸) */
 export const titleBadge = (id) => (TITLES[id] ? `<span class="title-badge ${TITLES[id].fx}">${TITLES[id].emoji} ${esc(TITLES[id].name)}</span>` : "");

@@ -1884,3 +1884,7 @@ button.ys-char { cursor: pointer; box-shadow: inset 0 0 0 2px var(--gold); anima
 .photo-crop-zoom input { width: 100%; accent-color: var(--accent); }
 .photo-crop-zoom b { font-weight: normal; text-align: right; }
 .photo-crop .modal-actions { width: 100%; }
+
+/* 칭호 초기화 */
+.title-reset-row { display: flex; justify-content: flex-end; margin-top: var(--gap); }
+.btn.title-reset { color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }

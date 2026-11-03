@@ -8,6 +8,7 @@ import { score, YachtGame, aiPickCategory, aiHolds, CATEGORIES, CAT_EXAMPLES } f
 import { questionFor, QUESTIONS } from "../static/js/party.js";
 import { YutGame, pathFrom, remaining, mulberry, rollRaw, START, HOME, CENTER } from "../static/js/engine/yut.js";
 import { cropRect, clampZoom, MAX_ZOOM } from "../static/js/engine/photo_crop.js";
+import { TITLES, COUNTED_TITLES, KEEP_ON_RESET } from "../static/js/data/titles.js";
 import { THROW_ODDS, abilityOdds, START_HAND } from "../static/js/data/yut_abilities.js";
 
 test("체스: 시작 위치 수 생성 (perft 1~3)", () => {
@@ -449,4 +450,13 @@ test("프로필 사진: 자르는 칸은 항상 사진 안쪽, 확대하면 작�
   assert.deepEqual(cropRect(200, 400, 2, 100, 9999), { x: 50, y: 300, size: 100 }); // 아래쪽 끝을 넘지 않음
   assert.equal(clampZoom(0.2), 1);
   assert.equal(clampZoom(99), MAX_ZOOM);
+});
+
+test("칭호: 전체 개수에서 DEV · 히든 칭호는 빠지고, 초기화해도 남는 칭호는 목록에 있음", () => {
+  assert.equal(COUNTED_TITLES.length, 37); // 서버의 COLLECT_TITLES와 같은 수
+  assert.ok(!COUNTED_TITLES.includes("dev"));
+  assert.ok(COUNTED_TITLES.every((id) => !TITLES[id].secret && !id.startsWith("q_") && !id.startsWith("col_") && !id.startsWith("reset_")));
+  assert.ok(COUNTED_TITLES.includes("kda"));
+  for (const id of KEEP_ON_RESET) assert.ok(TITLES[id], id);
+  assert.ok(!KEEP_ON_RESET.has("col_all"));
 });

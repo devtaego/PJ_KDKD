@@ -32,6 +32,10 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         os.environ["KIDK_RANKING_FILE"] = os.path.join(tempfile.mkdtemp(), "ranking.json")  # 테스트마다 빈 랭킹
         server.hub.__init__()
+        # 시간 · 묶어 보내기 조건은 그 기능을 시험하는 테스트에서만 켬
+        server.MIN_GAME_SECONDS = 0
+        server.ROOM_SEND_INTERVAL = 0
+        server.ROOMS_SEND_INTERVAL = 0
         server.TITLE_CODES.update({hashlib.sha256(code.encode()).hexdigest(): title for code, title in TEST_CODES.items()})
         self.pids = {}  # 테스트용 짧은 이름 -> 서버가 준 공개 번호
         self.client = TestClient(TestServer(server.make_app()))
@@ -119,7 +123,7 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         log = await self.until(b, "log")
         self.assertEqual(len(log["acts"]), 2)
 
-        await a.send_json({"t": "result", "players": ["태고", "민수"], "winners": ["태고"]})
+        await self.finish(a, b, ["태고"])
         await a.send_json({"t": "ranking"})
         rank = (await self.until(a, "ranking"))["ranking"]
         self.assertEqual(rank["태고"]["omok"], {"wins": 1, "games": 1})
@@ -152,6 +156,16 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         await b.send_json({"t": "join", "room": room["id"]})
         await self.until(b, "room")
         return a, b, room["id"]
+
+    async def finish(self, a, b, winners, losers=None):
+        """앉은 두 사람이 같은 결과를 보내 판을 끝냄. 끝난 방 정보를 돌려줌."""
+        body = {"t": "result", "winners": winners, "losers": losers or []}
+        await a.send_json(body)
+        await b.send_json(body)
+        room = (await self.until(a, "room"))["room"]
+        while room["status"] != "done":
+            room = (await self.until(a, "room"))["room"]
+        return room
 
     async def start(self, a, b, game):
         await a.send_json({"t": "act", "a": {"type": "start", "game": game}})
@@ -331,6 +345,181 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.until(a, "title_bad"))["t"], "title_bad")
         await a.close()
 
+    async def test_cannot_start_alone(self):
+        a = await self.connect("aaaaaaaa1", "태고")
+        await a.send_json({"t": "create", "game": "chess", "settings": {}})
+        await self.until(a, "room")
+        await a.send_json({"t": "act", "a": {"type": "start", "game": "chess"}})
+        await a.send_json({"t": "ping", "c": 1})
+        self.assertEqual(await self.quiet(a), "pong")  # 시작되지 않음
+        await a.close()
+
+    async def ranking_of(self, ws):
+        await ws.send_json({"t": "ranking"})
+        return (await self.until(ws, "ranking"))["ranking"]
+
+    async def test_host_alone_cannot_decide_result(self):
+        a, b, _ = await self.two_players("chess")
+        await self.start(a, b, "chess")
+        await a.send_json({"t": "result", "winners": ["태고"], "losers": ["민수"]})
+        self.assertEqual(await self.ranking_of(a), {})  # 상대가 확인하기 전에는 기록 안 됨
+        await b.send_json({"t": "result", "winners": ["민수"], "losers": ["태고"]})
+        await b.send_json({"t": "ping", "c": 2})
+        await self.until(b, "pong")
+        self.assertEqual(await self.ranking_of(a), {})  # 결과가 다르면 기록 안 됨
+        room = await self.finish(a, b, ["민수"], ["태고"])  # 다시 맞으면 기록
+        self.assertEqual(room["status"], "done")
+        self.assertEqual((await self.ranking_of(a))["민수"]["chess"], {"wins": 1, "games": 1})
+        for ws in (a, b):
+            await ws.close()
+
+    async def test_last_one_left_can_finish_alone(self):
+        a, b, _ = await self.two_players("chess")
+        await self.start(a, b, "chess")
+        await b.send_json({"t": "leave"})
+        await self.until(a, "act")
+        await a.send_json({"t": "result", "winners": ["태고"], "losers": ["민수"]})
+        await a.send_json({"t": "ping", "c": 3})
+        await self.until(a, "pong")
+        self.assertEqual((await self.ranking_of(a))["태고"]["chess"]["wins"], 1)
+        for ws in (a, b):
+            await ws.close()
+
+    async def test_too_short_game_is_not_counted(self):
+        server.MIN_GAME_SECONDS = 60
+        a, b, _ = await self.two_players("chess")
+        await self.start(a, b, "chess")
+        room = await self.finish(a, b, ["태고"], ["민수"])
+        self.assertEqual(room["status"], "done")
+        self.assertEqual({m["name"]: m["streak"] for m in room["members"]}["태고"], 0)
+        self.assertEqual(await self.ranking_of(a), {})
+        for ws in (a, b):
+            await ws.close()
+
+    async def test_opening_and_closing_cannot_fill_slots(self):
+        old = server.MAX_PER_IP
+        server.MAX_PER_IP = 3
+        self.addCleanup(setattr, server, "MAX_PER_IP", old)
+        for i in range(3):
+            ws = await self.client.ws_connect(f"/ws?cid={'x' * 20}{i}")
+            await ws.close()
+        with self.assertRaises(Exception) as caught:  # 끊겨도 자리를 지키는 동안은 그 주소의 자리로 셈
+            await self.client.ws_connect(f"/ws?cid={'x' * 20}9")
+        self.assertEqual(caught.exception.status, 429)
+        other = await self.client.ws_connect(f"/ws?cid={'y' * 20}", headers={"X-Forwarded-For": "9.9.9.9"})  # 다른 주소는 영향 없음
+        self.assertEqual((await other.receive_json())["t"], "welcome")
+        await other.close()
+
+    async def test_room_has_member_cap(self):
+        old = server.MAX_MEMBERS
+        server.MAX_MEMBERS = 2
+        self.addCleanup(setattr, server, "MAX_MEMBERS", old)
+        a, b, code = await self.two_players("chess")
+        c = await self.connect("cccccccc3", "지수")
+        await c.send_json({"t": "join", "room": code, "as": "spectator"})
+        self.assertIn("너무 많", (await self.until(c, "error"))["msg"])
+        for ws in (a, b, c):
+            await ws.close()
+
+    async def test_photo_changes_in_room_are_limited_per_address(self):
+        old = dict(server.IP_LIMITS)
+        server.IP_LIMITS["photo"] = (1, 60)
+        self.addCleanup(server.IP_LIMITS.update, old)
+        a, b, _ = await self.two_players("chess")
+        for n in "12":
+            await a.send_json({"t": "profile", "profile": {"name": "태고", "avatar": "data:image/jpeg;base64," + n * 100}})
+        await a.send_json({"t": "ping", "c": 4})
+        await self.until(a, "pong")
+        photos = (await self.until(b, "photos"))["photos"]
+        self.assertTrue(next(iter(photos.values())).endswith("1" * 100))
+        self.assertTrue(server.hub.clients[self.secret("aaaaaaaa1")].photo.endswith("1" * 100))  # 두 번째는 무시
+        for ws in (a, b):
+            await ws.close()
+
+    async def test_big_photo_and_game_log_are_limited(self):
+        self.assertIsNone(server.Client("x" * 16, "").photo)
+        c = server.Client("x" * 16, "")
+        c.set_profile({"name": "태고", "avatar": "data:image/jpeg;base64," + "A" * server.MAX_PHOTO})
+        self.assertIsNone(c.photo)
+        old = server.MAX_LOG_BYTES
+        server.MAX_LOG_BYTES = 400
+        self.addCleanup(setattr, server, "MAX_LOG_BYTES", old)
+        a, b, code = await self.two_players("omok")
+        await self.start(a, b, "omok")
+        for r in range(8):
+            await a.send_json({"t": "act", "a": {"type": "place", "r": r, "c": 0}})
+            await self.until(b, "act")
+        self.assertLess(server.hub.rooms[code].log_bytes, 400)
+        for ws in (a, b):
+            await ws.close()
+
+    async def test_start_cannot_change_game_or_add_settings(self):
+        a, b, _ = await self.two_players("chess")
+        await a.send_json({"t": "act", "a": {"type": "start", "game": "constructor", "settings": {"time": "none", "evil": "x"}}})
+        start = (await self.until(b, "act"))["a"]
+        self.assertEqual(start["game"], "chess")
+        self.assertEqual(start["settings"], {"time": "none"})
+        for ws in (a, b):
+            await ws.close()
+
+    async def test_room_updates_are_grouped(self):
+        server.ROOM_SEND_INTERVAL = 0.2
+        a, b, code = await self.two_players("omok")
+        await asyncio.sleep(0.3)
+        for k in range(10):
+            await a.send_json({"t": "settings", "settings": {"rule": "free" if k % 2 else "33", "turn": str(k)}})
+        await asyncio.sleep(0.5)
+        rooms = []
+        while True:
+            try:
+                msg = await asyncio.wait_for(b.receive_json(), 0.1)
+            except asyncio.TimeoutError:
+                break
+            if msg["t"] == "room":
+                rooms.append(msg["room"])
+        self.assertLessEqual(len(rooms), 3)
+        self.assertEqual(rooms[-1]["settings"]["turn"], "9")  # 마지막 상태는 빠지지 않음
+        for ws in (a, b):
+            await ws.close()
+
+    async def test_secret_key_can_come_as_first_message(self):
+        ws = await self.client.ws_connect("/ws")
+        await ws.send_json({"t": "hello", "cid": self.secret("aaaaaaaa1")})
+        welcome = await ws.receive_json()
+        self.assertEqual((welcome["t"], welcome["cid"]), ("welcome", self.secret("aaaaaaaa1")))
+        self.assertIn(self.secret("aaaaaaaa1"), server.hub.clients)
+        await ws.close()
+        old = server.HELLO_TIMEOUT
+        server.HELLO_TIMEOUT = 0.05
+        self.addCleanup(setattr, server, "HELLO_TIMEOUT", old)
+        silent = await self.client.ws_connect("/ws")  # 열쇠를 안 보내면 끊김
+        msg = await asyncio.wait_for(silent.receive(), 2)
+        self.assertEqual(msg.data, 4002)
+        await silent.close()
+
+    def test_collection_titles_check_real_tokens(self):
+        cid = "z" * 32
+        token = lambda t: server.title_token(cid, t)  # noqa: E731
+        base = sorted(server.COLLECT_TITLES)
+        self.assertEqual(len(base), 37)  # DEV · 히든 제외 (titles.js의 COUNTED_TITLES와 같은 수)
+        self.assertFalse({"dev", "q_about", "q_wrong", "col_all", "muso"} & set(base))
+        self.assertEqual(server.collect_titles(cid, {t: "fake" for t in base}), [])  # 가짜 표는 세지 않음
+        self.assertEqual(server.collect_titles(cid, {t: token(t) for t in base[:18]}), [])
+        self.assertEqual(server.collect_titles(cid, {t: token(t) for t in base[:19]}), ["col_half"])
+        self.assertEqual(server.collect_titles(cid, {t: token(t) for t in base[:30]}), ["col_half", "col_30"])
+        full = {t: token(t) for t in base}
+        self.assertEqual(server.collect_titles(cid, full), ["col_half", "col_30", "col_all"])
+        self.assertEqual(server.collect_titles(cid, {**full, "reset_1": token("reset_1")})[-1], "nth_all")
+        self.assertEqual(server.collect_titles(cid, full, resetting=True), ["muso"])
+        self.assertEqual(server.collect_titles(cid, {t: token(t) for t in base[:30]}, resetting=True), [])
+
+    async def test_collect_message_grants_titles(self):
+        a = await self.connect("aaaaaaaa1", "태고")
+        cid = self.secret("aaaaaaaa1")
+        await a.send_json({"t": "collect", "tokens": {t: server.title_token(cid, t) for t in server.COLLECT_TITLES}})
+        self.assertEqual({(await self.until(a, "title_grant"))["title"] for _ in range(3)}, {"col_half", "col_30", "col_all"})
+        await a.close()
+
     async def test_chat_carries_only_verified_title(self):
         a, b, _ = await self.two_players("omok")
         await a.send_json({"t": "chat", "text": "칭호 없음"})
@@ -357,7 +546,8 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
 
         await a.send_json({"t": "act", "a": {"type": "start", "game": "chess"}})
         await self.until(a, "act")
-        await a.send_json({"t": "result", "winners": ["태고"], "losers": ["민수"]})
+        for ws in (a, b):
+            await ws.send_json({"t": "result", "winners": ["태고"], "losers": ["민수"]})
         got = await titles_of(a, 3)
         self.assertLessEqual({"first_game", "first_win"}, got)
         self.assertEqual(await titles_of(b, 1), {"first_game"})
@@ -370,8 +560,7 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         for game in range(3):
             await a.send_json({"t": "act", "a": {"type": "start", "game": "chess"}})
             await self.until(a, "act")
-            await a.send_json({"t": "result", "winners": ["태고"], "losers": ["민수"]})
-            await self.until(a, "room")
+            await self.finish(a, b, ["태고"], ["민수"])
             await b.send_json({"t": "fx", "fx": {"kind": "teabag"}})  # 진 사람은 세지 않음
             for _ in range(2):  # 같은 판에 여러 번 해도 한 판으로 셈
                 await a.send_json({"t": "fx", "fx": {"kind": "teabag"}})
@@ -434,7 +623,7 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_every_title_code_gives_its_title(self):
         a = await self.connect("aaaaaaaa1", "태고")
-        self.assertEqual(set(server.TITLE_CODES.values()), server.TITLE_IDS)  # 모든 칭호에 코드가 있음
+        self.assertEqual(set(server.TITLE_CODES.values()), server.TITLE_IDS - server.EARNED_ONLY_TITLES)  # 조건으로만 받는 칭호를 빼면 모두 코드가 있음
         for code, title in {"test-dev-code": "dev", "TEST-KDA-CODE": "kda", "TEST-ROOK-CODE": "chess_s5", "TEST-PIG-CODE": "yut_win"}.items():
             await a.send_json({"t": "redeem", "code": code})
             self.assertEqual((await self.until(a, "title_grant"))["title"], title)
@@ -473,7 +662,7 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
     async def test_ranking_only_counts_seated_names(self):
         a, b, _ = await self.two_players("chess")
         await self.start(a, b, "chess")
-        await a.send_json({"t": "result", "players": ["태고", "민수", "가짜"], "winners": ["태고", "가짜"]})
+        await self.finish(a, b, ["태고", "가짜"])
         await a.send_json({"t": "ranking"})
         rank = (await self.until(a, "ranking"))["ranking"]
         self.assertEqual(sorted(rank), ["민수", "태고"])
@@ -491,8 +680,8 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         for winner, loser, expect_streak in (("민수", "태고", 1), ("민수", "지수", 2)):  # 방장(태고)이 져서 줄로 가도 시작 가능
             await a.send_json({"t": "act", "a": {"type": "start", "game": "chess"}})
             await self.until(a, "act")
-            await a.send_json({"t": "result", "winners": [winner], "losers": [loser]})
-            room = (await self.until(a, "room"))["room"]
+            seated = (a, b) if loser == "태고" else (b, c)  # 지난 판 뒤 자리가 바뀜
+            room = await self._finish_seen_by(a, seated, winner, loser)
             streak = {m["name"]: m["streak"] for m in room["members"]}
             self.assertEqual(streak["민수"], expect_streak)
             await a.send_json({"t": "reset"})
@@ -507,6 +696,14 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["king"], {"name": "민수", "streak": 2})
         for ws in (a, b, c):
             await ws.close()
+
+    async def _finish_seen_by(self, viewer, seated, winner, loser):
+        for ws in seated:
+            await ws.send_json({"t": "result", "winners": [winner], "losers": [loser]})
+        room = (await self.until(viewer, "room"))["room"]
+        while room["status"] != "done":
+            room = (await self.until(viewer, "room"))["room"]
+        return room
 
     async def test_secret_id_is_never_shown_to_others(self):
         a, b, code = await self.two_players("omok")

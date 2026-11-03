@@ -51,10 +51,11 @@ export function connect(p) {
     return;
   }
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  ws = new WebSocket(`${proto}://${location.host}/ws?cid=${encodeURIComponent(cid)}`);
+  ws = new WebSocket(`${proto}://${location.host}/ws`); // 비밀 열쇠는 주소가 아니라 첫 메시지로 (접속 기록에 남지 않게)
   emit("status", "connecting");
   ws.onopen = () => {
     retry = 0;
+    send({ t: "hello", cid });
     send({ t: "profile", profile });
     bestRtt = Infinity;
     sync();

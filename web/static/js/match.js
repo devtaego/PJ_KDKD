@@ -259,7 +259,7 @@ export class Match {
     const names = this.seats.filter((s) => !s.ai).map((s) => s.name);
     const winners = info.winners.map((i) => this.seats[i].name);
     if (!this.replaying) addLocalRecord(this.game, names, winners);
-    if (this.online && this.isHost && !this.replaying) {
+    if (this.online && this.mySeats.length) { // 앉은 사람마다 각자 계산한 결과를 보냄 (서버가 서로 맞춰 보고 기록)
       net.send({ t: "result", players: this.seats.map((s) => s.name), winners, losers: info.losers.map((i) => this.seats[i].name) });
     }
     const delay = this.replaying ? 0 : 900;

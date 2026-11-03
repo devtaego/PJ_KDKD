@@ -30,8 +30,8 @@ export class Match {
    * seats: [{name, avatar, intro, ai, cid}], mySeats: 이 기기가 조작하는 자리 번호들
    * settings: 게임별 설정, level: 컴퓨터 난이도
    */
-  constructor({ game, mode, seats, mySeats, settings, level, module, onExit, onAgain, onManage, isHost = true, replaying = false }) {
-    Object.assign(this, { game, mode, seats, mySeats, settings, level, module, onExit, onAgain, onManage, isHost, replaying });
+  constructor({ game, mode, seats, mySeats, settings, level, module, onExit, onAgain, onWaitingRoom, onManage, isHost = true, replaying = false }) {
+    Object.assign(this, { game, mode, seats, mySeats, settings, level, module, onExit, onAgain, onWaitingRoom, onManage, isHost, replaying });
     this.online = mode === "online";
     this.lastSeq = 0;
     this.result = null;
@@ -272,6 +272,7 @@ export class Match {
     this.updateSpecBar();
     this.resultView?.setFlow?.(this.flowInfo());
     this.updateResultStreaks();
+    this.tickFlow();
   }
 
   /** 결과 화면 이름 옆 연승 (서버가 판을 집계한 뒤에 바뀜) */
@@ -299,29 +300,44 @@ export class Match {
     btn.onclick = action.onClick;
   }
 
-  /** 끝난 뒤 내 역할과 다음에 무슨 일이 일어나는지 (온라인만) */
+  /** 끝난 뒤 내 역할과 다음에 무슨 일이 일어나는지 (온라인만). 자리는 판이 끝날 때 이미 바뀌어 있음 */
   flowInfo() {
     if (!this.online || !this.result) return null;
     const info = this.result, room = this.roomInfo || {}, me = net.myId();
-    const queue = room.queue || [];
-    const nameOf = (pid) => (room.members || []).find((x) => x.cid === pid)?.name || "다음 사람";
+    const queue = room.queue || [], members = room.members || [];
+    const nameOf = (x) => `${x.name} 님`;
+    const seated = members.filter((x) => x.role === "player");
+    const opponent = seated.find((x) => x.cid !== me);
+    const meNow = members.find((x) => x.cid === me);
+    const pos = queue.indexOf(me);
+    const left = room.next_at ? Math.max(0, Math.ceil((room.next_at - net.serverNow()) / 1000)) : 0;
+    const timer = left ? ` · 다음 판까지 ${left}초` : "";
+    const canAgain = room.host === me || meNow?.role === "player"; // 줄 앞사람은 이미 앉아 있어서 열 수 있음
+    const flow = (kind, tag, note, queueBtn) => ({ kind, tag, note: note + timer, canAgain, queue: queueBtn });
     const mine = this.mySeats.filter((i) => !this.seats[i].ai);
     if (mine.length) {
       const seat = mine[0];
-      const next = queue.length ? `${nameOf(queue[0])} 님` : "";
       if (info.winners.includes(seat)) {
-        const streak = room.members?.find((x) => x.cid === me)?.streak || 0;
-        return { kind: "win", tag: streak >= 1 ? `승자 · ${streakText(streak)}` : "승자", note: next ? `자리를 지켜요. 다음 상대는 ${next}이에요` : "다음 판도 이 자리에서 계속해요" };
+        const streak = meNow?.streak || 0;
+        return flow("win", streak >= 1 ? `승자 · ${streakText(streak)}` : "승자", opponent ? `자리를 지켜요. 다음 상대는 ${nameOf(opponent)}이에요` : "다음 상대를 기다려요");
       }
-      if (info.winners.length) return { kind: "lose", tag: "패자", note: next ? `줄 맨 뒤로 가요. 다음 판은 ${next}이 앉아요` : "대기 줄이 없어서 바로 다시 붙어요" };
-      return { kind: "draw", tag: "무승부", note: "다음 판도 이 자리에서 계속해요" };
+      if (info.winners.length) {
+        return pos >= 0
+          ? flow("lose", "패자", `줄 ${pos + 1}번째로 갔어요. 다음 판은 ${seated.map(nameOf).join(" · ")}이에요`, this.queueAction(pos))
+          : flow("lose", "패자", "대기 줄이 없어서 바로 다시 붙어요");
+      }
+      return pos >= 0 ? flow("draw", "무승부", `연속 무승부라 줄 ${pos + 1}번째로 갔어요`, this.queueAction(pos)) : flow("draw", "무승부", "자리를 바꿔 다시 붙어요");
     }
-    const pos = queue.indexOf(me);
-    if (pos >= 0) {
-      const slots = info.losers.length || 1;
-      return { kind: "queue", tag: `대기 ${pos + 1}번째`, note: pos < slots ? "다음 판에 앉아요! 준비하세요" : `앞에 ${pos}명이 있어요`, queue: this.queueAction(pos) };
-    }
-    return { kind: "spectator", tag: "관전자", note: "구경 중이에요. 다음 판에 하고 싶으면 줄을 서요", queue: this.queueAction(pos) };
+    if (meNow?.role === "player") return flow("queue", "다음 판 출전", opponent ? `${nameOf(opponent)}과 붙어요. 선공은 도전자예요` : "자리에 앉았어요");
+    if (pos >= 0) return flow("queue", `대기 ${pos + 1}번째`, `앞에 ${pos}명이 있어요`, this.queueAction(pos));
+    return flow("spectator", "관전자", "구경 중이에요. 다음 판에 하고 싶으면 줄을 서요", this.queueAction(pos));
+  }
+
+  /** 자동 시작까지 남은 시간이 결과 화면에서 줄어들게 */
+  tickFlow() {
+    clearInterval(this.flowTick);
+    if (!this.roomInfo?.next_at || !this.resultView) return;
+    this.flowTick = setInterval(() => this.resultView?.setFlow?.(this.flowInfo()), 1000);
   }
 
   showResultCard() {
@@ -348,12 +364,13 @@ export class Match {
       onTaunt: (text) => this.taunt(mine[0], text, myKind),
       onTeabag: canTeabag ? (style) => this.fx({ kind: "teabag", from: winner, to: loser, style }) : null,
       onAgain: () => this.again(),
-      againLabel: this.online ? (this.isHost ? "한 판 더" : ["chess", "omok"].includes(this.game) ? "방장이 한 판 더를 누르면 바로 다음 판을 시작해요" : "방장이 다음 판을 열면 대기실로 가요") : "한 판 더",
-      canAgain: !this.online || this.isHost,
+      onWaitingRoom: this.onWaitingRoom ? () => this.onWaitingRoom() : null,
+      againLabel: "한 판 더",
       onExit: () => this.exit(true),
     });
     this.resultView.setFlow(this.flowInfo());
     this.updateResultStreaks();
+    this.tickFlow();
   }
 
   taunt(seat, text, kind) {
@@ -394,7 +411,6 @@ export class Match {
   }
 
   again() {
-    if (this.online && !this.isHost) return;
     this.onAgain?.();
   }
 
@@ -427,6 +443,7 @@ export class Match {
   destroy() {
     document.removeEventListener("keydown", this.onEscape);
     clearInterval(this.offlineTick);
+    clearInterval(this.flowTick);
     for (const id of this.timers) clearTimeout(id);
     this.timers.clear();
     this.resultView?.close();

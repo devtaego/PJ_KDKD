@@ -246,12 +246,23 @@ const VEIN_SVG = `<svg class="vein" viewBox="-10 -10 20 20"><g stroke="#FF2E2E" 
  * 게임 결과 카드.
  * opts: { title, sub, players: [{name, avatar, score?, winner, key}], me: 내 key 또는 null(관전),
  *         myKind: win/lose/draw/null, question: 질문 문자열 또는 null, questionFor: 이름,
- *         onTaunt(text), onTeabag(), onAgain, againLabel, onExit, canAgain }
+ *         onTaunt(text), onTeabag(), onAgain, againLabel, onWaitingRoom, onExit }
  * 돌려주는 객체: { close(), teabag(fromKey, toKeys, style), bubble(key, text) }
  */
 export function showResult(opts) {
   const root = el(`<div class="result"><div class="result-card"><h2>${esc(opts.title)}</h2><div class="sub">${esc(opts.sub || "")}</div><div class="podium"></div></div></div>`);
   const card = root.firstElementChild;
+  // 오른쪽 위 접기 버튼: 창처럼 접어서 판을 보고, 다시 눌러 펼침
+  const fold = el(`<button type="button" class="result-fold" aria-label="결과 접기" title="결과 접기 (Esc)"><span aria-hidden="true">—</span></button>`);
+  card.prepend(fold);
+  const isFolded = () => root.classList.contains("folded");
+  const setFolded = (on) => {
+    root.classList.toggle("folded", on);
+    fold.setAttribute("aria-label", on ? "결과 펼치기" : "결과 접기");
+    fold.title = on ? "결과 펼치기 (Esc)" : "결과 접기 (Esc)";
+    fold.firstElementChild.textContent = on ? "▢" : "—";
+  };
+  fold.onclick = () => setFolded(!isFolded());
   const flowEl = el(`<div class="result-flow" hidden></div>`);
   card.querySelector(".sub").after(flowEl);
   const podium = card.querySelector(".podium");
@@ -271,32 +282,26 @@ export function showResult(opts) {
     }
     card.appendChild(taunts);
   }
-  // 버튼은 한 줄로: 티배깅(이긴 사람만) / 한 판 더 / 판 보기 / 나가기. 방장이 아니면 한 판 더 대신 안내 문구를 위에
-  if (opts.onAgain && opts.canAgain === false) card.appendChild(el(`<div class="result-wait">${esc(opts.againLabel || "")}</div>`));
+  // 버튼은 한 줄로: 티배깅(이긴 사람만) / 한 판 더 / 대기실로 / 나가기. 관전자는 한 판 더 대신 줄 서기
   const actions = el(`<div class="row result-actions"></div>`);
   if (opts.onTeabag) {
     const tb = el(`<button class="btn pink">🍑 티배깅</button>`);
     tb.onclick = () => opts.onTeabag(randomOf(TEABAG_STYLES)); // 누를 때마다 동작이 랜덤 (고른 동작을 함께 보내 모두 같은 걸 봄)
     actions.appendChild(tb);
   }
-  if (opts.onAgain && opts.canAgain !== false) {
-    const again = el(`<button class="btn primary">${esc(opts.againLabel || "한 판 더")}</button>`);
+  let again = null;
+  if (opts.onAgain) {
+    again = el(`<button class="btn primary">${esc(opts.againLabel || "한 판 더")}</button>`);
     again.onclick = () => opts.onAgain();
     actions.appendChild(again);
   }
   const queueBtn = el(`<button class="btn" hidden></button>`);
   actions.appendChild(queueBtn);
-  const look = el(`<button class="btn ghost">판 보기</button>`);
-  let showAgain = null; // '판 보기' 중일 때 결과를 다시 여는 함수
-  look.onclick = () => {
-    root.style.display = "none";
-    const back = el(`<button class="btn primary" style="position:fixed;right:16px;bottom:calc(16px + var(--safe-b));z-index:41">결과 다시 보기</button>`);
-    showAgain = () => { root.style.display = ""; back.remove(); showAgain = null; };
-    back.onclick = showAgain;
-    document.body.appendChild(back);
-    api.cleanup.push(() => back.remove());
-  };
-  actions.appendChild(look);
+  if (opts.onWaitingRoom) {
+    const toRoom = el(`<button class="btn ghost">대기실로</button>`);
+    toRoom.onclick = () => opts.onWaitingRoom();
+    actions.appendChild(toRoom);
+  }
   if (opts.onExit) {
     const exit = el(`<button class="btn ghost">나가기</button>`);
     exit.onclick = () => opts.onExit();
@@ -304,16 +309,15 @@ export function showResult(opts) {
   }
   card.appendChild(actions);
   document.body.appendChild(root);
-  // 키보드: Enter = 한 판 더, Esc = 판 보기 (판 보는 중이면 Esc · Enter로 결과 다시 보기)
+  // 키보드: Enter = 한 판 더, Esc = 결과 접기 (접혀 있으면 Esc · Enter로 펼치기)
   const onKey = (e) => {
     if (!root.isConnected) { document.removeEventListener("keydown", onKey); return; }
     if (document.querySelector(".modal-back") || e.isComposing || (root.contains(e.target) && e.target.closest?.("input, textarea, button"))) return;
     if (!root.contains(e.target) && e.target.closest?.("input, textarea")) return; // 채팅 입력 중
-    if (showAgain && (e.key === "Escape" || e.key === "Enter")) { e.preventDefault(); showAgain(); }
-    else if (e.key === "Escape") { e.preventDefault(); look.click(); }
+    if (isFolded() && (e.key === "Escape" || e.key === "Enter")) { e.preventDefault(); setFolded(false); }
+    else if (e.key === "Escape") { e.preventDefault(); setFolded(true); }
     else if (e.key === "Enter") {
-      const again = actions.querySelector(".btn.primary:not(:disabled)");
-      if (again) { e.preventDefault(); again.click(); }
+      if (again && !again.hidden) { e.preventDefault(); again.click(); }
     }
   };
   document.addEventListener("keydown", onKey);
@@ -339,6 +343,7 @@ export function showResult(opts) {
       if (!flow) return;
       flowEl.className = `result-flow k-${flow.kind}`;
       flowEl.innerHTML = `<b>${esc(flow.tag)}</b><span>${esc(flow.note)}</span>`;
+      if (again) again.hidden = !flow.canAgain; // 줄로 간 사람은 다음 판을 열지 않음
       queueBtn.hidden = !flow.queue;
       if (flow.queue) { queueBtn.textContent = flow.queue.label; queueBtn.onclick = flow.queue.onClick; }
     },
@@ -351,10 +356,10 @@ export function showResult(opts) {
       }
     },
     close() { root.remove(); document.removeEventListener("keydown", onKey); api.cleanup.forEach((f) => f()); },
-    bubble(key, text) { popAt(podium.querySelector(`[data-key="${CSS.escape(key)}"] .avatar`), { text, long: true }); },
+    bubble(key, text) { if (isFolded()) return; popAt(podium.querySelector(`[data-key="${CSS.escape(key)}"] .avatar`), { text, long: true }); },
     /** 진 사람 모두를 차례로 공격. 사람이 많으면 한 명당 시간을 줄이고, 모션도 돌아가며 바꿈 (모든 기기가 같은 순서) */
     teabag(fromKey, toKeys, style = "teabag") {
-      if (podium.dataset.tbChain || !toKeys.length) return;
+      if (isFolded() || podium.dataset.tbChain || !toKeys.length) return; // 접혀 있으면 프로필이 안 보여서 연출을 건너뜀
       podium.dataset.tbChain = "1";
       const time = toKeys.length > 1 ? TEABAG_TIME_EACH : TEABAG_TIME;
       const first = Math.max(0, TEABAG_STYLES.indexOf(style));

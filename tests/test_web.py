@@ -373,6 +373,102 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         for ws in (a, b, c):
             await ws.close()
 
+    async def test_next_game_can_be_opened_by_host_or_seated_player_only(self):
+        a, b, code = await self.two_players("chess")
+        c = await self.connect("cccccccc3", "지수")
+        await c.send_json({"t": "join", "room": code})
+        await self.until(c, "room")
+        await b.send_json({"t": "reset", "rematch": True})  # 아직 판이 안 끝났으면 무시
+        await self.quiet(b)
+        await self.start(a, b, "chess")
+        await b.send_json({"t": "reset", "rematch": True})  # 게임 중에도 무시
+        await self.quiet(b)
+        await self.finish(a, b, ["태고"], ["민수"])
+        await b.send_json({"t": "reset", "rematch": True})  # 줄로 밀려난 사람은 못 엶
+        await self.quiet(b)
+        await c.send_json({"t": "reset", "rematch": True})  # 줄 앞사람은 이미 앉아 있어서 열 수 있음
+        self.assertEqual(await self._start_seats(a), ["지수", "태고"])
+        for ws in (a, b, c):
+            await ws.close()
+
+    async def _start_seats(self, ws):
+        """다음 판 시작 메시지의 자리 이름 (첫 자리가 선공)"""
+        while True:
+            msg = await self.until(ws, "act")
+            if msg["a"]["type"] == "start":
+                return [s["name"] for s in msg["a"]["seats"]]
+
+    async def test_rematch_is_started_by_server_and_loser_moves_first(self):
+        a, b, _ = await self.two_players("omok")
+        await self.start(a, b, "omok")
+        await self.finish(a, b, ["태고"], ["민수"])
+        await b.send_json({"t": "reset", "rematch": True})  # 방장이 아니어도 서버가 바로 시작
+        self.assertEqual(await self._start_seats(a), ["민수", "태고"])  # 진 사람이 선공
+        self.assertEqual(await self._start_seats(b), ["민수", "태고"])
+        await self.finish(a, b, ["민수"], ["태고"])
+        await a.send_json({"t": "reset", "rematch": True})
+        self.assertEqual(await self._start_seats(b), ["태고", "민수"])
+        for ws in (a, b):
+            await ws.close()
+
+    async def test_draw_swaps_first_move_and_two_draws_send_both_to_queue(self):
+        a, b, code = await self.two_players("chess")
+        c = await self.connect("cccccccc3", "지수")
+        await c.send_json({"t": "join", "room": code})
+        await self.until(c, "room")
+        await self.start(a, b, "chess")
+        room = await self.finish(a, b, [])
+        self.assertEqual({m["name"]: m["role"] for m in room["members"]}["태고"], "player")  # 한 번 비기면 그대로
+        await a.send_json({"t": "reset", "rematch": True})
+        self.assertEqual(await self._start_seats(a), ["민수", "태고"])  # 비기면 선공을 바꿈
+        self.assertEqual(await self._start_seats(b), ["민수", "태고"])
+        room = await self.finish(a, b, [])
+        roles = {m["name"]: m["role"] for m in room["members"]}
+        self.assertEqual(roles["지수"], "player")  # 두 번 비기면 둘 다 줄 뒤로
+        self.assertEqual(sum(r == "player" for r in roles.values()), 2)
+        self.assertEqual(len(room["queue"]), 1)
+        for ws in (a, b, c):
+            await ws.close()
+
+    async def test_leaving_seat_ends_streak(self):
+        a, b, _ = await self.two_players("chess")
+        await self.start(a, b, "chess")
+        room = await self.finish(a, b, ["민수"], ["태고"])
+        self.assertEqual({m["name"]: m["streak"] for m in room["members"]}["민수"], 1)
+        await b.send_json({"t": "seat", "role": "spectator"})  # 자리를 비우면 연승은 끝
+        room = (await self.until(a, "room"))["room"]
+        self.assertEqual({m["name"]: m["streak"] for m in room["members"]}["민수"], 0)
+        for ws in (a, b):
+            await ws.close()
+
+    async def test_too_short_game_keeps_seats(self):
+        server.MIN_GAME_SECONDS = 60
+        a, b, code = await self.two_players("chess")
+        c = await self.connect("cccccccc3", "지수")
+        await c.send_json({"t": "join", "room": code})
+        await self.until(c, "room")
+        await self.start(a, b, "chess")
+        room = await self.finish(a, b, ["태고"], ["민수"])
+        roles = {m["name"]: m["role"] for m in room["members"]}
+        self.assertEqual((roles["민수"], roles["지수"], room["next_at"]), ("player", "spectator", 0))
+        for ws in (a, b, c):
+            await ws.close()
+
+    async def test_queue_auto_starts_next_game(self):
+        real = server.AUTO_NEXT_SECONDS
+        server.AUTO_NEXT_SECONDS = 0.05
+        self.addCleanup(setattr, server, "AUTO_NEXT_SECONDS", real)
+        a, b, code = await self.two_players("chess")
+        c = await self.connect("cccccccc3", "지수")
+        await c.send_json({"t": "join", "room": code})
+        await self.until(c, "room")
+        await self.start(a, b, "chess")
+        await self.finish(a, b, ["태고"], ["민수"])
+        await self._start_seats(c)  # 지난 판 시작 메시지
+        self.assertEqual(await self._start_seats(c), ["지수", "태고"])  # 줄 앞사람이 앉아 선공
+        for ws in (a, b, c):
+            await ws.close()
+
     async def test_changing_name_keeps_record(self):
         a, b, _ = await self.two_players("chess")
         await self.play(a, b, "태고")
@@ -782,12 +878,12 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(streak["민수"], expect_streak)
             await a.send_json({"t": "rooms"})  # 방 목록에는 1승부터 보임
             self.assertEqual((await self.until(a, "rooms"))["rooms"][0]["king"], {"name": "민수", "streak": expect_streak})
-            await a.send_json({"t": "reset"})
-            room = (await self.until(a, "room"))["room"]
             roles = {m["name"]: m["role"] for m in room["members"]}
-            self.assertEqual(roles[loser], "spectator")  # 진 사람은 줄 맨 뒤로
+            self.assertEqual(roles[loser], "spectator")  # 판이 끝나는 즉시 진 사람은 줄 맨 뒤로
             self.assertEqual(sum(r == "player" for r in roles.values()), 2)
             self.assertEqual(room["queue"], [next(m["cid"] for m in room["members"] if m["name"] == loser)])
+            await a.send_json({"t": "reset"})
+            await self.until(a, "reset")
 
         await a.send_json({"t": "rooms"})
         summary = (await self.until(a, "rooms"))["rooms"][0]

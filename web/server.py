@@ -108,6 +108,7 @@ MAX_PHOTO = 20_000  # 96px 프로필 사진은 보통 몇 KB
 MAX_ACT = 600  # 게임 수 하나의 최대 크기 (보통 100바이트 안팎)
 MAX_MEMBERS = 30  # 한 방의 사람 수 상한 (플레이어 + 관전 + 대기 줄)
 MAX_LOG_BYTES = 512 * 1024  # 한 판의 기록이 차지하는 메모리 상한
+AUTO_NEXT_SECONDS = 15  # 줄 선 사람이 있으면 결과 뒤 이만큼 있다가 다음 판을 자동으로 시작 (체스 · 오목)
 MIN_GAME_SECONDS = 3  # 이보다 짧은 판은 기록 · 칭호에 넣지 않음
 ROOM_SEND_INTERVAL = 0.25  # 방 정보는 이 간격으로 묶어서 보냄 (트래픽 절약)
 ROOMS_SEND_INTERVAL = 1.0  # 방 목록도 마찬가지
@@ -383,7 +384,12 @@ class Room:
         self.sent_at = 0.0  # 방 정보를 마지막으로 보낸 시각
         self.send_later = None  # 묶어서 보내려고 기다리는 작업
         self.teabag_ready = set()  # 지난 판을 이겨서 아직 티배깅하지 않은 cid (한 판에 한 번만 셈)
-        self.losers = []  # 지난 판에 진 사람 (한 판 더 할 때 줄 맨 뒤로)
+        self.losers = []
+        self.last_seats = []  # 지난 판 자리 순서 (cid)
+        self.last_winners = []  # 지난 판 이긴 사람 (cid)
+        self.draws = 0  # 이어진 무승부 수
+        self.next_at = 0  # 다음 판 자동 시작 시각 (ms, 없으면 0)
+        self.next_task = None
         self.banned = set()  # 방장이 내보낸 사람 (cid)
 
     @property
@@ -456,7 +462,7 @@ class Hub:
                             "yut_skin": room.yut_skins.get(cid, "") if room.game == "yut" else "", **c.profile})
         return {"id": room.id, "name": room.name, "game": room.game, "settings": room.settings,
                 "team_skins": room.team_skins, "host": self.pid(room.host), "status": room.status, "members": members, "max": GAMES[room.game],
-                "queue": [self.pid(c) for c in room.queue], "grace": GRACE}
+                "queue": [self.pid(c) for c in room.queue], "grace": GRACE, "next_at": room.next_at}
 
     def room_summary(self, room):
         host = self.clients.get(room.host)
@@ -529,6 +535,66 @@ class Hub:
             code = "".join(secrets.choice(CODE_CHARS) for _ in range(4))
             if code not in self.rooms:
                 return code
+
+    def rotate_seats(self, room, out):
+        """줄 선 사람이 있으면 out(진 사람)을 줄 맨 뒤로 보내고 줄 앞사람을 앉힘. 자리에서 벗어나면 연승은 끝."""
+        if not room.queue:
+            return
+        for cid in out:
+            if room.role_of(cid) == "player":
+                room.set_role(cid, "spectator")
+                room.queue.append(cid)
+                room.streak.pop(cid, None)
+        self.fill_seats(room)
+
+    def next_order(self, room):
+        """연승전 자리 순서: 첫 자리가 선공. 진 사람 · 도전자가 선공이고, 같은 두 사람이 비겼으면 바꿔 앉음. 첫 판은 None (방 설정대로)"""
+        players = room.players()
+        if GAMES[room.game] != 2 or len(players) != 2 or not room.last_seats:
+            return None
+        champions = [c for c in players if c in room.last_winners]
+        if len(champions) == 1:
+            order = [c for c in players if c != champions[0]] + champions
+        elif set(players) == set(room.last_seats):
+            order = list(reversed(room.last_seats))
+        else:
+            return None
+        return [self.clients[c].pid for c in order if c in self.clients]
+
+    def cancel_auto_next(self, room):
+        room.next_at = 0
+        if room.next_task:
+            room.next_task.cancel()
+            room.next_task = None
+
+    async def start_next(self, room):
+        """체스 · 오목 다음 판을 서버가 바로 시작 (방장 기기 상태와 상관없음). 자리가 비었거나 끊긴 사람이 있으면 False"""
+        players = room.players()
+        ready = [c for c in players if c in self.clients and self.clients[c].gone_at is None and self.clients[c].profile]
+        if room.status != "done" or room.game not in ("chess", "omok") or len(ready) < GAMES[room.game] or len(players) != len(ready):
+            return False
+        self.cancel_auto_next(room)
+        kept = {"chess": ("time",), "omok": ("rule", "turn")}[room.game]
+        settings = {k: room.settings[k] for k in kept if k in room.settings}
+        await self.act(room, room.host, {"type": "start", "game": room.game, "settings": settings})
+        await self.send_room(room, now=True)
+        return True
+
+    async def to_waiting(self, room):
+        """대기실로 돌아감"""
+        self.cancel_auto_next(room)
+        room.status = "waiting"
+        room.log = []
+        self.fill_seats(room)
+        await self.to_room(room, {"t": "reset"})
+        await self.send_room(room, now=True)
+
+    async def auto_next_later(self, room):
+        await asyncio.sleep(AUTO_NEXT_SECONDS)
+        room.next_task = None
+        room.next_at = 0
+        if self.rooms.get(room.id) is room and room.status == "done" and not await self.start_next(room):
+            await self.send_room(room, now=True)
 
     def fill_seats(self, room):
         """대기실에서 빈자리가 있으면 줄 앞사람부터 앉힘 (연결이 끊긴 사람은 건너뜀)."""
@@ -630,7 +696,10 @@ class Hub:
             room.started_at = time.time()
             a["game"] = room.game  # 방과 다른 게임으로 시작하거나 엉뚱한 설정을 보내지 못하게
             a["settings"] = clean_settings(a.get("settings"))
-            room.seat_cids, a["seats"] = self.seats_for_start(room, a.pop("order", None))
+            self.cancel_auto_next(room)
+            order = self.next_order(room) or a.pop("order", None)  # 둘째 판부터는 도전자가 선공
+            a.pop("order", None)
+            room.seat_cids, a["seats"] = self.seats_for_start(room, order)
             room.seat_names = [self.clients[c].profile["name"] for c in room.seat_cids]
             room.seat_ids = [self.clients[c].player_id for c in room.seat_cids]
             settings = a.get("settings")
@@ -810,6 +879,7 @@ class Hub:
                     room.queue.remove(client.cid)  # 줄에서 빠지기
                 elif role == "player" and room.status != "playing":
                     room.set_role(client.cid, "spectator")
+                    room.streak.pop(client.cid, None)  # 자리를 비우면 연승은 끝
                     room.yut_skins.pop(client.cid, None)
             elif role == "spectator" and client.cid not in room.queue:
                 if room.game == "yut":
@@ -847,25 +917,19 @@ class Hub:
             agree = sum(1 for key, _ in room.result_votes.values() if key == tuple(sorted(winners)))
             if agree >= max(1, min(2, len(seated))):
                 await self.finish_game(room, client, players, winners, losers)
-        elif t == "reset" and client.cid == room.host:  # 한 판 더: 대기실로
-            room.status = "waiting"
-            room.log = []
-            if room.queue:  # 기다리는 사람이 있으면 진 사람은 줄 맨 뒤로, 줄 앞사람이 자리에 앉음
-                for cid in room.losers:
-                    if room.role_of(cid) == "player":
-                        room.set_role(cid, "spectator")
-                        room.queue.append(cid)
-                self.fill_seats(room)
-            room.losers = []
-            await self.to_room(room, {"t": "reset"})
-            await self.send_room(room, now=True)
+        elif t == "reset" and room.status == "done" and (client.cid == room.host or room.role_of(client.cid) == "player"):
+            # 한 판 더: 방장이나 지금 자리에 앉은 사람 누구나 (줄 앞사람은 판이 끝날 때 이미 앉아 있음)
+            if not (msg.get("rematch") and await self.start_next(room)):
+                await self.to_waiting(room)
 
     async def finish_game(self, room, client, players, winners, losers):
         """결과가 맞춰진 판을 끝냄. 너무 짧거나 한 주소에서 너무 많이 끝낸 판은 기록 · 칭호에 넣지 않음."""
         room.status = "done"
         counted = (time.time() - room.started_at >= MIN_GAME_SECONDS and len(set(room.seat_ids)) >= 2  # 같은 번호끼리 한 판은 세지 않음
                    and self.ip_allow(client.ip, "record"))
-        room.losers = [cid for cid, name in zip(room.seat_cids, room.seat_names) if name in losers]
+        loser_cids = [cid for cid, name in zip(room.seat_cids, room.seat_names) if name in losers]
+        room.last_seats = list(room.seat_cids)
+        room.last_winners = [cid for cid, name in zip(room.seat_cids, room.seat_names) if name in winners]
         if counted:
             for cid, name in zip(room.seat_cids, room.seat_names):
                 earned = ["first_game"]
@@ -886,6 +950,17 @@ class Hub:
             room.teabag_ready = {cid for cid, name in zip(room.seat_cids, room.seat_names) if name in winners}
             await self.store.add(room.game, [{"id": pid, "name": name} for pid, name in zip(room.seat_ids, room.seat_names)],
                                  [pid for pid, name in zip(room.seat_ids, room.seat_names) if name in winners])
+            # 판이 끝나는 즉시 자리를 바꿈. 너무 짧은 판은 기록에도 줄에도 넣지 않음
+            room.draws = 0 if winners else room.draws + 1
+            had_queue = bool(room.queue)
+            if winners:
+                self.rotate_seats(room, loser_cids)
+            elif room.draws >= 2:  # 두 판 연속 비기면 둘 다 줄 뒤로
+                self.rotate_seats(room, list(room.seat_cids))
+                room.draws = 0
+            if had_queue and room.game in ("chess", "omok"):
+                room.next_at = now_ms() + AUTO_NEXT_SECONDS * 1000
+                room.next_task = asyncio.ensure_future(self.auto_next_later(room))
         await self.send_room(room, now=True)
 
     async def grant_titles(self, cid, titles):

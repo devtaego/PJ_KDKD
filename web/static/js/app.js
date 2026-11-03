@@ -805,6 +805,7 @@ function startLocal(game, o) {
     match = new Match({
       game, mode: o.mode, seats, mySeats, settings: { ...settings, seed: Math.floor(Math.random() * 2 ** 31) }, level: o.level, module: MODULES[game],
       onExit: () => homeScreen(), onAgain: () => begin(),
+      onWaitingRoom: game === "yut" ? () => localYutLobbyScreen(o) : null, // 한 기기 윷놀이에만 대기실이 있음
     });
     show({ root: match.root, back: () => match?.exit(), destroy: () => {} });
   };
@@ -874,11 +875,6 @@ net.on("room", (msg) => {
   const prev = online.room;
   online.room = msg.room;
   announceStreaks(prev, msg.room);
-  if (online.rematch && msg.room.status === "waiting") { // 1:1 한 판 더: 자리가 찼으면 대기실을 거치지 않고 바로 시작
-    online.rematch = false;
-    const seated = msg.room.members.filter((x) => x.role === "player");
-    if (msg.room.host === net.myId() && seated.length === msg.room.max && seated.every((x) => x.online)) startRoomGame(msg.room);
-  }
   online.manage?.();
   if (match?.online) {
     syncSpectators();
@@ -1048,7 +1044,11 @@ function startOnline(entry, replaying = false) {
   match = new Match({
     game: a.game, mode: "online", seats, mySeats: me >= 0 ? [me] : [], settings: { ...(a.settings || {}), seed: a.seed, startedAt: entry.at }, level: "normal",
     module: MODULES[a.game], isHost: online.room?.host === net.myId(), replaying, onManage: manageRoomModal,
-    onExit: () => leaveRoom(), onAgain: () => { online.rematch = ["chess", "omok"].includes(a.game); net.send({ t: "reset" }); },
+    onExit: () => leaveRoom(), onAgain: () => net.send({ t: "reset", rematch: true }),
+    onWaitingRoom: () => { // 나만 먼저 대기실로. 다른 사람 화면은 그대로이고, 누가 다음 판을 열면 함께 이어짐
+      if (match?.online) { match.destroy(); match = null; }
+      waitingScreen();
+    },
   });
   match.lastSeq = entry.seq;
   match.streaks = new Map((online.room?.members || []).map((x) => [x.cid, x.streak || 0]));
@@ -1189,7 +1189,7 @@ function waitingScreen() {
     const change = (k) => (v) => { s[k] = v; net.send({ t: "settings", settings: s }); };
     if (r.game === "chess") {
       settings.appendChild(option("시간", isHost ? segment(Object.entries(chess.TIME_MODES).map(([k, v]) => [k, v[0]]), s.time || "none", change("time")) : el(`<div>${esc(chess.TIME_MODES[s.time]?.[0] || "무제한")}</div>`)));
-      settings.appendChild(option("방장의 색", isHost ? segment([["w", "백"], ["b", "흑"], ["random", "무작위"]], s.color || "w", change("color")) : el(`<div>${{ w: "백", b: "흑", random: "무작위" }[s.color] || "백"}</div>`)));
+      settings.appendChild(option("방장의 색 (첫 판)", isHost ? segment([["w", "백"], ["b", "흑"], ["random", "무작위"]], s.color || "w", change("color")) : el(`<div>${{ w: "백", b: "흑", random: "무작위" }[s.color] || "백"}</div>`)));
     } else if (r.game === "yut") {
       const teamMode = s.team === "1";
       const teamB = roomTeamB(r, players);
@@ -1337,7 +1337,7 @@ function waitingScreen() {
     } else if (r.game === "omok") {
       settings.appendChild(option("규칙", isHost ? segment([["renju", "렌주룰"], ["free", "자유룰"]], s.rule === "free" ? "free" : "renju", change("rule")) : el(`<div>${s.rule === "free" ? "자유룰" : "렌주룰"}</div>`)));
       settings.appendChild(option("한 수 시간", isHost ? segment(Object.entries(omok.TURN_LIMITS).map(([k, v]) => [k, v[0]]), s.turn || "none", change("turn")) : el(`<div>${esc(omok.TURN_LIMITS[s.turn]?.[0] || "무제한")}</div>`)));
-      settings.appendChild(option("방장의 돌", isHost ? segment([["b", "흑"], ["w", "백"], ["random", "무작위"]], s.color || "b", change("color")) : el(`<div>${{ b: "흑", w: "백", random: "무작위" }[s.color] || "흑"}</div>`)));
+      settings.appendChild(option("방장의 돌 (첫 판)", isHost ? segment([["b", "흑"], ["w", "백"], ["random", "무작위"]], s.color || "b", change("color")) : el(`<div>${{ b: "흑", w: "백", random: "무작위" }[s.color] || "흑"}</div>`)));
     }
     if (isHost) settings.appendChild(option("방 공개", segment([["", "열린 방 목록에 보이기"], ["1", "비공개 (코드로만)"]], s.private || "", change("private"))));
 
@@ -1352,7 +1352,12 @@ function waitingScreen() {
       swap.onclick = () => net.send({ t: "seat", role: mine.role === "player" || inLine ? "spectator" : "player" });
       startRow.appendChild(swap);
     }
-    if (isHost) {
+    if (r.status === "done" && (isHost || mine?.role === "player")) { // 지난 판이 끝난 채로 대기실에 먼저 온 사람
+      const next = el(`<button class="btn primary big">한 판 더</button>`);
+      next.onclick = () => net.send({ t: "reset", rematch: true });
+      startRow.appendChild(next);
+      if (r.next_at) startRow.appendChild(el(`<div class="muted" style="width:100%;text-align:right">곧 다음 판이 자동으로 시작돼요</div>`));
+    } else if (isHost) {
       const need = r.game === "yacht" ? 2 : 2;
       const go = el(`<button class="btn primary big">시작하기</button>`);
       const yutTeamReady = r.game !== "yut" || r.settings.team !== "1" ||
@@ -1368,7 +1373,7 @@ function waitingScreen() {
       else if (r.game === "yut" && !yutSkinsReady) startRow.appendChild(el(`<div class="muted yut-start-note">${yutTeamGame ? "두 팀의 말을 서로 다르게 골라야 시작할 수 있어요" : "모든 플레이어가 서로 다른 말 캐릭터를 골라야 시작할 수 있어요"}</div>`));
       else if (r.game === "yut" && !yutTeamReady) startRow.appendChild(el(`<div class="muted yut-start-note">A팀과 B팀을 2명씩 배정해 주세요</div>`));
     } else {
-      startRow.appendChild(el(`<div class="muted">방장이 시작하기를 기다리는 중...</div>`));
+      startRow.appendChild(el(`<div class="muted">${r.status === "done" ? "다음 판을 기다리는 중..." : "방장이 시작하기를 기다리는 중..."}</div>`));
     }
   }
 

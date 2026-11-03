@@ -5,13 +5,12 @@
 //   22(한가운데)에서 시작하면 22→27→28→0
 // 골인: 어느 길로 오든 0(출발점)에 딱 멈추면 아직 판 위. 0을 1칸 이상 넘어가야 도착(HOME)
 // 모든 무작위(윷 결과 · 능력 뽑기 · 대환장 파티 등)는 행동마다 붙는 seed로 계산 → 모든 기기가 같은 결과
-import { ABILITIES, ABILITY_BY_ID, THROW_ODDS, START_HAND } from "../data/yut_abilities.js";
+import { ABILITY_BY_ID, THROW_ODDS, dealPowers } from "../data/yut_abilities.js";
 
 export const START = -1; // 아직 판에 안 올라온 말
 export const HOME = 99; // 도착한 말
 export const CENTER = 22;
 export const RESULT_NAMES = { 0: "낙", "-1": "빽도", 1: "도", 2: "개", 3: "걸", 4: "윷", 5: "모" };
-const LEVELS = [-1, 1, 2, 3, 4, 5]; // 손가락 꼬임 · 존버로 한 단계씩 오르내리는 순서
 
 const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
 
@@ -71,21 +70,20 @@ export function josa(word, withFinal, noFinal) {
 }
 
 export class YutGame {
-  /** names: 자리별 이름, opts: { pieces: 2~4, mode: basic / special / chaos, seed: 시작 카드 나눠 주기용,
+  /** names: 자리별 이름, opts: { pieces: 2~4, mode: basic(클래식) / power(초능력), seed: 시작 카드 나눠 주기용,
    *  teams: 2:2 팀전 (4명일 때만, 자리 0 · 2가 A팀, 1 · 3이 B팀 → 팀이 번갈아 던짐.
-   *  팀은 말 4개와 능력 카드 한 벌을 같이 씀: 자리 2 · 3의 pieces · hand는 자리 0 · 1과 같은 배열) } */
-  constructor(names, { pieces = 3, mode = "special", seed = 1, teams = false } = {}) {
-    this.mode = ["basic", "special", "chaos"].includes(mode) ? mode : "special";
+   *  팀은 말 4개를 같이 씀: 자리 2 · 3의 pieces는 자리 0 · 1과 같은 배열. 초능력 카드는 사람마다 따로) } */
+  constructor(names, { pieces = 3, mode = "power", seed = 1, teams = false } = {}) {
+    this.mode = mode === "basic" ? "basic" : "power";
     this.teams = !!teams && names.length === 4;
     this.pieceCount = this.teams ? 4 : Math.min(4, Math.max(2, pieces | 0 || 3));
     this.players = names.map((name) => ({
-      name, hand: [], captured: 0, luck: false, ward: false, shift: 0, resigned: false,
+      name, hand: [], captured: 0, stash: [], resigned: false,
       pieces: Array.from({ length: this.pieceCount }, () => ({ node: START, prev: null, shield: 0 })),
     }));
     if (this.teams) {
       for (const s of [2, 3]) {
         this.players[s].pieces = this.players[s - 2].pieces;
-        this.players[s].hand = this.players[s - 2].hand;
       }
     }
     this.current = 0;
@@ -95,18 +93,16 @@ export class YutGame {
     this.turnNo = 1;
     this.usedAbility = false;
     this.bombs = {}; // 칸 -> 설치한 자리
-    this.dopamine = 0;
-    this.upside = null; // 화면 거꾸로 당한 자리
+    this.charm = null; // 다음 던지기에 걸린 윷의 힘
     this.over = false;
     this.winner = null;
     this.winners = []; // 팀전이면 이긴 팀 두 사람
     this.log = [];
     this.events = []; // 방금 행동에서 일어난 일 (화면 연출용)
     this.lastThrow = null;
-    if (this.abilitiesOn) { // 시작할 때 모두(팀전은 팀마다) 같은 장수의 능력 카드를 받음
-      const rng = mulberry(seed | 0);
-      for (let k = 0; k < START_HAND[this.mode]; k++) this.sides().forEach((i) => this.draw(i, rng));
-      this.say(`${this.teams ? "팀마다 " : ""}능력 카드를 ${START_HAND[this.mode]}장씩 나눠 받았어요`, "card");
+    if (this.abilitiesOn) { // 시작할 때 사람마다 윷의 힘 1장 + 말의 힘 1장 (힘 합이 모두 같음)
+      dealPowers(this.n, mulberry(seed | 0)).forEach((hand, i) => { this.players[i].hand.push(...hand); });
+      this.say("초능력 카드를 2장씩 받았어요", "card");
     }
   }
 
@@ -147,11 +143,22 @@ export class YutGame {
     if (this.over || this.phase !== "throw" || this.throws <= 0) return false;
     this.events = [];
     const p = this.players[this.current];
-    let r = rollRaw(mulberry(seed));
+    const rng = mulberry(seed);
+    const charm = this.charm;
+    this.charm = null;
+    if (charm === "combo") { // 던지는 대신 도와 개를 모두 받음
+      this.throws--;
+      this.pending.push(1, 2);
+      this.lastThrow = 2;
+      this.say(`${p.name}: 도개 세트! 도와 개를 받았어요`, "good");
+      this.event({ kind: "throw", value: 2, seat: this.current });
+      if (this.throws === 0) this.phase = "move";
+      this.prune();
+      return true;
+    }
+    let r = charm === "gul3" ? 3 : charm === "reverse" ? -1 : charm === "allin" ? (rng() < 0.5 ? 1 : 5) : charm === "golden" ? (rng() < 0.5 ? 4 : 5) : rollRaw(rng);
     // 낙은 이번 던지기만 무효: 남은 던지기는 없어지지만, 앞에서 던져 쌓인 결과(모 · 윷 등)는 그대로 쓴다.
     if (r === 0) {
-      p.shift = 0;
-      p.luck = false;
       this.throws = 0;
       this.lastThrow = 0;
       this.say(`${p.name}: 낙! ${this.pending.length ? "앞에 나온 결과로 말을 옮겨요." : "차례를 넘깁니다."}`, "bad");
@@ -163,19 +170,18 @@ export class YutGame {
       } else this.endTurn();
       return true;
     }
-    if (p.shift) { // 손가락 꼬임 / 존버
-      const i = Math.max(0, Math.min(LEVELS.length - 1, LEVELS.indexOf(r) + p.shift));
-      r = LEVELS[i];
-      p.shift = 0;
-    }
-    if (p.luck && (r === -1 || r === 1)) { // 럭키비키
-      r = 2;
-      this.event({ kind: "fx", text: "럭키비키!" });
-    }
-    p.luck = false;
     this.throws--;
-    this.pending.push(r);
     this.lastThrow = r;
+    if (charm === "later") { // 결과를 다음 내 차례로 미룸 (팀전은 다음 팀 차례)
+      this.players[this.team(this.current)].stash.push(r);
+      this.say(`${p.name}: ${RESULT_NAMES[r]} · 다음 차례로 미뤄요`, "ability");
+      this.event({ kind: "throw", value: r, seat: this.current });
+      this.throws = 0;
+      this.endTurn();
+      return true;
+    }
+    this.pending.push(r);
+    if (charm === "double") this.pending.push(r);
     if (r >= 4) this.throws++; // 윷 · 모는 한 번 더
     this.say(`${p.name}: ${RESULT_NAMES[r]}${r >= 4 ? " · 한 번 더!" : ""}`, r >= 4 ? "good" : "info");
     this.event({ kind: "throw", value: r, seat: this.current });
@@ -209,7 +215,6 @@ export class YutGame {
     if (r === -1) {
       if (!onBoard(piece.node)) return null;
       // 첫 칸에서 빽도면 출발점(0)에 서고, 골인은 다음에 1칸 이상 더 가야 함
-      // (능력으로 밀려날 때는 pushBack을 써서 모서리를 넘으면 대기 말로 돌아감)
       return this.backOne(piece.node, piece.prev);
     }
     const path = pathFrom(piece.node);
@@ -291,18 +296,6 @@ export class YutGame {
     }
   }
 
-  draw(seat, rng) {
-    const pool = ABILITIES.map((a) => [a, a.weight[this.mode] || 0]).filter(([, w]) => w > 0);
-    const total = pool.reduce((s, [, w]) => s + w, 0);
-    let x = rng() * total;
-    let pick = pool[pool.length - 1][0];
-    for (const [a, w] of pool) {
-      if (x < w) { pick = a; break; }
-      x -= w;
-    }
-    this.players[seat].hand.push(pick.id);
-  }
-
   afterAction() {
     for (let s = 0; s < this.n; s++) {
       const mates = this.players.map((_, i) => i).filter((i) => this.ally(s, i));
@@ -321,15 +314,20 @@ export class YutGame {
 
   endTurn() {
     if (this.over) return;
-    if (this.upside === this.current) this.upside = null;
     const left = this.players.filter((p) => !p.resigned).length;
     if (left <= 1) return;
     this.current = this.nextSeat();
     this.turnNo++;
     this.phase = "throw";
     this.throws = 1;
-    if (this.dopamine > 0) { this.throws = 2; this.dopamine--; }
     this.pending = [];
+    this.charm = null;
+    const side = this.players[this.team(this.current)];
+    if (side.stash.length) { // 미뤄 둔 결과를 받음
+      this.pending = side.stash;
+      side.stash = [];
+      this.say(`미뤄 둔 ${this.pending.map((r) => RESULT_NAMES[r]).join(", ")}을(를) 받았어요`, "ability");
+    }
     this.usedAbility = false;
   }
 
@@ -363,50 +361,58 @@ export class YutGame {
   }
 
   // ------------------------------------------------------------ 능력
-  /** 능력 쓰기. t = { piece:{seat, idx}, own:idx, opp:{seat, idx}, node } */
+  /** 지금 이 카드를 쓸 수 있는 말이 판에 있는지 (화면에서 미리 알려 주는 용도) */
+  abilityReady(id, seat = this.current) {
+    const def = ABILITY_BY_ID[id];
+    if (!def || this.phase !== "throw" || this.throws <= 0) return false;
+    if (def.onlyFresh && this.pending.length) return false;
+    const mine = this.players[seat].pieces;
+    const hasOwnBoard = mine.some((pc) => onBoard(pc.node));
+    const hasOwn = def.allowStart ? mine.some((pc) => pc.node !== HOME) : hasOwnBoard;
+    const hasOpp = this.sides().some((s) => !this.ally(seat, s) && !this.players[s].resigned && this.players[s].pieces.some((pc) => onBoard(pc.node) && !this.shielded(pc)));
+    if (id === "hitch") return hasOwnBoard && mine.some((pc) => pc.node === START);
+    if (id === "flip") return this.allStacks().length > 1;
+    if (def.target === "ownPiece") return hasOwn;
+    if (def.target === "oppPiece") return hasOpp;
+    if (def.target === "swap") return hasOwn && hasOpp;
+    return true;
+  }
+
+  /** 능력 쓰기: 윷을 던지기 전에, 한 차례에 한 장만. t = { own:idx, opp:{seat, idx}, node } */
   use(handIdx, t, seed) {
-    if (this.over || !this.abilitiesOn || this.usedAbility) return false;
+    if (this.over || !this.abilitiesOn || this.usedAbility || this.phase !== "throw" || this.throws <= 0) return false;
     const seat = this.current;
     const p = this.players[seat];
     const id = p.hand[handIdx];
     const def = ABILITY_BY_ID[id];
-    if (!def) return false;
+    if (!def || !this.abilityReady(id, seat)) return false;
     const rng = mulberry(seed);
     const oppStack = () => {
       const o = t?.opp;
       if (!o || this.ally(seat, o.seat) || !this.players[o.seat]) return null;
       const pc = this.players[o.seat].pieces[o.idx];
       if (!pc || !onBoard(pc.node) || this.shielded(pc)) return null;
-      return { seat: o.seat, stack: this.stackAt(o.seat, pc.node), node: pc.node };
+      return { seat: o.seat, stack: this.stackAt(o.seat, pc.node), node: pc.node, prev: pc.prev };
     };
-    const ownStack = (allowStart = false) => {
+    const ownStack = () => {
       const pc = p.pieces[t?.own];
-      if (!pc || pc.node === HOME || (!allowStart && !onBoard(pc.node))) return null;
+      if (!pc || pc.node === HOME || (!def.allowStart && !onBoard(pc.node))) return null;
       return pc.node === START ? [pc] : this.stackAt(seat, pc.node);
     };
     // 대상 확인 (잘못된 대상이면 쓰지 않음)
-    let victim = null;
     let opp = null, own = null;
     if (def.target === "oppPiece" || def.target === "swap") {
       opp = oppStack();
       if (!opp) return false;
-      victim = opp.seat;
     }
     if (def.target === "ownPiece" || def.target === "swap") {
-      own = ownStack(id === "gazua" || id === "yeongkkeul");
+      own = ownStack();
       if (!own) return false;
     }
     if (def.target === "node") {
       const nd = t?.node;
       if (!Number.isInteger(nd) || nd < 1 || nd > 28 || this.bombs[nd] !== undefined) return false;
       if (this.players.some((pl) => pl.pieces.some((pc) => pc.node === nd))) return false;
-    }
-    if (def.target === "nextPlayer") victim = this.nextSeat();
-    if (def.onlyFresh && !(this.phase === "throw" && this.pending.length === 0)) return false;
-    let missileTarget = null;
-    if (id === "missile") {
-      missileTarget = this.leadingOpponentStack(seat);
-      victim = missileTarget?.seat ?? null;
     }
 
     this.events = [];
@@ -415,64 +421,38 @@ export class YutGame {
     this.say(`${p.name}: 「${def.name}」 ${def.shout}`, "ability");
     this.event({ kind: "ability", seat, id, shout: def.shout });
 
-    if (def.guard && victim !== null && this.players[this.team(victim)].ward) { // 어쩔티비 (팀전은 팀 전체를 막음)
-      const v = this.players[this.team(victim)];
-      v.ward = false;
-      v.hand.push(id);
-      this.say(`${this.sideName(this.team(victim))}: 어쩔티비~ 막고 「${def.name}」 카드를 빼앗았다!`, "ability");
-      this.event({ kind: "blocked", seat: victim, id });
-      this.afterAction();
-      return true;
-    }
-
     switch (id) {
-      case "kingbat": this.pushBack(opp.stack, 1); break;
-      case "lucky": p.luck = true; break;
-      case "godlife": for (const pc of own) pc.shield = this.turnNo + this.n - 1; break;
-      case "twist": this.players[victim].shift -= 1; break;
-      case "hodl":
-        p.shift += 2;
-        this.say(`${p.name} 존버 중… 다음 던지기 두 단계 업!`);
-        this.pending = [];
-        this.throws = 0;
-        this.endTurn();
-        return true;
-      case "upside": this.upside = victim; break;
-      case "missile":
-        if (missileTarget) this.pushBack(missileTarget.stack, 3);
-        else this.say("쏠 상대가 없어서 미사일이 허공으로…");
+      case "gul3": case "reverse": case "later": case "combo": case "double": case "allin": case "golden":
+        this.charm = id;
         break;
-      case "bomb": this.bombs[t.node] = seat; break;
-      case "eojjeol": this.players[this.team(seat)].ward = true; break;
-      case "isthisright": {
-        const a = own[0].node, b = opp.node;
-        for (const pc of [...own, ...opp.stack]) { pc.node = START; pc.prev = null; }
-        this.land(seat, own, b, null, rng, false, [b]);
-        this.land(opp.seat, opp.stack, a, null, rng, false, [a]);
+      case "extra": this.throws++; break;
+      case "callme": { // 내 말 앞 1~3칸 중 내 말이 없는 칸으로
+        const ahead = pathFrom(own[0].node).filter((n) => n !== HOME).slice(0, 3);
+        const open = ahead.filter((n) => !p.pieces.some((pc) => pc.node === n) && n !== opp.node);
+        const spots = open.length ? open : ahead.filter((n) => n !== own[0].node);
+        if (spots.length) {
+          const node = spots[Math.floor(rng() * spots.length)];
+          for (const pc of opp.stack) { pc.node = START; pc.prev = null; }
+          this.land(opp.seat, opp.stack, node, null, rng, false, [node]);
+        } else this.say("불러올 자리가 없어요");
         break;
       }
-      case "gazua":
-        if (rng() < 0.5) {
-          this.say("앞면! 5칸 전진!", "good");
-          this.event({ kind: "coin", heads: true });
-          const path = pathFrom(own[0].node);
-          this.land(seat, own, path.length < 5 ? HOME : path[4], path.length >= 5 ? path[3] : null, rng, false, path.slice(0, 5));
-        } else {
-          this.say("뒷면… 출발점으로", "bad");
-          this.event({ kind: "coin", heads: false });
-          for (const pc of own) { pc.node = START; pc.prev = null; }
-        }
-        break;
-      case "darkmode": this.pushBack(opp.stack, Math.max(1, Math.min(5, this.players[this.team(seat)].captured))); break;
-      case "yeongkkeul": {
-        const n = p.hand.length;
-        p.hand.length = 0; // 팀전은 같은 팀과 같이 쓰는 배열이라 새 배열로 바꾸지 않음
-        if (n === 0) { this.say("버릴 카드가 없어서 영끌 실패…"); break; }
-        const path = pathFrom(own[0].node), k = n * 3;
-        this.land(seat, own, k > path.length ? HOME : path[k - 1], k >= 2 && k <= path.length ? path[k - 2] : null, rng, false, path.slice(0, k));
+      case "hitch": {
+        const rider = p.pieces.find((pc) => pc.node === START);
+        const carrier = p.pieces[t.own];
+        rider.node = carrier.node;
+        rider.prev = carrier.prev;
         break;
       }
-      case "party": {
+      case "guard": for (const pc of own) pc.shield = this.turnNo + this.n; break;
+      case "tail": {
+        const node = this.backOne(opp.node, opp.prev);
+        for (const pc of own) { pc.node = START; pc.prev = null; }
+        this.land(seat, own, node, null, rng, false, [node]);
+        break;
+      }
+      case "mine": this.bombs[t.node] = seat; break;
+      case "flip": {
         const stacks = this.allStacks();
         const nodes = stacks.map((s) => s.node);
         for (let i = nodes.length - 1; i > 0; i--) {
@@ -483,59 +463,25 @@ export class YutGame {
         stacks.forEach((s, i) => this.land(s.seat, s.pieces, nodes[i], null, rng, false, [nodes[i]]));
         break;
       }
-      case "quake": {
-        const moves = this.allStacks().map((s) => {
-          const k = 1 + Math.floor(rng() * 3), path = pathFrom(s.node);
-          return { ...s, path: path.slice(0, k), dest: k > path.length ? HOME : path[k - 1] };
-        });
-        for (const s of moves) for (const pc of s.pieces) { pc.node = START; pc.prev = null; }
-        for (const s of moves) this.land(s.seat, s.pieces, s.dest, null, rng, false, s.path);
+      case "taxi":
+        for (const pc of own) { pc.node = START; pc.prev = null; }
+        this.land(seat, own, 0, null, rng, false, [0]);
+        break;
+      case "gohome":
+        for (const pc of opp.stack) { pc.node = START; pc.prev = null; }
+        this.players[opp.seat].captured += opp.stack.length;
+        break;
+      case "swapme": {
+        const a = own[0].node, b = opp.node;
+        for (const pc of [...own, ...opp.stack]) { pc.node = START; pc.prev = null; }
+        this.land(seat, own, b, null, rng, false, [b]);
+        this.land(opp.seat, opp.stack, a, null, rng, false, [a]);
         break;
       }
-      case "assemble": {
-        const stacks = this.allStacks();
-        const pieces = stacks.flatMap((s) => s.pieces);
-        for (const pc of pieces) { pc.node = START; pc.prev = null; }
-        if (pieces.length && this.bombs[CENTER] !== undefined) this.triggerBomb(stacks[0]?.seat ?? seat, pieces, CENTER);
-        else for (const pc of pieces) { pc.node = CENTER; pc.prev = null; }
-        break;
-      }
-      case "roulette": {
-        const rolls = this.players.map((pl) => (pl.resigned ? 99 : rollRaw(rng)));
-        const low = Math.min(...rolls);
-        this.say(`러시안 윷렛: ${this.players.map((pl, i) => `${pl.name} ${RESULT_NAMES[rolls[i]] ?? "-"}`).join(" · ")}`, "ability");
-        rolls.forEach((v, s) => {
-          if (v !== low) return;
-          const lead = this.leadingStackOf(s, true);
-          if (lead) {
-            for (const pc of lead.pieces) { pc.node = START; pc.prev = null; }
-            this.players[this.team(s)].captured += lead.pieces.length;
-            this.say(`${this.sideName(s)}의 말이 출발점으로!`, "bad");
-          }
-        });
-        break;
-      }
-      case "dopamine": this.dopamine = this.n; break;
       default: break;
     }
     this.afterAction();
     return true;
-  }
-
-  pushBack(stack, k) {
-    let node = stack[0].node, prev = stack[0].prev;
-    const traversed = [];
-    for (let i = 0; i < k && onBoard(node); i++) {
-      node = node === 0 ? START : this.backOne(node, i === 0 ? prev : null);
-      traversed.push(node);
-    }
-    const owner = this.players.findIndex((p) => p.pieces.includes(stack[0]));
-    const bombNode = traversed.find((step) => this.bombs[step] !== undefined);
-    if (bombNode !== undefined && this.triggerBomb(owner, stack, bombNode)) return;
-    for (const pc of stack) { pc.node = node; pc.prev = null; }
-    // Being knocked all the way back to the start behaves like a capture,
-    // but it is never treated as reaching HOME.
-    if (node === START && owner >= 0) this.players[owner].captured += stack.length;
   }
 
   allStacks() {
@@ -549,24 +495,5 @@ export class YutGame {
       }
     }
     return out;
-  }
-
-  leadingStackOf(seat, ignoreShield = false) {
-    let best = null;
-    for (const s of this.allStacks()) {
-      if (s.seat !== this.team(seat) || (!ignoreShield && s.pieces.some((pc) => this.shielded(pc)))) continue;
-      if (!best || remaining(s.node) < remaining(best.node)) best = s;
-    }
-    return best ? { ...best, stack: best.pieces } : null;
-  }
-
-  leadingOpponentStack(seat) {
-    let best = null;
-    for (const s of this.sides()) {
-      if (this.ally(seat, s) || this.players[s].resigned) continue;
-      const st = this.leadingStackOf(s);
-      if (st && (!best || remaining(st.node) < remaining(best.node))) best = st;
-    }
-    return best;
   }
 }

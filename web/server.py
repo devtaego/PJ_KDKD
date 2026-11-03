@@ -39,17 +39,18 @@ RANKING_FILE = os.environ.get("KIDK_RANKING_FILE", os.path.join(HERE, "ranking.j
 GAMES = {"chess": 2, "omok": 2, "yacht": 6, "yut": 4}  # 게임 -> 최대 플레이어 수
 SETTING_KEYS = {"time", "turn", "color", "rule", "private", "pieces", "chaos", "team", "tb"}  # 방 설정으로 받는 값
 # 칭호: 화면 쪽 목록은 static/js/data/titles.js. 코드는 해시만 둠 (새 코드: sha256(대문자 코드).hexdigest())
-TITLE_IDS = {"dev", "kda", "first_win", "chess_s2", "chess_s3", "chess_s5", "chess_s7", "chess_s10", "omok_s2", "omok_s3", "omok_s5", "omok_s7", "omok_s10", "yacht_s2", "yacht_s3", "yacht_s5", "yacht_s7", "yacht_s10", "yut_win", "yut_s2", "yut_s3", "yut_s5", "yut_s7", "yut_s10", "first_game", "spectator", "draw", "teabag", "teabag3", "fast_win", "long_win", "night_win", "comeback", "yut_team", "yut_chaos", "lose_3", "lose_5", "lose_10", "q_about", "q_rules", "q_theme", "q_wrong", "q_nick", "q_sound", "q_flip", "q_logo", "q_tap", "col_half", "col_30", "col_all", "reset_1", "reset_3", "reset_cancel", "muso", "nth_all"}
+TITLE_IDS = {"dev", "real_sua", "kda", "first_win", "chess_s2", "chess_s3", "chess_s5", "chess_s7", "chess_s10", "omok_s2", "omok_s3", "omok_s5", "omok_s7", "omok_s10", "yacht_s2", "yacht_s3", "yacht_s5", "yacht_s7", "yacht_s10", "yut_win", "yut_s2", "yut_s3", "yut_s5", "yut_s7", "yut_s10", "first_game", "spectator", "draw", "teabag", "teabag3", "fast_win", "long_win", "night_win", "comeback", "yut_team", "yut_chaos", "lose_3", "lose_5", "lose_10", "q_about", "q_rules", "q_theme", "q_wrong", "q_nick", "q_sound", "q_flip", "q_logo", "q_tap", "col_half", "col_30", "col_all", "reset_1", "reset_3", "reset_cancel", "muso", "nth_all"}
 # 코드 없이 조건을 채워야만 받는 칭호 (전체 해금 코드에는 포함)
 EARNED_ONLY_TITLES = {"col_half", "col_30", "col_all", "reset_1", "reset_3", "reset_cancel", "muso", "nth_all"}
 # 브라우저가 조건을 세서 신청하는 재미용 칭호 (서버가 확인할 수 없어서 이 목록만 받음. DEV · KDA · 승리 칭호는 신청 불가)
 QUIRK_TITLES = {"q_about", "q_rules", "q_theme", "q_nick", "q_sound", "q_flip", "q_logo", "q_tap", "reset_1", "reset_3", "reset_cancel"}
 # 전체 칭호 개수와 올컬렉 기준: DEV와 히든 칭호(숨은 재미 · 수집 · 초기화)는 뺌 (titles.js의 COUNTED_TITLES와 같음)
-COLLECT_TITLES = TITLE_IDS - {"dev", "q_wrong"} - QUIRK_TITLES - EARNED_ONLY_TITLES
+COLLECT_TITLES = TITLE_IDS - {"dev", "real_sua", "q_wrong"} - QUIRK_TITLES - EARNED_ONLY_TITLES
 COLLECT_30 = 30
 # 전체 해금 코드(DEV 제외)의 해시. 저장소에 두지 않고 서버 환경 변수에만 둠 (없으면 이 기능은 꺼짐)
 ALL_TITLES_CODE = os.environ.get("ALL_TITLES_CODE_HASH", "")
 TITLE_CODES = {
+    "13acab2c360e8a60ffe08123398fd82b0e0acaed781f5169cf9e2df615706e0f": "real_sua",
     "106a2537b95173317a7f5fabfbcc4afc80141db5403df11358eeb62cafe21780": "q_about",
     "b84510a19a4864b1c7c6c5d292c25429a778693ebaf5521ef7828c378c37feb6": "q_rules",
     "f652b2dace6a7afb3029e6c38dbaff9eb27369102807e77de7af127a4f67956e": "q_theme",
@@ -342,7 +343,7 @@ def win_titles(room, streak, lost_before, now=None):
         earned.append("yut_win")
         if room.settings.get("team") == "1":
             earned.append("yut_team")
-        if room.settings.get("chaos", "chaos") == "chaos":
+        if room.settings.get("chaos") != "basic":  # 초능력 모드 (값이 없으면 기본값이 초능력)
             earned.append("yut_chaos")
     played = now - room.started_at
     if played < 60:
@@ -688,7 +689,7 @@ class Hub:
                 await client.send({"t": "record_bind", "code": code})
                 return
             if ALL_TITLES_CODE and hmac.compare_digest(hashlib.sha256(code.encode()).hexdigest(), ALL_TITLES_CODE):
-                await client.send({"t": "title_grant_all", "titles": {t: title_token(client.cid, t) for t in TITLE_IDS - {"dev"}}})
+                await client.send({"t": "title_grant_all", "titles": {t: title_token(client.cid, t) for t in TITLE_IDS - {"dev", "real_sua"}}})
                 return
             title = title_from_code(code)
             await client.send({"t": "title_grant", "title": title, "token": title_token(client.cid, title), "via": "code"} if title else {"t": "title_bad"})

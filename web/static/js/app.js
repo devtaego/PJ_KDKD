@@ -677,7 +677,7 @@ function localYutLobbyScreen(o) {
 
 function chooseMode(game) {
   const saved = store.get(`opts.${game}`, {});
-  const o = { mode: "ai", level: "normal", time: "none", turn: "none", color: game === "omok" ? "b" : "w", rule: "renju", bots: 1, people: 2, friend: "친구", pieces: "3", chaos: "chaos", ...saved };
+  const o = { mode: "ai", level: "normal", time: "none", turn: "none", color: game === "omok" ? "b" : "w", rule: "renju", bots: 1, people: 2, friend: "친구", pieces: "3", ...saved, chaos: saved?.chaos === "basic" ? "basic" : "power" };
   if (game === "yut" && o.mode === "ai") o.mode = "local"; // 윷놀이는 사람끼리만 (컴퓨터 대전 없음)
   const body = el(`<div></div>`);
   let close;
@@ -704,7 +704,7 @@ function chooseMode(game) {
       body.appendChild(option("모드", segment(Object.entries(yut.MODES), o.chaos, (v) => { o.chaos = v; })));
       if (o.team !== "1") body.appendChild(option("말 개수", segment([["2", "2개 (빨리)"], ["3", "3개"], ["4", "4개 (길게)"]], o.pieces, (v) => { o.pieces = v; })));
       body.appendChild(option("팀", segment([["", "개인전"], ["1", "2:2 팀전"]], o.team || "", (v) => { o.team = v; draw(); })));
-      if (o.team === "1") body.appendChild(el(`<p class="muted" style="margin:-4px 0 8px;font-size:13px">팀마다 같은 캐릭터의 말 4개와 능력 카드 한 벌을 같이 써요.${o.mode === "online" ? " 팀전은 4명이 모였을 때만 돼요. 팀은 대기실에서 방장이 나눠요." : ""}</p>`));
+      if (o.team === "1") body.appendChild(el(`<p class="muted" style="margin:-4px 0 8px;font-size:13px">팀마다 같은 캐릭터의 말 4개를 같이 써요. 초능력 카드는 각자 2장이고 팀원 카드는 볼 수 있어요"online" ? " 팀전은 4명이 모였을 때만 돼요. 팀은 대기실에서 방장이 나눠요." : ""}</p>`));
       else if (o.mode === "online") body.appendChild(el(`<p class="muted" style="margin:-4px 0 8px;font-size:13px">팀전은 4명이 모였을 때만 돼요.</p>`));
       if (o.mode === "local") { // 사람 수: 팀전이면 4명으로 고정하고 2 · 3명은 못 누르게
         const people = segment([2, 3, 4].map((n) => [n, `${n}명`]), Math.min(4, Number(o.people)), (v) => { o.people = v; draw(); });
@@ -1402,7 +1402,7 @@ function startRoomGame(r) {
     team = "1";
   }
   const settings = r.game === "chess" ? { time: r.settings.time || "none" } : r.game === "omok" ? { rule: r.settings.rule === "free" ? "free" : "renju", turn: r.settings.turn || "none" }
-    : r.game === "yut" ? { pieces: r.settings.pieces || "3", chaos: r.settings.chaos || "chaos", team } : {};
+    : r.game === "yut" ? { pieces: r.settings.pieces || "3", chaos: r.settings.chaos === "basic" ? "basic" : "power", team } : {};
   net.send({ t: "act", a: { type: "start", game: r.game, settings, order } });
 }
 

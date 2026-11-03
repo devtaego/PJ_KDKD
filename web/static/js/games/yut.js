@@ -2,7 +2,7 @@
 // 판은 위에서 내려다본 정사각형(출발은 오른쪽 아래), 말은 서 있는 캐릭터. 대기 말은 판 위아래에 두고 눌러서 올림
 // 윷은 판 위로 크게 던져서 떨어지고, 아래에는 결과만 작게
 import { YutGame, START, HOME, CENTER, RESULT_NAMES, pathFrom } from "../engine/yut.js";
-import { ABILITY_BY_ID, TIERS, START_HAND, abilityOdds, THROW_ODDS } from "../data/yut_abilities.js";
+import { ABILITIES, ABILITY_BY_ID, TIERS, KINDS, POWER_SUM, HAND_SIZE, THROW_ODDS } from "../data/yut_abilities.js";
 import { el, toast, confirmBox, modal, streakHtml } from "../ui.js";
 import { esc } from "../art.js";
 import { titleBadge, titleFx } from "../data/titles.js";
@@ -10,7 +10,8 @@ import { CHARACTERS, CHAR_IDS, charSvg } from "./yut_chars.js";
 import { animateYutToss } from "./yut_toss.js";
 
 export const PLAYER_COLORS = ["#FF5C8A", "#4DABF7", "#FFC94D", "#3DDC97"];
-export const MODES = { basic: "기본", special: "특수능력", chaos: "막장" };
+export const MODES = { basic: "클래식", power: "초능력" };
+const cardLabel = (d) => `${KINDS[d.kind]} ${TIERS[d.tier].name}`;
 const ABILITY_NOTE_MS = 4500; // 쓴 능력 카드 설명이 떠 있는 시간 (읽을 시간을 넉넉히)
 
 /** 판의 칸 좌표 (위에서 내려다본 0~100 정사각형) */
@@ -56,14 +57,14 @@ const TURN_PAUSE_MS = 700; // 차례가 넘어간 걸 보여 주는 시간
 
 export function create(m) {
   const pieces = Number(m.settings.pieces) || 3;
-  const mode = MODES[m.settings.chaos] ? m.settings.chaos : "special";
+  const mode = m.settings.chaos === "basic" ? "basic" : "power"; // 예전 방 설정(특수능력 · 막장)은 초능력으로
   const seatNames = m.seats.map((seat, i) => {
     const name = typeof seat?.name === "string" ? seat.name.trim() : !Array.isArray(seat?.name) && typeof seat?.name?.name === "string" ? seat.name.name.trim() : "";
     return name && !name.includes("[object Object]") ? name.slice(0, 12) : `플레이어 ${i + 1}`;
   });
   const game = new YutGame(seatNames, { pieces, mode, seed: Number(m.settings.seed) || 1, teams: m.settings.team === "1" });
   const seatDocks = seatNames.length === 2 || game.teams ? [DOCKS[3], DOCKS[2]] : DOCKS;
-  const dealtHands = Object.fromEntries(game.sides().map((side) => [side, [...game.players[side].hand]])); // 처음 받은 카드 (쓴 카드는 자리에 회색으로 남김)
+  const dealtHands = game.players.map((player) => [...player.hand]); // 처음 받은 카드 (쓴 카드는 자리에 회색으로 남김)
   const TEAM_NAMES = ["A팀", "B팀"];
   const teamOf = (i) => TEAM_NAMES[i % 2];
   // 온라인은 대기실에서 미리 고른 말을 사용하고, 한 기기 모드는 게임 시작 때 직접 고름
@@ -106,7 +107,7 @@ export function create(m) {
         <div class="yut-result"><span class="muted">나온 결과</span><div class="results"></div></div>
       </div>
       <div class="yut-hint"></div>
-      ${game.abilitiesOn ? `<div class="hand-header"><strong>시작 능력 카드</strong><span>마우스를 올리면 설명이 나와요</span></div>` : ""}
+      ${game.abilitiesOn ? `<div class="hand-header"><strong>내 초능력</strong><span>윷을 던지기 전에, 한 차례에 한 장</span></div>` : ""}
       <div class="hand"></div>
     </div></div>`);
   const side = el(`<div class="card yut-log-card"><div class="row" style="justify-content:space-between;margin-bottom:6px"><h3 style="margin:0">진행 상황</h3><button class="btn ghost small odds-btn">확률표</button></div>
@@ -126,7 +127,7 @@ export function create(m) {
   const hintEl = sideStack.querySelector(".yut-hint");
   const handEl = sideStack.querySelector(".hand");
   const logEl = side.querySelector(".yut-log");
-  side.querySelector(".mode-line").textContent = `${MODES[mode]} 모드${game.teams ? ` · 2:2 팀전 (A팀 ${seatNames[0]} · ${seatNames[2]} / B팀 ${seatNames[1]} · ${seatNames[3]})` : ""} · ${game.teams ? "팀마다 말" : "말"} ${game.pieceCount}개${game.teams ? "" : "씩"}${mode !== "basic" ? ` · 시작할 때 ${game.teams ? "팀마다 " : ""}능력 카드 ${START_HAND[mode]}장` : ""}`;
+  side.querySelector(".mode-line").textContent = `${MODES[mode]} 모드${game.teams ? ` · 2:2 팀전 (A팀 ${seatNames[0]} · ${seatNames[2]} / B팀 ${seatNames[1]} · ${seatNames[3]})` : ""} · ${game.teams ? "팀마다 말" : "말"} ${game.pieceCount}개${game.teams ? "" : "씩"}${mode !== "basic" ? ` · 각자 초능력 ${HAND_SIZE}장${game.teams ? " (팀원 카드는 볼 수 있어요)" : ""}` : ""}`;
   side.querySelector(".odds-btn").onclick = () => showOdds(mode);
 
   const myTurn = () => !game.over && !m.result && m.controls(game.current);
@@ -227,7 +228,8 @@ export function create(m) {
     const idx = +b.dataset.hand;
     const def = ABILITY_BY_ID[cur().hand[idx]];
     if (targeting?.hand === idx) { targeting = null; render(); return; }
-    if (def.target === "none" || def.target === "nextPlayer") { targeting = null; act({ type: "ability", hand: idx, t: {} }); return; }
+    if (!game.abilityReady(def.id)) { toast(`「${def.name}」은(는) 지금 쓸 수 없어요`); return; }
+    if (def.target === "none") { targeting = null; act({ type: "ability", hand: idx, t: {} }); return; }
     targeting = { hand: idx, def };
     render();
   });
@@ -333,7 +335,7 @@ export function create(m) {
   /** 쓴 능력 카드의 이름과 설명을 판 위쪽에 띄움 (클릭을 막지 않고, 읽을 시간이 지나면 저절로 사라짐) */
   function showAbilityNote(def, seat) {
     fxEl.querySelector(".yut-ability-note")?.remove();
-    const note = el(`<div class="yut-ability-note" style="--tier:${TIERS[def.tier].color};--life:${ABILITY_NOTE_MS}ms"><small>${esc(seatNames[seat])} · ${TIERS[def.tier].name}</small><b>${esc(def.name)}</b><span>${esc(def.desc)}</span></div>`);
+    const note = el(`<div class="yut-ability-note" style="--tier:${TIERS[def.tier].color};--life:${ABILITY_NOTE_MS}ms"><small>${esc(seatNames[seat])} · ${cardLabel(def)}</small><b>${esc(def.name)}</b><span>${esc(def.desc)}</span></div>`);
     fxEl.appendChild(note);
     m.later(() => note.remove(), ABILITY_NOTE_MS);
   }
@@ -362,9 +364,8 @@ export function create(m) {
         m.sfx("pop");
         shout(d.shout, `tier-${d.tier} big`);
         showAbilityNote(d, e.seat);
-        if (d.tier === "legend") { root.classList.remove("shake"); void root.offsetWidth; root.classList.add("shake"); }
-      } else if (e.kind === "blocked") shout("어쩔티비~ 막았다!", "good");
-      else if (e.kind === "coin") shout(e.heads ? "앞면! 가즈아!!" : "뒷면… 출발점으로", e.heads ? "good" : "bad");
+        if (d.power === 3) { root.classList.remove("shake"); void root.offsetWidth; root.classList.add("shake"); }
+      }
     }
   }
 
@@ -400,11 +401,11 @@ export function create(m) {
   }
 
   function showOdds(md) {
-    const rows = md === "basic" ? "<p class=\"muted\">기본 모드는 능력이 없어요.</p>" : `<table class="rank odds"><thead><tr><th>등급</th><th>능력</th><th>확률</th></tr></thead><tbody>${abilityOdds(md).map((a) =>
-      `<tr><td><span class="tier-dot" style="background:${TIERS[a.tier].color}"></span>${TIERS[a.tier].name}</td><td style="text-align:left"><b>${esc(a.name)}</b><div class="muted" style="font-size:12px">${esc(a.desc)}</div></td><td>${a.pct.toFixed(1)}%</td></tr>`).join("")}</tbody></table>
-      <p class="muted" style="font-size:13px">시작할 때 한 장씩 ${START_HAND[md]}번 뽑아요 (카드마다 위 확률). 한 차례에 1장만 쓸 수 있어요.</p>`;
+    const row = (a) => `<tr><td><span class="tier-dot" style="background:${TIERS[a.tier].color}"></span>${TIERS[a.tier].name}</td><td style="text-align:left"><b>${esc(a.name)}</b><div class="muted" style="font-size:12px">${esc(a.desc)}</div></td></tr>`;
+    const table = (kind) => `<h4 style="margin:10px 0 4px">${KINDS[kind]}</h4><table class="rank odds"><thead><tr><th>힘</th><th>능력</th></tr></thead><tbody>${ABILITIES.filter((a) => a.kind === kind).map(row).join("")}</tbody></table>`;
+    const rows = md === "basic" ? "<p class=\"muted\">클래식은 능력 없이 윷만으로 겨뤄요.</p>" : `<p class="muted" style="font-size:13px">시작할 때 각자 윷의 힘 1장 + 말의 힘 1장을 받아요. 두 장의 ★을 합치면 모두 ${POWER_SUM}개로 같아요. 카드는 한 번씩만, 윷을 던지기 전에, 한 차례에 한 장만 쓸 수 있어요.</p>${table("yut")}${table("piece")}`;
     const throws = THROW_ODDS.map((o) => `${o.name} ${(o.p * 100).toFixed(1)}%`).join(" · ");
-    modal(`${MODES[md]} 모드 확률표`, el(`<div><p class="muted" style="margin-top:0">윷 결과: ${throws}</p>${rows}</div>`));
+    modal(md === "basic" ? "클래식 확률표" : "초능력 확률 · 카드표", el(`<div><p class="muted" style="margin-top:0">윷 결과: ${throws}</p>${rows}</div>`));
   }
 
   // ------------------------------------------------------------ 그리기
@@ -550,8 +551,8 @@ export function create(m) {
     const tags = []; // 말 위 이름표 ('선택됨' · '새 말')
     const addTag = (x, y, text, cls = "") => tags.push(`<g class="yb-tag ${cls}" transform="translate(${x} ${Math.max(6, y)})"><rect x="${-(3 + text.length * 2)}" y="-5" width="${6 + text.length * 4}" height="6.8" rx="2.2"/><text y="0.2">${esc(text)}</text></g>`);
     const pickableFor = (seat, onBoard) => targeting && ((targeting.def.target === "oppPiece" && !game.ally(game.current, seat) && onBoard) ||
-      (targeting.def.target === "ownPiece" && game.ally(game.current, seat) && (onBoard || ["gazua", "yeongkkeul"].includes(targeting.def.id))) ||
-      (targeting.def.target === "swap" && onBoard && (targeting.own === undefined ? game.ally(game.current, seat) : !game.ally(game.current, seat))));
+      (targeting.def.target === "ownPiece" && game.ally(game.current, seat) && (onBoard || targeting.def.allowStart)) ||
+      (targeting.def.target === "swap" && (targeting.own === undefined ? game.ally(game.current, seat) && (onBoard || targeting.def.allowStart) : !game.ally(game.current, seat) && onBoard)));
     const byNode = {};
     game.sides().forEach((s) => game.players[s].pieces.forEach((pc, i) => {
       if (pc.node === START || pc.node === HOME) return;
@@ -654,9 +655,6 @@ export function create(m) {
     }
     const nextBoard = `<svg viewBox="0 0 200 208">${parts.join("")}</svg>`;
     if (nextBoard !== boardHtml) boardEl.innerHTML = boardHtml = nextBoard;
-    const flip = game.upside !== null && game.upside === game.current && m.controls(game.current);
-    boardEl.classList.toggle("upside", flip);
-    ghostEl.classList.toggle("upside", flip);
   }
 
   function visibleHand() {
@@ -664,39 +662,43 @@ export function create(m) {
     return m.mode === "local" ? player.hand : (m.mySeats.length ? game.players[m.mySeats[0]].hand : []); // 팀전이면 팀이 같이 쓰는 카드
   }
 
-  /** 카드 칸: 처음 받은 자리를 그대로 두고 쓴 카드는 i = -1, 빼앗아 온 카드는 뒤에 붙임 */
-  function handSlots() {
-    const seat = m.mode === "local" ? game.current : m.mySeats[0];
-    if (seat === undefined) return [];
-    const side = game.team(seat);
-    const free = game.players[side].hand.map((id, i) => ({ id, i }));
-    const slots = (dealtHands[side] || []).map((id) => {
+  /** 카드 칸: 처음 받은 자리를 그대로 두고 쓴 카드는 i = -1 */
+  function slotsOf(seat) {
+    const free = game.players[seat].hand.map((id, i) => ({ id, i }));
+    return dealtHands[seat].map((id) => {
       const k = free.findIndex((x) => x.id === id);
       return k >= 0 ? free.splice(k, 1)[0] : { id, i: -1 };
     });
-    return [...slots, ...free];
   }
 
   function renderHand() {
     if (!game.abilitiesOn) { handEl.innerHTML = ""; return; }
-    const slots = handSlots();
-    if (!slots.length) { handEl.innerHTML = `<div class="muted hand-empty">표시할 능력 카드가 없어요</div>`; return; }
+    const seat = m.mode === "local" ? game.current : m.mySeats[0];
+    if (seat === undefined) { handEl.innerHTML = ""; return; } // 관전자는 카드를 보지 않음
     const mine = myTurn();
-    handEl.innerHTML = `<div class="hand-track" style="--hand-count:${slots.length}">${slots.map(({ id, i }) => {
+    const beforeThrow = game.phase === "throw" && game.throws > 0;
+    const myCards = slotsOf(seat).map(({ id, i }) => {
       const d = ABILITY_BY_ID[id], used = i < 0;
-      const usable = !used && mine && !game.usedAbility && (m.mode === "local" || m.mySeats[0] === game.current);
+      const usable = !used && mine && beforeThrow && !game.usedAbility && (m.mode === "local" || m.mySeats[0] === game.current);
       return `<button class="ability-card tier-${d.tier}${used ? " used" : ""}${!used && targeting?.hand === i ? " on" : ""}" ${used ? "" : `data-hand="${i}"`} data-tooltip="${esc(used ? `${d.desc} (사용함)` : d.desc)}" title="${esc(`${d.name} · ${d.desc}`)}" aria-label="${esc(`${d.name}${used ? " (사용함)" : ""}: ${d.desc}`)}" ${usable ? "" : "disabled"} style="--tier:${TIERS[d.tier].color}">
-        <span class="ac-name">${esc(d.name)}</span><span class="ac-desc">${esc(d.desc)}</span></button>`;
+        <span class="ac-tier">${cardLabel(d)}</span><span class="ac-name">${esc(d.name)}</span><span class="ac-desc">${esc(d.desc)}</span></button>`;
+    }).join("");
+    // 팀전: 같은 팀 카드는 보여 주되 누를 수는 없음
+    const mate = game.teams ? (seat + 2) % 4 : null;
+    const mateCards = mate === null ? "" : `<div class="hand-mate"><small>${esc(seatNames[mate])}의 카드</small>${slotsOf(mate).map(({ id, i }) => {
+      const d = ABILITY_BY_ID[id];
+      return `<span class="mate-card${i < 0 ? " used" : ""}" style="--tier:${TIERS[d.tier].color}" title="${esc(`${d.name} · ${d.desc}${i < 0 ? " (사용함)" : ""}`)}">${TIERS[d.tier].name} ${esc(d.name)}</span>`;
     }).join("")}</div>`;
+    handEl.innerHTML = `<div class="hand-track" style="--hand-count:${HAND_SIZE}">${myCards}</div>${mateCards}`;
   }
 
   function startCardRoulette() {
-    const amount = START_HAND[mode];
-    const body = el(`<div class="deal-popup"><div class="deal-popup-head"><p class="muted deal-caption">시작 능력 카드 ${amount}장을 뽑아요</p><button class="btn ghost small deal-skip" type="button"><kbd>Esc</kbd> 건너뛰기</button></div><div class="deal-roulette-cards" aria-live="polite"></div><p class="deal-result-label">카드를 섞고 있어요 · Esc로 바로 넘길 수 있어요</p></div>`);
+    const amount = HAND_SIZE;
+    const body = el(`<div class="deal-popup"><div class="deal-popup-head"><p class="muted deal-caption">윷의 힘 1장과 말의 힘 1장을 뽑아요${m.mode === "local" ? "" : ` · 내 카드는 ${game.teams ? "같은 팀만" : "나만"} 봐요`}</p><button class="btn ghost small deal-skip" type="button"><kbd>Esc</kbd> 건너뛰기</button></div><div class="deal-roulette-cards" aria-live="polite"></div><p class="deal-result-label">카드를 섞고 있어요 · Esc로 바로 넘길 수 있어요</p></div>`);
     const cards = body.querySelector(".deal-roulette-cards");
     const caption = body.querySelector(".deal-result-label");
     const pool = Object.keys(ABILITY_BY_ID);
-    const close = modal("시작 능력 카드 룰렛", body, { closable: false });
+    const close = modal("초능력 카드 뽑기", body, { closable: false });
     dealModalClose = close;
     body.closest(".modal")?.classList.add("deal-modal");
     const actual = visibleHand().slice(0, amount);
@@ -711,7 +713,7 @@ export function create(m) {
     const paintSlot = (i, id, final = false) => {
       const def = ABILITY_BY_ID[id];
       const slot = slots[i];
-      slot.innerHTML = `<div class="ability-card deal-roulette-card tier-${def.tier}${final ? " revealed" : " rolling"}" style="--tier:${TIERS[def.tier].color}"><span class="ac-tier">${final ? TIERS[def.tier].name : "추첨 중"}</span><span class="ac-name">${esc(def.name)}</span><span class="ac-desc">${esc(def.desc)}</span></div>`;
+      slot.innerHTML = `<div class="ability-card deal-roulette-card tier-${def.tier}${final ? " revealed" : " rolling"}" style="--tier:${TIERS[def.tier].color}"><span class="ac-tier">${final ? cardLabel(def) : "추첨 중"}</span><span class="ac-name">${esc(def.name)}</span><span class="ac-desc">${esc(def.desc)}</span></div>`;
     };
     const finishDeal = (skipped = false) => {
       if (completed) return;
@@ -848,10 +850,6 @@ export function create(m) {
     else if (sel === null) hintEl.textContent = "테두리 있는 말을 누르면 갈 곳이 보여요 · 결과 버튼으로 바로 옮겨도 돼요";
     else hintEl.textContent = "말풍선이나 도착 칸을 누르면 이동해요 · 다른 말을 눌러 바꾸거나, 같은 말을 다시 눌러 취소해요";
     renderHand();
-    if (game.abilitiesOn && game.teams) { // 팀전: 지금 보이는 카드가 어느 팀 카드인지
-      const handSeat = m.mode === "local" ? game.current : m.mySeats[0];
-      if (handSeat !== undefined) sideStack.querySelector(".hand-header strong").textContent = `${teamOf(handSeat)} 공용 능력 카드`;
-    }
     // 기록
     logEl.innerHTML = game.log.slice(-9).map((l) => `<div class="yl yl-${l.kind}">${esc(l.text)}</div>`).join("");
     logEl.scrollTop = logEl.scrollHeight;

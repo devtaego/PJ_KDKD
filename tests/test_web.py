@@ -332,7 +332,7 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         a = await self.connect("aaaaaaaa1", "태고")
         await a.send_json({"t": "redeem", "code": " test-all-code "})  # 대소문자 · 공백 상관없음
         msg = await self.until(a, "title_grant_all")
-        self.assertEqual(set(msg["titles"]), server.TITLE_IDS - {"dev"})
+        self.assertEqual(set(msg["titles"]), server.TITLE_IDS - {"dev", "real_sua"})  # 코드 전용 칭호는 빠짐
         for title, token in msg["titles"].items():
             self.assertEqual(token, server.title_token(self.secret("aaaaaaaa1"), title))
         await a.close()

@@ -9,7 +9,7 @@ import { questionFor, QUESTIONS } from "../static/js/party.js";
 import { YutGame, pathFrom, remaining, mulberry, rollRaw, START, HOME, CENTER } from "../static/js/engine/yut.js";
 import { cropRect, clampZoom, MAX_ZOOM } from "../static/js/engine/photo_crop.js";
 import { TITLES, COUNTED_TITLES, KEEP_ON_RESET } from "../static/js/data/titles.js";
-import { THROW_ODDS, abilityOdds, START_HAND } from "../static/js/data/yut_abilities.js";
+import { THROW_ODDS, ABILITIES, POWER_SUM, ABILITY_BY_ID, dealPowers } from "../static/js/data/yut_abilities.js";
 
 test("체스: 시작 위치 수 생성 (perft 1~3)", () => {
   const pos = new Position();
@@ -137,9 +137,9 @@ test("질문 카드: 이름 순서와 상관없이 같고, 파이썬판과 같�
   assert.equal(questionFor("태고", "민수", 12), "내가 좋아하는 대화 주제는 무엇인가요?"); // hub.party.question_for("태고", "민수", 12)
 });
 
-// ---------------------------------------------------------------- 특수능력 윷놀이
+// ---------------------------------------------------------------- 윷놀이
 const yutGame = (n = 2, opts = {}) => { // 카드는 테스트마다 직접 쥐여 줌
-  const g = new YutGame(Array.from({ length: n }, (_, i) => `P${i}`), { pieces: 2, mode: "chaos", ...opts });
+  const g = new YutGame(Array.from({ length: n }, (_, i) => `P${i}`), { pieces: 2, mode: "power", ...opts });
   for (const p of g.players) p.hand = [];
   return g;
 };
@@ -156,8 +156,6 @@ test("윷: 지름길 · 남은 거리 · 결과 확률표 합 100%", () => {
   assert.equal(remaining(START), 21);
   assert.equal(remaining(HOME), 0);
   assert.ok(Math.abs(THROW_ODDS.reduce((s, o) => s + o.p, 0) - 1) < 1e-9);
-  for (const mode of ["special", "chaos"]) assert.ok(Math.abs(abilityOdds(mode).reduce((s, a) => s + a.pct, 0) - 100) < 1e-9);
-  assert.ok(abilityOdds("special").every((a) => a.tier !== "legend"));
 });
 
 test("윷: 모 뒤에 낙이 나와도 모는 남고, 더 못 던짐", () => {
@@ -203,20 +201,24 @@ test("윷: 출발점에 딱 멈추면 골인이 아니고, 1칸 이상 넘어가
   assert.equal(h.players[0].pieces[0].node, 0);
 });
 
-test("윷: 능력 카드는 시작할 때만 모두 같은 장수, 같은 seed면 같은 카드", () => {
-  const names = ["A", "B", "C"];
-  const a = new YutGame(names, { mode: "chaos", seed: 7 }), b = new YutGame(names, { mode: "chaos", seed: 7 });
-  assert.ok(a.players.every((p) => p.hand.length === START_HAND.chaos));
-  assert.deepEqual(a.players.map((p) => p.hand), b.players.map((p) => p.hand));
-  assert.ok(new YutGame(names, { mode: "special", seed: 7 }).players.every((p) => p.hand.length === START_HAND.special && p.hand.every((id) => !["party", "quake", "assemble", "roulette", "dopamine"].includes(id))));
+test("윷: 초능력 카드는 각자 윷의 힘 + 말의 힘 1장씩, 힘 합이 같고, 같은 seed면 같은 카드", () => {
+  assert.ok(ABILITIES.every((a) => [1, 2, 3].includes(a.power) && ["yut", "piece"].includes(a.kind)));
+  const names = ["A", "B", "C", "D"];
+  for (let seed = 1; seed <= 200; seed++) {
+    const g = new YutGame(names, { mode: "power", seed });
+    for (const p of g.players) {
+      const [y, q] = p.hand.map((id) => ABILITY_BY_ID[id]);
+      assert.equal(p.hand.length, 2);
+      assert.equal(y.kind, "yut");
+      assert.equal(q.kind, "piece");
+      assert.equal(y.power + q.power, POWER_SUM);
+    }
+    assert.equal(new Set(g.players.map((p) => p.hand[0])).size, 4); // 윷의 힘은 겹치지 않음
+  }
+  assert.deepEqual(new YutGame(names, { seed: 7 }).players.map((p) => p.hand), new YutGame(names, { seed: 7 }).players.map((p) => p.hand));
   assert.ok(new YutGame(names, { mode: "basic", seed: 7 }).players.every((p) => p.hand.length === 0));
-  // 판 위를 돌아다녀도 카드가 늘지 않음
-  const g = new YutGame(["A", "B"], { mode: "chaos", seed: 3, pieces: 2 });
-  g.players[0].hand = [];
-  g.players[0].pieces[0].node = 3;
-  g.throw(seedFor(2));
-  g.move(0, 0, 1); // 예전 카드 칸(5)에 멈춤
-  assert.equal(g.players[0].hand.length, 0);
+  assert.equal(new YutGame(names, { mode: "chaos" }).mode, "power"); // 예전 설정은 초능력으로
+  assert.equal(dealPowers(6, mulberry(1)).length, 6);
 });
 
 test("윷: 던지기 · 옮기기 · 잡으면 한 번 더 · 업기", () => {
@@ -316,30 +318,15 @@ test("윷: 2:2 팀전 — 팀마다 말 4개 · 카드 한 벌을 같이 쓰고,
   assert.deepEqual(r.winners, [0, 2]);
 });
 
-test("윷: 팀전 능력 카드는 A팀 · B팀 두 벌이고, 같이 줄어듦", () => {
-  const g = new YutGame(["A1", "B1", "A2", "B2"], { mode: "chaos", seed: 5, teams: true });
-  assert.equal(g.players[0].hand, g.players[2].hand);
-  assert.equal(g.players[1].hand, g.players[3].hand);
-  assert.equal(g.players[0].hand.length, START_HAND.chaos);
-  assert.equal(g.players[1].hand.length, START_HAND.chaos);
-  g.players[0].hand.splice(0, g.players[0].hand.length, "lucky", "yeongkkeul", "eojjeol");
-  assert.ok(g.use(0, {}, 1)); // A1이 럭키비키
+test("윷: 팀전도 카드는 사람마다 따로이고, 쓰면 그 사람 카드만 줄어듦", () => {
+  const g = new YutGame(["A1", "B1", "A2", "B2"], { mode: "power", seed: 5, teams: true });
+  assert.ok(g.players.every((p) => p.hand.length === 2));
+  assert.notEqual(g.players[0].hand, g.players[2].hand);
+  assert.equal(g.players[0].pieces, g.players[2].pieces); // 말은 같이 씀
+  g.players[0].hand.splice(0, 2, "extra");
+  assert.ok(g.use(0, {}, 1));
+  assert.equal(g.players[0].hand.length, 0);
   assert.equal(g.players[2].hand.length, 2);
-  g.usedAbility = false;
-  g.players[0].pieces[0].node = 1;
-  assert.ok(g.use(0, { own: 0 }, 1)); // 영끌: 남은 카드를 모두 버려도 두 사람이 같은 손패를 봄
-  assert.equal(g.players[0].hand, g.players[2].hand);
-  assert.equal(g.players[2].hand.length, 0);
-  assert.equal(g.players[0].pieces[0].node, 4);
-  // 어쩔티비는 팀 전체를 막음
-  const h = new YutGame(["A1", "B1", "A2", "B2"], { mode: "chaos", seed: 5, teams: true });
-  h.players[1].hand.length = 0;
-  h.players[1].pieces[0].node = 12;
-  h.players[1].ward = true;
-  h.players[0].hand.splice(0, h.players[0].hand.length, "kingbat");
-  h.use(0, { opp: { seat: 3, idx: 0 } }, 1);
-  assert.equal(h.players[1].pieces[0].node, 12);
-  assert.deepEqual(h.players[3].hand, ["kingbat"]);
 });
 
 test("윷: 윷 · 모가 나오면 더 던지기 전에 먼저 옮겨도 됨", () => {
@@ -358,65 +345,108 @@ test("윷: 윷 · 모가 나오면 더 던지기 전에 먼저 옮겨도 됨", (
   assert.equal(g.current, 1);
 });
 
-test("윷: 능력 — 폭탄 · 어쩔티비 · 갓생 · 미사일", () => {
-  const g = yutGame(2);
-  g.players[0].hand = ["bomb", "missile"];
-  assert.equal(g.use(0, { node: 3 }, 1), true);
-  assert.equal(g.bombs[3], 0);
-  g.throw(seedFor(3));
-  g.move(0, 0, 1); // 내 말도 폭탄에 당함
-  assert.equal(g.players[0].pieces[0].node, START);
-  assert.equal(g.bombs[3], undefined);
+const give = (g, seat, ...ids) => { g.players[seat].hand = [...ids]; };
 
-  const h = yutGame(2);
-  h.players[1].pieces[0].node = 12;
-  h.players[1].ward = true;
-  h.players[0].hand = ["kingbat"];
-  h.use(0, { opp: { seat: 1, idx: 0 } }, 1);
-  assert.equal(h.players[1].pieces[0].node, 12); // 막힘
-  assert.deepEqual(h.players[1].hand, ["kingbat"]); // 빼앗음
-  assert.equal(h.players[1].ward, false);
-
-  const k = yutGame(3);
-  k.players[1].pieces[0].node = 12;
-  k.players[2].pieces[0].node = 17;
-  k.players[2].pieces[0].shield = 99; // 갓생: 미사일 대상에서 빠짐
-  k.players[0].hand = ["missile"];
-  k.use(0, {}, 1);
-  assert.equal(k.players[1].pieces[0].node, 9);
-  assert.equal(k.players[2].pieces[0].node, 17);
+test("윷: 초능력은 던지기 전에만, 한 차례에 한 장만, 쓰면 사라짐", () => {
+  const g = yutGame();
+  give(g, 0, "golden", "extra");
+  assert.ok(g.use(1, {}, 1));
+  assert.equal(g.throws, 2); // 한 번만 더
+  assert.equal(g.use(0, {}, 1), false); // 이번 차례는 이미 씀
+  const m = yutGame();
+  give(m, 0, "golden");
+  m.throw(seedFor(2));
+  assert.equal(m.phase, "move");
+  assert.equal(m.use(0, {}, 1), false); // 던진 뒤에는 못 씀
+  assert.equal(m.players[0].hand.length, 1);
 });
 
-test("윷: 능력 — 이게 맞아? · 존버 · 손가락 꼬임 · 전원 집합", () => {
-  const g = yutGame(2);
-  g.players[0].pieces[0].node = 2;
-  g.players[1].pieces[0].node = 15;
-  g.players[0].hand = ["isthisright"];
-  g.use(0, { own: 0, opp: { seat: 1, idx: 0 } }, 1);
-  assert.equal(g.players[0].pieces[0].node, 15);
-  assert.equal(g.players[1].pieces[0].node, 2);
+test("윷: 윷의 힘 — 걸 · 빽도 · 반반 · 세트 · 곱빼기 · 미루기", () => {
+  const thrown = (id, seed = 1, setup = () => {}) => {
+    const g = yutGame();
+    setup(g);
+    give(g, 0, id);
+    assert.ok(g.use(0, {}, 1), id);
+    g.throw(seed);
+    return g;
+  };
+  assert.deepEqual(thrown("gul3").pending, [3]);
+  assert.deepEqual(thrown("reverse", 1, (g) => { g.players[0].pieces[0].node = 3; }).pending, [-1]);
+  assert.deepEqual(thrown("combo").pending, [1, 2]);
+  for (let s = 1; s < 40; s++) {
+    assert.ok([1, 5].includes(thrown("allin", s).pending[0]));
+    assert.ok([4, 5].includes(thrown("golden", s).pending[0]));
+  }
+  assert.deepEqual(thrown("double", seedFor(3)).pending, [3, 3]);
+  const nak = thrown("double", seedFor(0));
+  assert.equal(nak.current, 1); // 낙이면 사라지고 차례가 넘어감
+  const later = thrown("later", seedFor(3));
+  assert.equal(later.current, 1);
+  assert.deepEqual(later.pending, []);
+  later.throw(seedFor(1));
+  later.move(0, 0, 1); // 상대 차례 끝
+  assert.equal(later.current, 0);
+  assert.deepEqual(later.pending, [3]); // 다음 내 차례에 받음
+  assert.equal(later.phase, "throw");
+});
 
-  const h = yutGame(2);
-  h.players[0].hand = ["hodl"];
-  h.use(0, {}, 1);
-  assert.equal(h.current, 1);
-  assert.equal(h.players[0].shift, 2);
-  h.players[1].hand = ["twist"];
-  h.use(0, {}, 1); // 다음 사람(P0)에게 -1 → 합쳐서 +1
-  assert.equal(h.players[0].shift, 1);
-  const c = yutGame(3);
-  c.players[0].pieces[0].node = 4;
-  c.players[1].pieces[0].node = 9;
-  c.players[2].pieces[1].node = 27;
-  c.players[0].hand = ["assemble"];
-  c.use(0, {}, 1);
-  assert.deepEqual([c.players[0].pieces[0].node, c.players[1].pieces[0].node, c.players[2].pieces[1].node], [CENTER, CENTER, CENTER]);
+test("윷: 말의 힘 — 불러오기 · 얹혀가기 · 방어 · 뒤에 붙기 · 지뢰 · 택시 · 귀가 · 자리 바꾸기", () => {
+  const setup = (...ids) => {
+    const g = yutGame(2, { pieces: 3 });
+    give(g, 0, ...ids);
+    g.players[0].pieces[0].node = 3;
+    g.players[1].pieces[0].node = 8;
+    return g;
+  };
+  const opp = { seat: 1, idx: 0 };
+  const c = setup("callme");
+  assert.ok(c.use(0, { own: 0, opp }, 1));
+  assert.ok([4, 5, 6].includes(c.players[1].pieces[0].node));
+
+  const h = setup("hitch");
+  assert.ok(h.use(0, { own: 0 }, 1));
+  assert.equal(h.players[0].pieces[1].node, 3);
+  const noRider = setup("hitch");
+  noRider.players[0].pieces.forEach((pc) => { pc.node = 3; });
+  assert.equal(noRider.abilityReady("hitch"), false);
+  assert.equal(noRider.use(0, { own: 0 }, 1), false);
+
+  const b = setup("guard");
+  assert.ok(b.use(0, { own: 0 }, 1));
+  assert.ok(b.shielded(b.players[0].pieces[0]));
+
+  const t = setup("tail");
+  assert.ok(t.use(0, { own: 1, opp }, 1)); // 안 나간 말도 고를 수 있음
+  assert.equal(t.players[0].pieces[1].node, 7);
+
+  const m = setup("mine");
+  assert.equal(m.use(0, { node: 8 }, 1), false); // 말이 있는 칸은 안 됨
+  assert.ok(m.use(0, { node: 12 }, 1));
+  assert.equal(m.bombs[12], 0);
+
+  const x = setup("taxi");
+  assert.ok(x.use(0, { own: 0 }, 1));
+  assert.equal(x.players[0].pieces[0].node, 0);
+  assert.equal(x.finished(0), 0); // 골인은 아님
+
+  const go = setup("gohome");
+  assert.ok(go.use(0, { opp }, 1));
+  assert.equal(go.players[1].pieces[0].node, START);
+
+  const sw = setup("swapme");
+  assert.ok(sw.use(0, { own: 0, opp }, 1));
+  assert.equal(sw.players[0].pieces[0].node, 8);
+  assert.equal(sw.players[1].pieces[0].node, 3);
+
+  const fl = setup("flip");
+  assert.ok(fl.use(0, {}, 1));
+  assert.deepEqual([fl.players[0].pieces[0].node, fl.players[1].pieces[0].node].sort((p, q) => p - q), [3, 8]);
 });
 
 test("윷: 같은 seed면 같은 판 (아무렇게나 끝까지 둬도 규칙이 깨지지 않음)", () => {
   const play = (seed) => {
     const rng = mulberry(seed);
-    const g = new YutGame(["A", "B", "C", "D"], { pieces: 3, mode: "chaos" });
+    const g = new YutGame(["A", "B", "C", "D"], { pieces: 3, mode: "power", seed });
     for (let step = 0; step < 4000 && !g.over; step++) {
       const s = Math.floor(rng() * 2 ** 31);
       const p = g.players[g.current];
@@ -432,7 +462,7 @@ test("윷: 같은 seed면 같은 판 (아무렇게나 끝까지 둬도 규칙이
         g.move(ok[Math.floor(rng() * ok.length)], res, s);
       }
       for (const pl of g.players) {
-        assert.ok(pl.hand.length <= START_HAND.chaos + 4); // 처음 받은 카드 + 어쩔티비로 빼앗은 카드
+        assert.ok(pl.hand.length <= 2);
         for (const pc of pl.pieces) assert.ok(pc.node === START || pc.node === HOME || (pc.node >= 0 && pc.node <= 28));
       }
     }

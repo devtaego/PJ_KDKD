@@ -6,6 +6,7 @@ import { esc } from "../art.js";
 // fx는 어려운 정도에 맞춤 (style.css): 1 stone / 2 moss·slate·clay / 3 ice·jade·dice·kda / 4 gold·royal·neon / 5 legend·cosmic
 export const TITLES = {
   dev: { emoji: "🛠️", name: "DEV", fx: "fx-dev", hidden: true }, // 칭호 목록에 안 나옴. 코드를 넣은 사람만 달 수 있음
+  real_sua: { emoji: "🚫", name: "사칭금지!", fx: "fx-royal", hidden: true }, // DEV처럼 코드를 넣은 사람만
 
   first_game: { emoji: "🪑", name: "일단 앉아봄", fx: "fx-stone", group: "첫걸음", how: "온라인 첫 판" },
   first_win: { emoji: "🌱", name: "쑥쑥새싹", fx: "fx-moss", group: "첫걸음", how: "온라인 첫 승" },
@@ -31,7 +32,7 @@ export const TITLES = {
 
   yut_win: { emoji: "🐷", name: "도 닦는 중", fx: "fx-stone", group: "윷놀이", how: "첫 우승" },
   yut_s2: { emoji: "🐶", name: "개이득", fx: "fx-stone", group: "윷놀이", how: "2연승" },
-  yut_chaos: { emoji: "🎬", name: "막장 드라마", fx: "fx-clay", group: "윷놀이", how: "막장 모드 우승" },
+  yut_chaos: { emoji: "🦸", name: "초능력자", fx: "fx-clay", group: "윷놀이", how: "초능력 모드 우승" },
   yut_team: { emoji: "🤜", name: "환상의 짝꿍", fx: "fx-moss", group: "윷놀이", how: "팀전 우승" },
   yut_s3: { emoji: "🐑", name: "걸작", fx: "fx-clay", group: "윷놀이", how: "3연승" },
   yut_s5: { emoji: "🐮", name: "윷이 손에 붙음", fx: "fx-jade", group: "윷놀이", how: "5연승" },
@@ -74,7 +75,7 @@ export const TITLES = {
 // 전체 칭호 개수와 올컬렉 기준: DEV(hidden)와 히든 칭호(secret)는 뺌 (server.py의 COLLECT_TITLES와 같음)
 export const COUNTED_TITLES = Object.keys(TITLES).filter((id) => !TITLES[id].hidden && !TITLES[id].secret);
 // 초기화해도 남는 칭호 (DEV는 코드를 다시 넣지 않아도 되게, 초기화 칭호는 받자마자 사라지지 않게)
-export const KEEP_ON_RESET = new Set(["dev", "reset_1", "reset_3", "reset_cancel", "muso", "nth_all"]);
+export const KEEP_ON_RESET = new Set(["dev", "real_sua", "reset_1", "reset_3", "reset_cancel", "muso", "nth_all"]);
 
 /** 칭호 뱃지 HTML (모르는 칭호면 빈칸) */
 export const titleBadge = (id) => (TITLES[id] ? `<span class="title-badge ${TITLES[id].fx}">${TITLES[id].emoji} ${esc(TITLES[id].name)}</span>` : "");

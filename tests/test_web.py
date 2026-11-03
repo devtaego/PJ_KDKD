@@ -4,6 +4,7 @@
 """
 import asyncio
 import hashlib
+import json
 import os
 import sys
 import tempfile
@@ -124,8 +125,7 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(log["acts"]), 2)
 
         await self.finish(a, b, ["태고"])
-        await a.send_json({"t": "ranking"})
-        rank = (await self.until(a, "ranking"))["ranking"]
+        rank = await self.ranking_of(a)
         self.assertEqual(rank["태고"]["omok"], {"wins": 1, "games": 1})
         self.assertEqual(rank["민수"]["omok"], {"wins": 0, "games": 1})
         for ws in (a, b, c):
@@ -345,6 +345,102 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.until(a, "title_bad"))["t"], "title_bad")
         await a.close()
 
+    async def play(self, a, b, winner):
+        """둘이 한 판 하고 winner가 이김"""
+        await self.start(a, b, "chess")
+        return await self.finish(a, b, [winner])
+
+    async def rows_of(self, ws):
+        await ws.send_json({"t": "ranking"})
+        return await self.until(ws, "ranking")
+
+    async def test_same_name_is_not_merged_across_players(self):
+        a, b, code = await self.two_players("chess")
+        await self.play(a, b, "태고")
+        await a.send_json({"t": "leave"})
+        await self.until(b, "room")
+        c = await self.connect("cccccccc3", "태고")  # 다른 브라우저의 같은 이름
+        await b.send_json({"t": "reset"})
+        await c.send_json({"t": "join", "room": code})
+        await self.until(c, "room")
+        await self.start(b, c, "chess")
+        await self.finish(b, c, ["민수"])
+        msg = await self.rows_of(b)
+        same = sorted(r["games"]["chess"]["wins"] for r in msg["rows"] if r["name"] == "태고")
+        self.assertEqual(same, [0, 1])  # 같은 이름이어도 두 줄
+        self.assertEqual(msg["me"], server.player_id_for(self.secret("bbbbbbbb2")))
+        self.assertNotIn(self.secret("aaaaaaaa1"), str(msg))  # 비밀 열쇠는 보이지 않음
+        for ws in (a, b, c):
+            await ws.close()
+
+    async def test_changing_name_keeps_record(self):
+        a, b, _ = await self.two_players("chess")
+        await self.play(a, b, "태고")
+        await a.send_json({"t": "reset"})
+        await self.until(a, "reset")
+        await a.send_json({"t": "profile", "profile": {"name": "새이름", "avatar": "fox"}})
+        await self.until(a, "room")
+        await self.play(a, b, "새이름")
+        rows = (await self.rows_of(a))["rows"]
+        mine = next(r for r in rows if r["id"] == server.player_id_for(self.secret("aaaaaaaa1")))
+        self.assertEqual((mine["name"], mine["games"]["chess"]), ("새이름", {"wins": 2, "games": 2}))
+        self.assertEqual(len(rows), 2)
+        for ws in (a, b):
+            await ws.close()
+
+    async def test_record_code_moves_record_to_another_browser(self):
+        a, b, code = await self.two_players("chess")
+        await self.play(a, b, "태고")
+        await a.send_json({"t": "record_code"})
+        record = (await self.until(a, "record_code"))["code"]
+        self.assertNotIn(self.secret("aaaaaaaa1"), record)
+        new = await self.connect("dddddddd4", "태고폰")
+        await new.send_json({"t": "redeem", "code": record.lower()})  # 대소문자 상관없음
+        self.assertEqual((await self.until(new, "record_bind"))["code"], record)
+        self.assertEqual(server.hub.clients[self.secret("dddddddd4")].player_id, server.player_id_for(self.secret("aaaaaaaa1")))
+        await new.send_json({"t": "profile", "profile": {"name": "태고폰", "avatar": "fox", "recordCode": record}})
+        await new.send_json({"t": "ping", "c": 7})
+        await self.until(new, "pong")
+        self.assertNotIn("recordCode", server.hub.clients[self.secret("dddddddd4")].profile)  # 남에게 보내는 프로필에는 없음
+        # 틀린 코드는 안 통함
+        wrong = record[:-1] + ("A" if record[-1] != "A" else "B")
+        other = await self.connect("eeeeeeee5", "남")
+        await other.send_json({"t": "redeem", "code": wrong})
+        self.assertEqual((await self.until(other, "title_bad"))["t"], "title_bad")
+        await other.send_json({"t": "profile", "profile": {"name": "남", "avatar": "fox", "recordCode": wrong}})
+        await other.send_json({"t": "ping", "c": 8})
+        await self.until(other, "pong")
+        self.assertEqual(server.hub.clients[self.secret("eeeeeeee5")].player_id, server.player_id_for(self.secret("eeeeeeee5")))
+        for ws in (a, b, new, other):
+            await ws.close()
+
+    async def test_same_player_on_both_seats_is_not_counted(self):
+        a, b, _ = await self.two_players("chess")
+        await a.send_json({"t": "record_code"})
+        record = (await self.until(a, "record_code"))["code"]
+        await b.send_json({"t": "redeem", "code": record})
+        await self.until(b, "record_bind")
+        await self.play(a, b, "태고")
+        self.assertEqual((await self.rows_of(a))["rows"], [])
+        for ws in (a, b):
+            await ws.close()
+
+    def test_old_file_ranking_becomes_legacy(self):
+        path = os.path.join(tempfile.mkdtemp(), "r.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"옛사람": {"chess": {"wins": 3, "games": 4}}}, f, ensure_ascii=False)
+
+        async def run():
+            store = ranking_store.FileStore(path)
+            await store.add("chess", [{"id": "AAA", "name": "옛사람"}, {"id": "BBB", "name": "상대"}], ["AAA"])
+            return await ranking_store.FileStore(path).all()  # 다시 읽어도 유지
+
+        rows = asyncio.run(run())
+        legacy = next(r for r in rows if r["legacy"])
+        self.assertEqual((legacy["name"], legacy["id"], legacy["games"]["chess"]["wins"]), ("옛사람", "", 3))
+        fresh = next(r for r in rows if r["id"] == "AAA")
+        self.assertEqual((fresh["legacy"], fresh["games"]["chess"]), (False, {"wins": 1, "games": 1}))
+
     async def test_cannot_start_alone(self):
         a = await self.connect("aaaaaaaa1", "태고")
         await a.send_json({"t": "create", "game": "chess", "settings": {}})
@@ -355,8 +451,9 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         await a.close()
 
     async def ranking_of(self, ws):
+        """이름으로 찾기 쉽게 {이름: {게임: 기록}}으로 바꿔서 돌려줌"""
         await ws.send_json({"t": "ranking"})
-        return (await self.until(ws, "ranking"))["ranking"]
+        return {row["name"]: row["games"] for row in (await self.until(ws, "ranking"))["rows"]}
 
     async def test_host_alone_cannot_decide_result(self):
         a, b, _ = await self.two_players("chess")
@@ -663,8 +760,7 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         a, b, _ = await self.two_players("chess")
         await self.start(a, b, "chess")
         await self.finish(a, b, ["태고", "가짜"])
-        await a.send_json({"t": "ranking"})
-        rank = (await self.until(a, "ranking"))["ranking"]
+        rank = await self.ranking_of(a)
         self.assertEqual(sorted(rank), ["민수", "태고"])
         self.assertEqual(rank["태고"]["chess"], {"wins": 1, "games": 1})
         for ws in (a, b):
@@ -852,19 +948,37 @@ class SupabaseStoreTest(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         self.calls = []
+        self.v2 = True  # 새 함수 · 표가 있는 DB인지
+        self.reads_fail = False
 
-        async def rpc(request):
-            self.calls.append((request.headers.get("apikey"), await request.json()))
+        async def rpc_old(request):
+            self.calls.append(("old", request.headers.get("apikey"), await request.json()))
             return web.Response(status=204)
 
-        async def table(request):
-            self.calls.append((request.headers.get("Authorization"), dict(request.query)))
-            return web.json_response([{"name": "태고", "game": "yacht", "wins": 3, "games": 5},
-                                      {"name": "민수", "game": "bingo", "wins": 1, "games": 1}])
+        async def rpc_new(request):
+            self.calls.append(("v2", request.headers.get("apikey"), await request.json()))
+            return web.Response(status=204 if self.v2 else 404)
+
+        async def old_table(request):
+            self.calls.append(("read", request.headers.get("Authorization")))
+            if self.reads_fail:
+                return web.Response(status=500)
+            return web.json_response([{"name": "옛사람", "game": "yacht", "wins": 3, "games": 5}])
+
+        async def new_table(request):
+            self.calls.append(("read", request.headers.get("Authorization")))
+            if not self.v2:
+                return web.Response(status=404)
+            return web.json_response([{"player_id": "AAA", "name": "태고", "game": "yacht", "wins": 2, "games": 2},
+                                      {"player_id": "AAA", "name": "태고", "game": "chess", "wins": 1, "games": 1},
+                                      {"player_id": "BBB", "name": "태고", "game": "yacht", "wins": 0, "games": 2},
+                                      {"player_id": "BBB", "name": "태고", "game": "bingo", "wins": 1, "games": 1}])
 
         app = web.Application()
-        app.router.add_post("/rest/v1/rpc/kidk_add_result", rpc)
-        app.router.add_get("/rest/v1/kidk_ranking", table)
+        app.router.add_post("/rest/v1/rpc/kidk_add_result", rpc_old)
+        app.router.add_post("/rest/v1/rpc/kidk_add_result_v2", rpc_new)
+        app.router.add_get("/rest/v1/kidk_ranking", old_table)
+        app.router.add_get("/rest/v1/kidk_player_ranking", new_table)
         self.fake = TestServer(app)
         await self.fake.start_server()
         self.store = ranking_store.SupabaseStore(str(self.fake.make_url("")), "service-key")
@@ -873,15 +987,35 @@ class SupabaseStoreTest(unittest.IsolatedAsyncioTestCase):
         await self.store.close()
         await self.fake.close()
 
+    PLAYERS = [{"id": "AAA", "name": "태고"}, {"id": "BBB", "name": "민수"}]
+
     async def test_add_and_read(self):
-        await self.store.add("yacht", ["태고", "민수"], ["태고"])
-        self.assertEqual(self.calls[0], ("service-key", {"p_game": "yacht", "p_players": ["태고", "민수"],
-                                                         "p_winners": ["태고"]}))
-        rank = await self.store.all()
-        self.assertEqual(rank, {"태고": {"yacht": {"wins": 3, "games": 5}}})  # 모르는 게임은 버림
-        self.assertEqual(self.calls[1][0], "Bearer service-key")
+        await self.store.add("yacht", self.PLAYERS, ["AAA"])
+        self.assertEqual(self.calls[0], ("v2", "service-key", {"p_game": "yacht", "p_players": self.PLAYERS, "p_winners": ["AAA"]}))
+        rows = await self.store.all()
+        self.assertEqual(rows, [
+            {"id": "AAA", "name": "태고", "legacy": False, "games": {"yacht": {"wins": 2, "games": 2}, "chess": {"wins": 1, "games": 1}}},
+            {"id": "BBB", "name": "태고", "legacy": False, "games": {"yacht": {"wins": 0, "games": 2}}},  # 같은 이름도 따로, 모르는 게임은 버림
+            {"id": "", "name": "옛사람", "legacy": True, "games": {"yacht": {"wins": 3, "games": 5}}},
+        ])
+        self.assertEqual(self.calls[1], ("read", "Bearer service-key"))
+        self.assertTrue(self.store.ok)
+        count = len(self.calls)
         await self.store.all()  # 10초 안에는 다시 부르지 않음
-        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(len(self.calls), count)
+
+    async def test_before_schema_update_keeps_working(self):
+        self.v2 = False
+        await self.store.add("yacht", self.PLAYERS, ["AAA"])
+        self.assertEqual(self.calls[-1], ("old", "service-key", {"p_game": "yacht", "p_players": ["태고", "민수"], "p_winners": ["태고"]}))
+        rows = await self.store.all()
+        self.assertEqual([r["name"] for r in rows], ["옛사람"])  # 예전 표는 계속 보임
+        self.assertTrue(self.store.ok)
+
+    async def test_failed_read_is_not_shown_as_empty(self):
+        self.reads_fail = True
+        self.assertEqual(await self.store.all(), [])
+        self.assertFalse(self.store.ok)
 
     async def test_env_picks_store(self):
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"] = "https://x.supabase.co", "k"

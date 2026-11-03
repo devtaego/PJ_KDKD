@@ -165,6 +165,28 @@ def title_token(cid, title):
     return hmac.new(TITLE_SECRET, f"{cid}:{title}".encode(), hashlib.sha256).hexdigest()[:32]
 
 
+def player_id_for(cid):
+    """랭킹에 쓰는 플레이어 번호 (비밀 열쇠로 계산하지만, 번호로 열쇠를 알아낼 수는 없음)."""
+    return hmac.new(TITLE_SECRET, f"player:{cid}".encode(), hashlib.sha256).hexdigest()[:16].upper()
+
+
+def _record_sig(player_id):
+    return hmac.new(TITLE_SECRET, f"record:{player_id}".encode(), hashlib.sha256).hexdigest()[:12].upper()
+
+
+def record_code(player_id):
+    """기록 복구 코드: 브라우저 기록을 지웠거나 다른 기기에서 내 랭킹 기록을 이어 갈 때 입력"""
+    return f"R1-{player_id}-{_record_sig(player_id)}"
+
+
+def player_from_code(code):
+    """기록 복구 코드가 가리키는 플레이어 번호, 아니면 None"""
+    parts = code.upper().split("-") if isinstance(code, str) else []
+    if len(parts) == 3 and parts[0] == "R1" and len(parts[1]) == 16 and hmac.compare_digest(parts[2], _record_sig(parts[1])):
+        return parts[1]
+    return None
+
+
 def restore_code(title):
     """칭호 복구 코드: 브라우저 기록을 지웠거나 다른 기기에서 다시 받을 때 입력"""
     nonce = secrets.token_hex(3).upper()
@@ -220,6 +242,7 @@ class Client:
         self.pid = secrets.token_hex(6)  # 공개 번호 (다른 사람에게 보이는 이름표)
         self.ip = ip
         self.ws = None
+        self.player_id = player_id_for(cid)  # 랭킹 번호 (기록 복구 코드를 넣으면 그 번호로 바뀜)
         self.profile = None  # {name, avatar, intro} avatar는 동물 이름 또는 "photo:<pid>:<해시>"
         self.photo = None  # 사진 data URL (따로 한 번만 보냄)
         self.room = None
@@ -253,6 +276,7 @@ class Client:
         """닉네임 · 프로필 · 한 줄 소개만 받아서 길이를 자름. 사진이 바뀌었으면 True."""
         if not isinstance(p, dict):
             return False
+        self.player_id = player_from_code(p.get("recordCode")) or self.player_id  # 다른 사람에게 보내는 프로필에는 넣지 않음
         name = clean_text(p.get("name"), 12)
         if not name:
             return False
@@ -348,6 +372,7 @@ class Room:
         self.seq = 0
         self.seat_names = []  # 판을 시작할 때 앉아 있던 사람들 (랭킹은 이 이름만 받음)
         self.seat_cids = []
+        self.seat_ids = []  # 앉은 사람들의 플레이어 번호 (기록은 이 번호로)
         self.queue = []  # 다음 판을 기다리는 줄 (cid, 먼저 선 순서)
         self.streak = {}  # cid -> 이 방에서 이어 온 연승 수
         self.lose_streak = {}  # cid -> 이 방에서 이어 온 연패 수
@@ -606,6 +631,7 @@ class Hub:
             a["settings"] = clean_settings(a.get("settings"))
             room.seat_cids, a["seats"] = self.seats_for_start(room, a.pop("order", None))
             room.seat_names = [self.clients[c].profile["name"] for c in room.seat_cids]
+            room.seat_ids = [self.clients[c].player_id for c in room.seat_cids]
             settings = a.get("settings")
             if room.game == "yut" and isinstance(settings, dict) and settings.get("team") == "1":
                 for i, seat in enumerate(a["seats"]):  # 자리 순서가 A, B, A, B
@@ -656,6 +682,11 @@ class Hub:
             if not client.allow("redeem", RATE_CHAT):
                 return
             code = "".join(str(msg.get("code") or "").upper().split())[:40]
+            player_id = player_from_code(code)
+            if player_id:  # 기록 복구 코드
+                client.player_id = player_id
+                await client.send({"t": "record_bind", "code": code})
+                return
             if ALL_TITLES_CODE and hmac.compare_digest(hashlib.sha256(code.encode()).hexdigest(), ALL_TITLES_CODE):
                 await client.send({"t": "title_grant_all", "titles": {t: title_token(client.cid, t) for t in TITLE_IDS - {"dev"}}})
                 return
@@ -675,6 +706,10 @@ class Hub:
             if client.allow("redeem", RATE_CHAT) and isinstance(tokens, dict):
                 await self.grant_titles(client.cid, collect_titles(client.cid, tokens, msg.get("resetting") is True))
             return
+        if t == "record_code":  # 내 랭킹 기록의 복구 코드 받기
+            if client.allow("redeem", RATE_CHAT):
+                await client.send({"t": "record_code", "code": record_code(client.player_id)})
+            return
         if t == "title_backup":  # 가진 칭호의 복구 코드 받기
             title, token = msg.get("title"), msg.get("token")
             if (client.allow("redeem", RATE_CHAT) and title in TITLE_IDS and isinstance(token, str)
@@ -689,7 +724,7 @@ class Hub:
                 await client.send({"t": "rooms", "rooms": self.public_rooms()})
         elif t == "ranking":
             if self.ip_allow(client.ip, "ranking"):
-                await client.send({"t": "ranking", "ranking": await self.store.all(), "store": self.store.kind})
+                await client.send({"t": "ranking", "rows": await self.store.all(), "ok": self.store.ok, "store": self.store.kind, "me": client.player_id})
         elif t == "create":
             game = msg.get("game")
             if game not in GAMES or not self.ip_allow(client.ip, "join"):
@@ -827,7 +862,7 @@ class Hub:
     async def finish_game(self, room, client, players, winners, losers):
         """결과가 맞춰진 판을 끝냄. 너무 짧거나 한 주소에서 너무 많이 끝낸 판은 기록 · 칭호에 넣지 않음."""
         room.status = "done"
-        counted = (time.time() - room.started_at >= MIN_GAME_SECONDS and len(players) >= 2
+        counted = (time.time() - room.started_at >= MIN_GAME_SECONDS and len(set(room.seat_ids)) >= 2  # 같은 번호끼리 한 판은 세지 않음
                    and self.ip_allow(client.ip, "record"))
         room.losers = [cid for cid, name in zip(room.seat_cids, room.seat_names) if name in losers]
         if counted:
@@ -848,7 +883,8 @@ class Hub:
                 if role == "spectator":
                     await self.grant_titles(cid, ["spectator"])
             room.teabag_ready = {cid for cid, name in zip(room.seat_cids, room.seat_names) if name in winners}
-            await self.store.add(room.game, players, winners)
+            await self.store.add(room.game, [{"id": pid, "name": name} for pid, name in zip(room.seat_ids, room.seat_names)],
+                                 [pid for pid, name in zip(room.seat_ids, room.seat_names) if name in winners])
         await self.send_room(room, now=True)
 
     async def grant_titles(self, cid, titles):

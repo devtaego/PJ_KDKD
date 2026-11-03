@@ -136,6 +136,12 @@ net.on("title_grant_all", (msg) => {
   onTitlesChanged?.();
 });
 net.on("title_bad", () => toast("맞지 않는 코드예요"));
+// 기록 복구 코드를 넣으면 앞으로 이 브라우저의 기록이 그 번호로 이어짐
+net.on("record_bind", (msg) => {
+  profile.recordCode = msg.code;
+  saveProfile();
+  toast("내 랭킹 기록을 이어받았어요", 3000);
+});
 net.on("welcome", () => checkCollection());
 
 /** 수집 칭호 조건을 채웠으면 서버에 확인을 부탁함 (표를 서버가 직접 확인하고 칭호를 줌) */
@@ -225,7 +231,7 @@ function titlesScreen() {
     <div class="card titles-now">
       <div class="titles-me"></div>
       <div class="join-code title-code"><input id="title-code" type="text" maxlength="40" placeholder="칭호 코드 입력" aria-label="칭호 코드" autocomplete="off"><button class="btn" data-k="redeem">등록</button></div>
-      <p class="muted title-note">얻은 칭호는 이 브라우저에 계속 남아요. 브라우저 기록을 지우거나 다른 기기에서 쓰려면 <b>복구 코드</b>를 적어 두었다가 칭호 코드 칸에 넣으세요.</p>
+      <p class="muted title-note">얻은 칭호는 이 브라우저에 계속 남아요. 브라우저 기록을 지우거나 다른 기기에서 쓰려면 <b>복구 코드</b>를 적어 두었다가 칭호 코드 칸에 넣으세요. 랭킹의 <b>기록 복구 코드</b>도 여기에 넣어요.</p>
     </div>
     <div class="card"><div class="title-count"></div><div class="title-rows"></div></div>
     <div class="title-reset-row"><button type="button" class="btn ghost title-reset">칭호 초기화</button></div></section>`);
@@ -1401,21 +1407,35 @@ function startRoomGame(r) {
 
 // ---------------------------------------------------------------- 랭킹
 function rankingModal() {
-  const body = el(`<div><div class="tabs" style="margin-bottom:10px"></div><div class="games-f" style="margin-bottom:12px"></div><div class="table"></div></div>`);
-  let scope = "local", game = "all", classData = null, storeKind = null;
+  const body = el(`<div><div class="tabs" style="margin-bottom:10px"></div><div class="games-f" style="margin-bottom:12px"></div><div class="table"></div><div class="rank-tools"></div></div>`);
+  let scope = "local", game = "all", classRows = null, storeKind = null, storeOk = true, myId = "";
   const tableBox = body.querySelector(".table");
+  const tools = body.querySelector(".rank-tools");
+  const totals = (games) => {
+    let wins = 0, played = 0;
+    for (const [g, r] of Object.entries(games || {})) if (game === "all" || g === game) { wins += r.wins | 0; played += r.games | 0; }
+    return { wins, games: played };
+  };
   const draw = () => {
-    const data = scope === "local" ? store.get("ranking", {}) : classData;
-    if (data === null) { tableBox.innerHTML = `<div class="empty">우리 반 기록을 불러오는 중...</div>`; return; }
-    const rows = Object.entries(data).map(([name, recs]) => {
-      let wins = 0, games = 0;
-      for (const [g, r] of Object.entries(recs || {})) if (game === "all" || g === game) { wins += r.wins | 0; games += r.games | 0; }
-      return { name, wins, games };
-    }).filter((x) => x.games > 0).sort((a, b) => b.wins - a.wins || b.wins / b.games - a.wins / a.games || a.games - b.games).slice(0, 50);
+    // 이 기기 기록은 이름 기준, 우리 반 기록은 플레이어 번호 기준
+    const source = scope === "local" ? Object.entries(store.get("ranking", {})).map(([name, games]) => ({ id: "", name, legacy: false, games })) : classRows;
+    tools.hidden = scope === "local";
+    if (source === null) { tableBox.innerHTML = `<div class="empty">우리 반 기록을 불러오는 중...</div>`; return; }
+    const rows = source.map((x) => ({ ...x, ...totals(x.games) })).filter((x) => x.games > 0)
+      .sort((a, b) => b.wins - a.wins || b.wins / b.games - a.wins / a.games || a.games - b.games).slice(0, 50);
+    const sameName = new Map();
+    for (const x of rows) sameName.set(x.name, (sameName.get(x.name) || 0) + 1);
+    const label = (x) => `${esc(x.name)}${x.id && sameName.get(x.name) > 1 ? ` <span class="muted rank-tag">#${esc(x.id.slice(0, 4))}</span>` : ""}${x.id && x.id === myId ? ` <span class="muted rank-tag">(나)</span>` : ""}${x.legacy && scope === "class" ? ` <span class="muted rank-tag">(이전 기록)</span>` : ""}`;
+    const empty = scope === "class" && !storeOk ? "지금은 우리 반 기록을 불러오지 못했어요. 잠시 뒤에 다시 열어 주세요." : "아직 기록이 없어요. 한 판 해 볼까요?";
     tableBox.innerHTML = rows.length
-      ? `<table class="rank"><thead><tr><th>순위</th><th>이름</th><th>승</th><th>판</th><th>승률</th></tr></thead><tbody>${rows.map((x, i) => `<tr><td>${i + 1}</td><td>${esc(x.name)}</td><td>${x.wins}</td><td>${x.games}</td><td>${Math.round((x.wins / x.games) * 100)}%</td></tr>`).join("")}</tbody></table>`
-      : `<div class="empty">아직 기록이 없어요. 한 판 해 볼까요?</div>`;
+      ? `<table class="rank"><thead><tr><th>순위</th><th>이름</th><th>승</th><th>판</th><th>승률</th></tr></thead><tbody>${rows.map((x, i) => `<tr><td>${i + 1}</td><td>${label(x)}</td><td>${x.wins}</td><td>${x.games}</td><td>${Math.round((x.wins / x.games) * 100)}%</td></tr>`).join("")}</tbody></table>`
+      : `<div class="empty">${empty}</div>`;
     if (scope === "class" && storeKind === "file") tableBox.insertAdjacentHTML("beforeend", `<p class="muted" style="font-size:13px">이 서버는 기록을 임시 파일에 저장해서, 서버를 다시 켜면 초기화돼요.</p>`);
+  };
+  tools.innerHTML = `<p class="muted rank-note">우리 반 기록은 브라우저마다 따로 쌓여요. 브라우저 기록을 지우거나 다른 기기에서 이어 가려면 복구 코드를 적어 두었다가 칭호 코드 칸에 넣으세요.</p><button type="button" class="btn small ghost" data-k="record-code">내 기록 복구 코드 복사</button>`;
+  tools.querySelector('[data-k="record-code"]').onclick = () => {
+    if (net.isOpen()) net.send({ t: "record_code" });
+    else toast("서버에 연결하지 못했어요. 잠시 뒤에 다시 눌러 주세요");
   };
   body.querySelector(".tabs").appendChild(segment([["local", "이 기기"], ["class", "우리 반 (온라인)"]], scope, (v) => {
     scope = v;
@@ -1427,14 +1447,19 @@ function rankingModal() {
     draw();
   }));
   body.querySelector(".games-f").appendChild(segment([["all", "전체"], ["chess", "체스"], ["omok", "오목"], ["yacht", "야추"], ["yut", "윷놀이"]], game, (v) => { game = v; draw(); }));
-  const off = net.on("ranking", (msg) => {
-    classData = msg.ranking || {};
+  const offRanking = net.on("ranking", (msg) => {
+    classRows = Array.isArray(msg.rows) ? msg.rows : [];
     storeKind = msg.store;
+    storeOk = msg.ok !== false;
+    myId = typeof msg.me === "string" ? msg.me : "";
     draw();
+  });
+  const offCode = net.on("record_code", async (msg) => {
+    try { await navigator.clipboard.writeText(msg.code); toast("기록 복구 코드를 복사했어요. 잘 적어 두세요"); } catch { toast(`코드를 직접 적어 두세요: ${msg.code}`, 8000); }
   });
   draw();
   const close = modal("랭킹", body);
-  const obs = new MutationObserver(() => { if (!body.isConnected) { off(); obs.disconnect(); } });
+  const obs = new MutationObserver(() => { if (!body.isConnected) { offRanking(); offCode(); obs.disconnect(); } });
   obs.observe(document.body, { childList: true });
   return close;
 }

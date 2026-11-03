@@ -780,6 +780,8 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
             room = await self._finish_seen_by(a, seated, winner, loser)
             streak = {m["name"]: m["streak"] for m in room["members"]}
             self.assertEqual(streak["민수"], expect_streak)
+            await a.send_json({"t": "rooms"})  # 방 목록에는 1승부터 보임
+            self.assertEqual((await self.until(a, "rooms"))["rooms"][0]["king"], {"name": "민수", "streak": expect_streak})
             await a.send_json({"t": "reset"})
             room = (await self.until(a, "room"))["room"]
             roles = {m["name"]: m["role"] for m in room["members"]}

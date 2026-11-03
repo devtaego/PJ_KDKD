@@ -1,7 +1,7 @@
 // 야추 다이스 화면: 최대 6명, 컵을 꾹 눌러 흔들다 놓으면 주사위가 쏟아져 나옴
 import { YachtGame, UPPER, LOWER, CATEGORIES, CAT_NAMES, CAT_HELP, CAT_EXAMPLES, BONUS_NEED, BONUS, AI_BASE, score, rollDie, aiPickCategory, aiShouldStop, aiHolds } from "../engine/yacht.js";
 import { avatarHtml, esc, dieSvg } from "../art.js";
-import { el, confirmBox } from "../ui.js";
+import { el, confirmBox, streakText } from "../ui.js";
 import { DiceTray } from "./dice_tray.js";
 
 const AI_STEP_MS = 750;
@@ -346,7 +346,7 @@ export function create(m) {
       const baseTot = p.resigned ? "항복" : m.offline.has(i) ? "끊김" : `${game.total(p)}점`;
       const me = m.controls(i) && m.mode !== "local" ? " (나)" : "";
       const streak = m.streaks?.get(m.seats[i].cid) || 0;
-      const tot = streak >= 2 && !p.resigned && !m.offline.has(i) ? `${game.total(p)}점 · ${streak}연승` : baseTot;
+      const tot = streak >= 1 && !p.resigned && !m.offline.has(i) ? `${game.total(p)}점 · ${streakText(streak)}` : baseTot;
       return `<th class="${curCls(i)}${p.resigned ? " out" : ""}${m.offline.has(i) ? " off" : ""}" data-seat="${i}"><div class="th-av">${avatarHtml(m.seats[i].avatar, 28)}<span class="nm">${esc(p.name + me)}</span><span class="tot">${tot}</span></div></th>`;
     }).join("");
     const row = (cat) => {

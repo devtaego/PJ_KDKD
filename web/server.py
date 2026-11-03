@@ -467,7 +467,7 @@ class Hub:
                 "players": len(room.players()), "max": GAMES[room.game],
                 "spectators": sum(1 for _, r in room.members if r == "spectator"), "queue": len(room.queue),
                 "king": {"name": king_client.profile["name"], "streak": king[1]}
-                if king[1] >= 2 and king_client and king_client.profile else None}
+                if king[1] >= 1 and king_client and king_client.profile else None}
 
     async def send_room(self, room, now=False):
         """방 정보를 방 전체에 보냄. 짧은 시간에 여러 번 바뀌면 마지막 상태만 묶어서 보냄 (now: 바로 보내야 할 때)."""

@@ -139,12 +139,14 @@ export function addLocalRecord(game, names, winners) {
 }
 
 // ---------------------------------------------------------------- 사람 카드
-/** 연승 뱃지: 많이 이길수록 화려해짐 (2 · 3~4 · 5~6 · 7~9 · 10 이상) */
+/** 1승, 2연승, 3연승 ... */
+export const streakText = (n) => (n === 1 ? "1승" : `${n}연승`);
+/** 연승 뱃지: 많이 이길수록 화려해짐 (1 · 2 · 3~4 · 5~6 · 7~9 · 10 이상) */
 export function streakHtml(n) {
-  if (!(n >= 2)) return "";
-  const tier = n >= 10 ? 5 : n >= 7 ? 4 : n >= 5 ? 3 : n >= 3 ? 2 : 1;
+  if (!(n >= 1)) return "";
+  const tier = n >= 10 ? 5 : n >= 7 ? 4 : n >= 5 ? 3 : n >= 3 ? 2 : n === 2 ? 1 : 0;
   const icon = tier === 5 ? "👑 " : tier >= 2 ? "🔥 " : "";
-  return `<span class="streak s${tier}">${icon}${n}연승</span>`;
+  return `<span class="streak s${tier}">${icon}${streakText(n)}</span>`;
 }
 
 export function personHtml(p, { extra = "", sub = null, cls = "" } = {}) {
@@ -339,6 +341,14 @@ export function showResult(opts) {
       flowEl.innerHTML = `<b>${esc(flow.tag)}</b><span>${esc(flow.note)}</span>`;
       queueBtn.hidden = !flow.queue;
       if (flow.queue) { queueBtn.textContent = flow.queue.label; queueBtn.onclick = flow.queue.onClick; }
+    },
+    /** 이름 옆 연승 표시 바꾸기. streakOf(key): 그 자리의 연승 수 */
+    setStreaks(streakOf) {
+      for (const pl of podium.querySelectorAll(".pl")) {
+        pl.querySelector(".nm .streak")?.remove();
+        const html = streakHtml(streakOf(pl.dataset.key));
+        if (html) pl.querySelector(".nm").insertAdjacentHTML("beforeend", html);
+      }
     },
     close() { root.remove(); document.removeEventListener("keydown", onKey); api.cleanup.forEach((f) => f()); },
     bubble(key, text) { popAt(podium.querySelector(`[data-key="${CSS.escape(key)}"] .avatar`), { text, long: true }); },

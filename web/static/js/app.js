@@ -874,6 +874,11 @@ net.on("room", (msg) => {
   const prev = online.room;
   online.room = msg.room;
   announceStreaks(prev, msg.room);
+  if (online.rematch && msg.room.status === "waiting") { // 1:1 한 판 더: 자리가 찼으면 대기실을 거치지 않고 바로 시작
+    online.rematch = false;
+    const seated = msg.room.members.filter((x) => x.role === "player");
+    if (msg.room.host === net.myId() && seated.length === msg.room.max && seated.every((x) => x.online)) startRoomGame(msg.room);
+  }
   online.manage?.();
   if (match?.online) {
     syncSpectators();
@@ -1043,11 +1048,12 @@ function startOnline(entry, replaying = false) {
   match = new Match({
     game: a.game, mode: "online", seats, mySeats: me >= 0 ? [me] : [], settings: { ...(a.settings || {}), seed: a.seed, startedAt: entry.at }, level: "normal",
     module: MODULES[a.game], isHost: online.room?.host === net.myId(), replaying, onManage: manageRoomModal,
-    onExit: () => leaveRoom(), onAgain: () => net.send({ t: "reset" }),
+    onExit: () => leaveRoom(), onAgain: () => { online.rematch = ["chess", "omok"].includes(a.game); net.send({ t: "reset" }); },
   });
   match.lastSeq = entry.seq;
   match.streaks = new Map((online.room?.members || []).map((x) => [x.cid, x.streak || 0]));
   match.setRoomInfo(online.room);
+  match.g.render(); // 자리 카드에 연승 표시
   match.setNet(online.status);
   syncSpectators();
   show({ root: match.root, back: () => match?.exit() });
@@ -1092,7 +1098,7 @@ function lobbyScreen(filter = "all") {
     }
     for (const r of shown) {
       const playing = r.status !== "waiting";
-      const king = r.king ? ` · ${esc(r.king.name)} ${r.king.streak}연승 중` : "";
+      const king = r.king ? ` · ${esc(r.king.name)} ${streakHtml(r.king.streak)}` : "";
       const line = r.queue ? ` · 대기 ${r.queue}명` : "";
       const full = r.players >= r.max;
       const item = el(`<button class="room-item g-${r.game}"><span class="gicon">${GAME_ICONS[r.game]}</span><span class="grow"><div>${esc(r.name)} <span class="muted" style="font-size:14px">${esc(r.id)}</span></div><div class="muted" style="font-size:14px">${GAME_NAMES[r.game]} · 방장 ${esc(r.host)} · ${r.players}/${r.max}명${line}${king}</div></span><span class="pill ${playing ? "live" : "wait"}">${playing ? "대전 중 · 줄 서기" : full ? "꽉 참 · 줄 서기" : "참가 가능"}</span></button>`);

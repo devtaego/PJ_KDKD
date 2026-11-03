@@ -3,7 +3,7 @@
 // 온라인에서는 서버가 순서와 시각을 붙여 모두에게 똑같이 돌려주므로, 모든 기기가 같은 판을 계산함.
 import * as net from "./net.js";
 import { titleBadge, titleFx } from "./data/titles.js";
-import { countQuirk, streakHtml, el, ChatPanel, popAt, showResult, addLocalRecord, toast, modal, soundButton } from "./ui.js";
+import { countQuirk, streakHtml, streakText, el, ChatPanel, popAt, showResult, addLocalRecord, toast, modal, soundButton } from "./ui.js";
 import { avatarHtml, esc } from "./art.js";
 import { play } from "./sound.js";
 import { questionFor, replyLine, CHAT_AI_TEXTS, randomOf } from "./party.js";
@@ -271,6 +271,12 @@ export class Match {
     this.roomInfo = room;
     this.updateSpecBar();
     this.resultView?.setFlow?.(this.flowInfo());
+    this.updateResultStreaks();
+  }
+
+  /** 결과 화면 이름 옆 연승 (서버가 판을 집계한 뒤에 바뀜) */
+  updateResultStreaks() {
+    this.resultView?.setStreaks?.((key) => this.streaks?.get(this.seats[+key]?.cid) || 0);
   }
 
   queueAction(pos) {
@@ -305,9 +311,9 @@ export class Match {
       const next = queue.length ? `${nameOf(queue[0])} 님` : "";
       if (info.winners.includes(seat)) {
         const streak = room.members?.find((x) => x.cid === me)?.streak || 0;
-        return { kind: "win", tag: streak >= 2 ? `승자 · ${streak}연승` : "승자", note: next ? `자리를 지켜요. 다음 상대는 ${next}이에요` : "다음 판도 이 자리에서 계속해요" };
+        return { kind: "win", tag: streak >= 1 ? `승자 · ${streakText(streak)}` : "승자", note: next ? `자리를 지켜요. 다음 상대는 ${next}이에요` : "다음 판도 이 자리에서 계속해요" };
       }
-      if (info.winners.length) return { kind: "lose", tag: "패자", note: next ? `줄 맨 뒤로 가요. 다음 판은 ${next}이 앉아요` : "대기 줄이 없어서 다음 판도 같이 해요" };
+      if (info.winners.length) return { kind: "lose", tag: "패자", note: next ? `줄 맨 뒤로 가요. 다음 판은 ${next}이 앉아요` : "대기 줄이 없어서 바로 다시 붙어요" };
       return { kind: "draw", tag: "무승부", note: "다음 판도 이 자리에서 계속해요" };
     }
     const pos = queue.indexOf(me);
@@ -342,11 +348,12 @@ export class Match {
       onTaunt: (text) => this.taunt(mine[0], text, myKind),
       onTeabag: canTeabag ? (style) => this.fx({ kind: "teabag", from: winner, to: loser, style }) : null,
       onAgain: () => this.again(),
-      againLabel: this.online ? (this.isHost ? "한 판 더" : "방장이 다음 판을 열면 대기실로 가요") : "한 판 더",
+      againLabel: this.online ? (this.isHost ? "한 판 더" : ["chess", "omok"].includes(this.game) ? "방장이 한 판 더를 누르면 바로 다음 판을 시작해요" : "방장이 다음 판을 열면 대기실로 가요") : "한 판 더",
       canAgain: !this.online || this.isHost,
       onExit: () => this.exit(true),
     });
     this.resultView.setFlow(this.flowInfo());
+    this.updateResultStreaks();
   }
 
   taunt(seat, text, kind) {
@@ -442,6 +449,6 @@ export function seatCard(match, i, { extra = "", sub = null, turn = false, below
   const intro = off ? (left !== null ? `연결 끊김 · ${left}초 안에 안 오면 기권` : "연결이 끊겼어요...") : sub ?? s.intro ?? "";
   const tag = match.controls(i) && match.mode !== "local" ? " (나)" : "";
   const streak = match.streaks?.get(s.cid) || 0;
-  const badge = streak >= 2 ? ` ${streakHtml(streak)}` : "";
+  const badge = streak >= 1 ? ` ${streakHtml(streak)}` : "";
   return `<div class="person ${turn ? "turn" : ""} ${off ? "off" : ""}" data-seat="${i}">${avatarHtml(s.avatar, 40)}<div class="who"><div class="nm"><span class="${titleFx(s.title)}">${esc(s.name + tag)}</span>${titleBadge(s.title)}${badge}</div>${intro ? `<div class="intro">${esc(intro)}</div>` : ""}${below}</div>${extra}</div>`;
 }

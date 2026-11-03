@@ -7,6 +7,7 @@ import { Board, BLACK, aiMove } from "../static/js/engine/omok.js";
 import { score, YachtGame, aiPickCategory, aiHolds, CATEGORIES, CAT_EXAMPLES } from "../static/js/engine/yacht.js";
 import { questionFor, QUESTIONS } from "../static/js/party.js";
 import { YutGame, pathFrom, remaining, mulberry, rollRaw, START, HOME, CENTER } from "../static/js/engine/yut.js";
+import { cropRect, clampZoom, MAX_ZOOM } from "../static/js/engine/photo_crop.js";
 import { THROW_ODDS, abilityOdds, START_HAND } from "../static/js/data/yut_abilities.js";
 
 test("체스: 시작 위치 수 생성 (perft 1~3)", () => {
@@ -438,4 +439,14 @@ test("윷: 같은 seed면 같은 판 (아무렇게나 끝까지 둬도 규칙이
     return JSON.stringify([g.winner, g.ranking(), g.log]);
   };
   for (const seed of [1, 2, 3, 42, 777]) assert.equal(play(seed), play(seed));
+});
+
+test("프로필 사진: 자르는 칸은 항상 사진 안쪽, 확대하면 작아짐", () => {
+  assert.deepEqual(cropRect(400, 200, 1, 200, 100), { x: 100, y: 0, size: 200 }); // 처음에는 가운데
+  assert.deepEqual(cropRect(400, 200, 2, 200, 100), { x: 150, y: 50, size: 100 });
+  assert.deepEqual(cropRect(400, 200, 1, -999, 100), { x: 0, y: 0, size: 200 }); // 왼쪽 끝을 넘지 않음
+  assert.deepEqual(cropRect(400, 200, 1, 9999, 100), { x: 200, y: 0, size: 200 }); // 오른쪽 끝을 넘지 않음
+  assert.deepEqual(cropRect(200, 400, 2, 100, 9999), { x: 50, y: 300, size: 100 }); // 아래쪽 끝을 넘지 않음
+  assert.equal(clampZoom(0.2), 1);
+  assert.equal(clampZoom(99), MAX_ZOOM);
 });

@@ -1874,3 +1874,13 @@ button.ys-char { cursor: pointer; box-shadow: inset 0 0 0 2px var(--gold); anima
 
 /* 채팅의 칭호: 자리 카드와 같은 효과, 크기와 간격만 채팅에 맞춤 */
 .chat-log .title-badge { margin: 0 6px 0 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 10px; vertical-align: 1px; }
+
+/* 프로필 사진 조절 */
+.photo-crop { display: grid; gap: 12px; justify-items: center; }
+.photo-crop-help { margin: 0; font-size: 14px; text-align: center; }
+.photo-crop-stage { width: min(300px, 70vw, 42dvh); aspect-ratio: 1; border-radius: 14px; background: #000; cursor: grab; touch-action: none; }
+.photo-crop-stage:active { cursor: grabbing; }
+.photo-crop-zoom { display: grid; grid-template-columns: auto minmax(0, 1fr) 48px; align-items: center; gap: 10px; width: 100%; font-size: 14px; }
+.photo-crop-zoom input { width: 100%; accent-color: var(--accent); }
+.photo-crop-zoom b { font-weight: normal; text-align: right; }
+.photo-crop .modal-actions { width: 100%; }

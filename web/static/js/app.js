@@ -1,6 +1,7 @@
 // KI득KI득 웹판: 첫 화면 · 프로필 · 게임 고르기 · 온라인 방 목록 · 대기실 · 랭킹
 import * as net from "./net.js";
-import { ANIMALS, avatarHtml, photoToSpec, GAME_ICONS, esc, setPhoto } from "./art.js";
+import { ANIMALS, avatarHtml, GAME_ICONS, esc, setPhoto } from "./art.js";
+import { cropPhoto, photoSource } from "./photo_crop.js";
 import { el, toast, modal, confirmBox, segment, option, store, ChatPanel, personHtml, soundButton, streakHtml, countQuirk } from "./ui.js";
 import { TITLES, titleBadge, titleFx, isReservedName } from "./data/titles.js";
 import { play } from "./sound.js";
@@ -359,14 +360,27 @@ function homeScreen(focusName = false) {
     const isPhoto = profile.avatar.startsWith("data:");
     const ph = el(`<button type="button" aria-label="내 사진" aria-pressed="${isPhoto}">${isPhoto ? avatarHtml(profile.avatar, 52) : `<span class="photo" style="width:100%;height:100%">사진</span>`}</button>`);
     const file = el(`<input type="file" accept="image/*" hidden>`);
-    ph.onclick = () => file.click();
+    /** 조절 창을 띄우고, 적용하면 프로필로 (조절용 사진은 이 브라우저에만 남고 서버로 가지 않음) */
+    const adjust = async (source) => {
+      const avatar = await cropPhoto(source, () => file.click());
+      if (!avatar) return;
+      store.set("photoSource", source);
+      profile.avatar = avatar;
+      saveProfile();
+      drawPick();
+      preview();
+    };
+    ph.onclick = () => { // 이미 사진을 쓰는 중이면 다시 조절, 아니면 새 사진 고르기
+      const saved = isPhoto ? store.get("photoSource", "") : "";
+      if (saved) adjust(saved).catch(() => toast("사진을 열 수 없어요"));
+      else file.click();
+    };
     file.onchange = async () => {
       if (!file.files[0]) return;
+      const picked = file.files[0];
+      file.value = ""; // 같은 사진을 다시 골라도 창이 뜨게
       try {
-        profile.avatar = await photoToSpec(file.files[0]);
-        saveProfile();
-        drawPick();
-        preview();
+        await adjust(await photoSource(picked));
       } catch { toast("사진을 열 수 없어요"); }
     };
     pick.append(ph, file);

@@ -116,23 +116,6 @@ export function avatarHtml(spec, size = 44, extraClass = "") {
 }
 export const animalName = (id) => (BY_ID[id] || ANIMALS[0])[1];
 
-/** 사진을 가운데 정사각형으로 잘라 96px JPEG data URL로 */
-export function photoToSpec(file) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const s = Math.min(img.width, img.height);
-      const cv = document.createElement("canvas");
-      cv.width = cv.height = 96;
-      cv.getContext("2d").drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 96, 96);
-      URL.revokeObjectURL(img.src);
-      resolve(cv.toDataURL("image/jpeg", 0.82));
-    };
-    img.onerror = reject;
-    img.src = URL.createObjectURL(file);
-  });
-}
-
 // ---------------------------------------------------------------- 스티커
 function stickerBody(sid) {
   const ink = "#3A2A1A", w = 0.045;

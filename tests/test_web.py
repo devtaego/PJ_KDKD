@@ -311,6 +311,21 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(room["members"][0]["title"], "kda")
         await a.close()
 
+    async def test_chat_carries_only_verified_title(self):
+        a, b, _ = await self.two_players("omok")
+        await a.send_json({"t": "chat", "text": "칭호 없음"})
+        self.assertEqual((await self.until(b, "chat"))["title"], "")
+        # 다른 사람 표로는 칭호가 붙지 않음
+        await a.send_json({"t": "profile", "profile": {"name": "태고", "title": "kda", "titleToken": server.title_token(self.secret("bbbbbbbb2"), "kda")}})
+        await a.send_json({"t": "chat", "text": "남의 표"})
+        self.assertEqual((await self.until(b, "chat"))["title"], "")
+        await a.send_json({"t": "profile", "profile": {"name": "태고", "title": "kda", "titleToken": server.title_token(self.secret("aaaaaaaa1"), "kda")}})
+        await a.send_json({"t": "chat", "text": "내 표"})
+        chat = await self.until(b, "chat")
+        self.assertEqual((chat["text"], chat["title"]), ("내 표", "kda"))
+        for ws in (a, b):
+            await ws.close()
+
     async def test_finished_game_grants_win_lose_and_spectator_titles(self):
         a, b, code = await self.two_players("chess")
         c = await self.connect("cccccccc3", "구경꾼")

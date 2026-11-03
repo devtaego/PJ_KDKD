@@ -212,8 +212,8 @@ export class ChatPanel {
     return true;
   }
 
-  add(name, { text = "", sticker = "" }) {
-    const line = el(`<div class="msg"><b>${esc(name)}</b></div>`);
+  add(name, { text = "", sticker = "", title = "" }) {
+    const line = el(`<div class="msg"><b><span class="${titleFx(title)}">${esc(name)}</span></b>${titleBadge(title)}</div>`);
     if (sticker) line.insertAdjacentHTML("beforeend", stickerSvg(sticker, 28));
     if (text) line.append(text);
     this.push(line);

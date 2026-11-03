@@ -609,6 +609,7 @@ class Hub:
             sticker = clean_text(msg.get("sticker"), 10)
             if (text or sticker) and client.allow_chat(text, sticker):
                 await self.to_room(room, {"t": "chat", "from": client.pid, "name": client.profile["name"],
+                                          "title": client.profile.get("title", ""),  # 표가 확인된 칭호만 들어 있음
                                           "text": text, "sticker": sticker, "at": now_ms()})
         elif t == "fx":  # 도발 멘트 · 티배깅 · 컵 흔들기처럼 기록할 필요 없는 효과
             fx = clean_fx(msg.get("fx"))

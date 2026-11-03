@@ -228,7 +228,7 @@ export class Match {
     }
     const seat = this.mySeats.find((i) => !this.seats[i].ai) ?? 0;
     const me = this.mode === "local" ? { name: "우리" } : this.seats[seat];
-    this.showChat(me.name, m, this.mode === "local" ? null : seat);
+    this.showChat(me.name, { ...m, title: me.title }, this.mode === "local" ? null : seat);
     if (this.mode === "ai" && Math.random() < 0.7) {
       const bot = this.seats.findIndex((s) => s.ai);
       this.later(() => this.showChat(this.seats[bot].name, Math.random() < 0.4 ? { sticker: randomOf(["laugh", "cool", "wow", "fire"]) } : { text: randomOf(CHAT_AI_TEXTS) }, bot), 900 + Math.random() * 900);
@@ -355,7 +355,7 @@ export class Match {
       return;
     }
     this.resultView?.bubble(String(seat), text);
-    this.chat.add(this.seats[seat].name, { text });
+    this.chat.add(this.seats[seat].name, { text, title: this.seats[seat].title });
     if (this.mode === "ai") {
       const bot = this.seats.findIndex((s) => s.ai);
       const back = replyLine(kind === "win" ? "lose" : kind === "lose" ? "win" : "draw");
@@ -380,7 +380,7 @@ export class Match {
       if (this.online && this.seats[f.seat].cid !== msg.from) return;
       const text = f.text.slice(0, 40);
       this.resultView?.bubble(String(f.seat), text);
-      this.chat.add(this.seats[f.seat].name, { text });
+      this.chat.add(this.seats[f.seat].name, { text, title: this.seats[f.seat].title });
     } else {
       this.g.onFx?.(msg); // 게임마다의 효과 (야추 컵 흔들기 등)
     }

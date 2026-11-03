@@ -257,6 +257,31 @@ test("윷: 빽도는 판 위 말이 없으면 버려지고, 있으면 한 칸 �
   assert.equal(h.players[0].pieces[0].node, 6);
 });
 
+test("윷: 길이 합쳐지는 칸에서 빽도면 돌아갈 칸을 고를 수 있음", () => {
+  const at = (node, prev = null) => {
+    const g = yutGame();
+    Object.assign(g.players[0].pieces[0], { node, prev });
+    g.pending = [-1];
+    g.throws = 0;
+    g.phase = "move";
+    return g;
+  };
+  assert.deepEqual(at(CENTER, 21).destsOf(at(CENTER, 21).players[0].pieces[0], -1), [21, 26]);
+  assert.deepEqual(at(CENTER, 26).destsOf(at(CENTER, 26).players[0].pieces[0], -1), [26, 21]); // 온 길이 먼저
+  assert.deepEqual(at(15).destsOf(at(15).players[0].pieces[0], -1).sort((a, b) => a - b), [14, 24]);
+  assert.deepEqual(at(0).destsOf(at(0).players[0].pieces[0], -1).sort((a, b) => a - b), [19, 28]);
+  assert.deepEqual(at(7).destsOf(at(7).players[0].pieces[0], -1), [6]); // 갈림길이 아니면 하나
+  assert.deepEqual(at(7).destsOf(at(7).players[0].pieces[0], 2), [9]);
+
+  const g = at(CENTER, 21);
+  assert.equal(g.move(0, 0, 1, 0, 7), false); // 못 가는 칸은 안 됨
+  assert.ok(g.move(0, 0, 1, 0, 26));
+  assert.equal(g.players[0].pieces[0].node, 26);
+  const plain = at(CENTER, 21);
+  assert.ok(plain.move(0, 0, 1)); // 고르지 않으면 온 길로
+  assert.equal(plain.players[0].pieces[0].node, 21);
+});
+
 test("윷: 윷 + 빽도는 윷으로 말을 올린 뒤 빽도로 한 칸 뒤로 (빽도를 버리지 않음)", () => {
   const g = yutGame(2, { mode: "basic" });
   g.throw(seedFor(4)); // 윷 → 한 번 더

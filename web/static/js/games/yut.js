@@ -144,8 +144,7 @@ export function create(m) {
     const pc = game.players[owner].pieces[idx];
     if (!pc) return out;
     game.pending.forEach((r, i) => {
-      const d = game.destOf(pc, r);
-      if (d !== null) { if (!out.has(d)) out.set(d, []); out.get(d).push(i); }
+      for (const d of game.destsOf(pc, r)) { if (!out.has(d)) out.set(d, []); out.get(d).push(i); }
     });
     return out;
   }
@@ -174,14 +173,32 @@ export function create(m) {
     const usable = [...destinations(idx, owner).values()].flat();
     return res === null ? usable.length > 0 : usable.includes(res);
   };
+  /** 빽도로 돌아갈 칸이 둘이면 칸을 직접 골라야 함 */
+  const mustPickBack = (idx, owner, res) => game.pending[res] === -1 && game.destsOf(game.players[owner].pieces[idx], -1).length > 1;
+  const askBackPick = (idx, owner) => {
+    sel = idx;
+    selOwner = owner;
+    armed = null;
+    toast("빽도로 돌아갈 칸의 말풍선을 눌러요");
+    render();
+  };
   /** 결과 버튼 · 숫자키: 고른 말로 옮기고, 안 되면 그 결과로 옮길 수 있는 말을 찾음. 여럿이면 말을 누를 때까지 기다림 */
   function useResult(res) {
     if (dealing || tossing || anim || turnPause || game.over || m.result || !myTurn() || res >= game.pending.length) return;
     targeting = null;
-    if (sel !== null && canUse(sel, selOwner, res)) { act({ type: "move", piece: sel, res, owner: selOwner }); return; }
+    if (sel !== null && canUse(sel, selOwner, res)) {
+      if (mustPickBack(sel, selOwner, res)) askBackPick(sel, selOwner);
+      else act({ type: "move", piece: sel, res, owner: selOwner });
+      return;
+    }
     const groups = movableGroups().filter(([o, i]) => canUse(i, o, res));
     if (!groups.length) { toast(`${RESULT_NAMES[game.pending[res]]}(으)로 옮길 수 있는 말이 없어요`); render(); return; }
-    if (groups.length === 1) { act({ type: "move", piece: groups[0][1], res, owner: groups[0][0] }); return; }
+    if (groups.length === 1) {
+      const [owner, piece] = groups[0];
+      if (mustPickBack(piece, owner, res)) askBackPick(piece, owner);
+      else act({ type: "move", piece, res, owner });
+      return;
+    }
     armed = armed === res ? null : res;
     sel = null;
     selOwner = null;
@@ -260,13 +277,20 @@ export function create(m) {
     if (armed !== null) { // 결과를 먼저 고른 상태: 누른 말을 그 결과로 옮김
       const waitingOwner = game.team(game.current);
       const [o, i] = pc ? [seat, idx] : nd && +nd.dataset.node === 0 ? [waitingOwner, firstWaiting()] : [null, -1];
-      if (i >= 0 && o !== null && canMoveOwner(o) && canUse(i, o)) { const res = armed; armed = null; act({ type: "move", piece: i, res, owner: o }); return; }
+      if (i >= 0 && o !== null && canMoveOwner(o) && canUse(i, o)) {
+        const res = armed;
+        armed = null;
+        if (mustPickBack(i, o, res)) askBackPick(i, o);
+        else act({ type: "move", piece: i, res, owner: o });
+        return;
+      }
       armed = null; // 그 결과로 못 가는 말을 누르면 결과 고르기를 풀고 평소대로 말을 고름
     }
-    if (dest && sel !== null) { act({ type: "move", piece: sel, res: +dest.dataset.dest, owner: selOwner }); return; }
+    if (dest && sel !== null) { act({ type: "move", piece: sel, res: +dest.dataset.dest, owner: selOwner, to: +dest.dataset.to }); return; }
     if (pc && sel !== null && !game.ally(game.current, seat)) { // 갈 수 있는 칸의 상대 말을 누르면 잡으러 감
-      const toCatch = destinations(sel, selOwner).get(game.players[seat].pieces[idx]?.node);
-      if (toCatch) { act({ type: "move", piece: sel, res: toCatch[0], owner: selOwner }); return; }
+      const catchNode = game.players[seat].pieces[idx]?.node;
+      const toCatch = destinations(sel, selOwner).get(catchNode);
+      if (toCatch) { act({ type: "move", piece: sel, res: toCatch[0], owner: selOwner, to: catchNode }); return; }
     }
     if (pc && canMoveOwner(seat)) {
       if (game.players[seat].pieces[idx]?.node === START) idx = firstWaiting(seat); // 대기 말은 어느 것을 눌러도 같은 말
@@ -289,7 +313,7 @@ export function create(m) {
     const before = game.current;
     let ok = false;
     if (a.type === "throw") ok = game.throw(sd);
-    else if (a.type === "move" && Number.isInteger(a.piece) && Number.isInteger(a.res)) ok = game.move(a.piece, a.res, sd, Number.isInteger(a.owner) ? a.owner : game.current);
+    else if (a.type === "move" && Number.isInteger(a.piece) && Number.isInteger(a.res)) ok = game.move(a.piece, a.res, sd, Number.isInteger(a.owner) ? a.owner : game.current, Number.isInteger(a.to) ? a.to : null);
     else if (a.type === "ability" && Number.isInteger(a.hand)) ok = game.use(a.hand, a.t || {}, sd);
     if (!ok) return;
     sel = null;
@@ -517,7 +541,7 @@ export function create(m) {
       else if (BIG.has(n)) cls.push("corner");
       if (tileDest(n)) cls.push("dest");
       if (targeting?.def.target === "node" && n > 0 && !game.players.some((p) => p.pieces.some((piece) => piece.node === n))) cls.push("pickable");
-      parts.push(`<g data-node="${n}" class="${cls.join(" ")}"${tileDest(n) ? ` data-dest="${tileDest(n)[0]}"` : ""}>
+      parts.push(`<g data-node="${n}" class="${cls.join(" ")}"${tileDest(n) ? ` data-dest="${tileDest(n)[0]}" data-to="${n}"` : ""}>
         <ellipse class="side" cx="${x}" cy="${y + h}" rx="${rx}" ry="${ry}"/><rect class="side" x="${x - rx}" y="${y}" width="${rx * 2}" height="${h}"/>
         <ellipse class="top" cx="${x}" cy="${y}" rx="${rx}" ry="${ry}"/>${BIG.has(n) ? `<ellipse class="ring" cx="${x}" cy="${y}" rx="${rx * 0.7}" ry="${ry * 0.7}"/>` : ""}</g>`);
     }
@@ -527,7 +551,7 @@ export function create(m) {
       for (const [node, resultIndexes] of dests) {
         for (const resultIndex of resultIndexes) {
           const resultPath = game.pending[resultIndex] === -1
-            ? game.backPath(pc.node, pc.prev)
+            ? [node]
             : routeNodes(pc.node, node);
           const pts = [pc.node === START ? SP[0] : posOf(pc.node), ...resultPath.map(posOf)];
           parts.push(`<polyline class="yb-route${game.pending[resultIndex] === -1 ? " back" : ""}" points="${pts.map((q) => q.join(",")).join(" ")}"/>`);
@@ -636,7 +660,7 @@ export function create(m) {
       const [nx, y] = SP[node === HOME ? 0 : node];
       const busy = byNode[node === HOME ? 0 : node];
       const w = (8 + label.length * 4.6) * bubbleScale;
-      return { res: resIdx[0], label, kind, nx, y, w, x: Math.min(200 - w / 2, Math.max(w / 2, nx)), top: y - (busy ? 24 : 7) };
+      return { res: resIdx[0], node, label, kind, nx, y, w, x: Math.min(200 - w / 2, Math.max(w / 2, nx)), top: y - (busy ? 24 : 7) };
     }).sort((a, b) => b.top - a.top);
     const placed = [];
     const rowH = 14 * bubbleScale;
@@ -649,7 +673,7 @@ export function create(m) {
     }
     for (const b of placed) {
       const w = b.w / bubbleScale;
-      parts.push(`<g class="yb-dest ${b.kind}" data-dest="${b.res}" transform="translate(${b.x} ${b.top}) scale(${bubbleScale})"><rect class="yb-dest-hit" x="${-w / 2 - 3}" y="-14" width="${w + 6}" height="18"/><g class="yb-dest-in">
+      parts.push(`<g class="yb-dest ${b.kind}" data-dest="${b.res}" data-to="${b.node}" transform="translate(${b.x} ${b.top}) scale(${bubbleScale})"><rect class="yb-dest-hit" x="${-w / 2 - 3}" y="-14" width="${w + 6}" height="18"/><g class="yb-dest-in">
         <path d="M${-w / 2} -11 h${w} a2.5 2.5 0 0 1 2.5 2.5 v5 a2.5 2.5 0 0 1 -2.5 2.5 h${-(w / 2 - 2)} l-2 2.6 l-2 -2.6 h${-(w / 2 - 2)} a2.5 2.5 0 0 1 -2.5 -2.5 v-5 a2.5 2.5 0 0 1 2.5 -2.5z"/>
         <text y="-4">${esc(b.label)}</text></g></g>`);
     }

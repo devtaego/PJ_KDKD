@@ -35,6 +35,9 @@ export function pathFrom(node) {
 /** 남은 거리 (작을수록 앞선 말). 출발 전 21, 도착 0 */
 export const remaining = (node) => (node === HOME ? 0 : pathFrom(node).length);
 
+// 길이 합쳐지는 칸: 빽도로 돌아갈 수 있는 칸이 둘이라 고를 수 있음
+const BACK_CHOICES = { 22: [21, 26], 15: [14, 24], 0: [19, 28] };
+
 function backDefault(node) {
   const m = { 0: 19, 20: 5, 21: 20, 22: 21, 23: 22, 24: 23, 25: 10, 26: 25, 27: 22, 28: 27 };
   if (node in m) return m[node];
@@ -221,6 +224,14 @@ export class YutGame {
     return r > path.length ? HOME : path[r - 1];
   }
 
+  /** 결과 r로 갈 수 있는 칸 목록. 길이 합쳐지는 칸에서 빽도면 둘 (온 길이 먼저) */
+  destsOf(piece, r) {
+    const first = this.destOf(piece, r);
+    if (first === null) return [];
+    const choices = r === -1 ? BACK_CHOICES[piece.node] : null;
+    return choices ? [first, ...choices.filter((n) => n !== first)] : [first];
+  }
+
   backOne(node, prev) {
     if (prev !== null && prev !== undefined) return prev === START ? 0 : prev;
     return backDefault(node);
@@ -235,8 +246,8 @@ export class YutGame {
     return path;
   }
 
-  /** 나온 결과가 있으면 옮길 수 있음 (윷 · 모 뒤에 더 던지기 전에 먼저 옮겨도 됨) */
-  move(pieceIdx, resIdx, seed, owner = this.current) {
+  /** 나온 결과가 있으면 옮길 수 있음 (윷 · 모 뒤에 더 던지기 전에 먼저 옮겨도 됨). to: 빽도로 돌아갈 칸을 고를 때 */
+  move(pieceIdx, resIdx, seed, owner = this.current, to = null) {
     if (this.over || !this.pending.length) return false;
     const seat = this.current;
     if (!this.ally(seat, owner)) return false;
@@ -244,9 +255,13 @@ export class YutGame {
     const r = this.pending[resIdx];
     const piece = this.players[side].pieces[pieceIdx];
     if (r === undefined || !piece) return false;
-    const dest = this.destOf(piece, r);
+    let dest = this.destOf(piece, r);
     if (dest === null) return false;
-    const traversed = r === -1 ? this.backPath(piece.node, piece.prev) : pathFrom(piece.node).slice(0, r);
+    if (r === -1 && to !== null) {
+      if (!this.destsOf(piece, r).includes(to)) return false;
+      dest = to;
+    }
+    const traversed = r === -1 ? [dest] : pathFrom(piece.node).slice(0, r);
     this.events = [];
     const stack = piece.node === START ? [piece] : this.stackAt(side, piece.node);
     let prev = null;

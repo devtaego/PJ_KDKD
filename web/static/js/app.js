@@ -677,7 +677,7 @@ function localYutLobbyScreen(o) {
 
 function chooseMode(game) {
   const saved = store.get(`opts.${game}`, {});
-  const o = { mode: "ai", level: "normal", time: "none", turn: "none", color: game === "omok" ? "b" : "w", rule: "33", bots: 1, people: 2, friend: "친구", pieces: "3", chaos: "chaos", ...saved };
+  const o = { mode: "ai", level: "normal", time: "none", turn: "none", color: game === "omok" ? "b" : "w", rule: "renju", bots: 1, people: 2, friend: "친구", pieces: "3", chaos: "chaos", ...saved };
   if (game === "yut" && o.mode === "ai") o.mode = "local"; // 윷놀이는 사람끼리만 (컴퓨터 대전 없음)
   const body = el(`<div></div>`);
   let close;
@@ -692,7 +692,8 @@ function chooseMode(game) {
       if (o.mode !== "local") body.appendChild(option(o.mode === "online" ? "방장(나)의 색" : "내 색", segment([["w", "백 (먼저)"], ["b", "흑"], ["random", "무작위"]], o.color, (v) => { o.color = v; })));
     }
     if (game === "omok") {
-      body.appendChild(option("규칙", segment([["33", "쌍삼 금지"], ["free", "자유룰"]], o.rule, (v) => { o.rule = v; })));
+      if (o.rule !== "free") o.rule = "renju"; // 예전에 저장한 쌍삼 금지는 렌주룰로
+      body.appendChild(option("규칙", segment([["renju", "렌주룰"], ["free", "자유룰"]], o.rule, (v) => { o.rule = v; })));
       body.appendChild(option("한 수 시간", segment(Object.entries(omok.TURN_LIMITS).map(([k, v]) => [k, v[0]]), o.turn, (v) => { o.turn = v; })));
       if (o.mode !== "local") body.appendChild(option(o.mode === "online" ? "방장(나)의 돌" : "내 돌", segment([["b", "흑 (먼저)"], ["w", "백"], ["random", "무작위"]], o.color, (v) => { o.color = v; })));
     }
@@ -1328,7 +1329,7 @@ function waitingScreen() {
       updateSetupStatus();
       settings.appendChild(roster);
     } else if (r.game === "omok") {
-      settings.appendChild(option("규칙", isHost ? segment([["33", "쌍삼 금지"], ["free", "자유룰"]], s.rule || "33", change("rule")) : el(`<div>${s.rule === "free" ? "자유룰" : "쌍삼 금지"}</div>`)));
+      settings.appendChild(option("규칙", isHost ? segment([["renju", "렌주룰"], ["free", "자유룰"]], s.rule === "free" ? "free" : "renju", change("rule")) : el(`<div>${s.rule === "free" ? "자유룰" : "렌주룰"}</div>`)));
       settings.appendChild(option("한 수 시간", isHost ? segment(Object.entries(omok.TURN_LIMITS).map(([k, v]) => [k, v[0]]), s.turn || "none", change("turn")) : el(`<div>${esc(omok.TURN_LIMITS[s.turn]?.[0] || "무제한")}</div>`)));
       settings.appendChild(option("방장의 돌", isHost ? segment([["b", "흑"], ["w", "백"], ["random", "무작위"]], s.color || "b", change("color")) : el(`<div>${{ b: "흑", w: "백", random: "무작위" }[s.color] || "흑"}</div>`)));
     }
@@ -1400,7 +1401,7 @@ function startRoomGame(r) {
     order = teamOrder(order, (c) => tb.has(c));
     team = "1";
   }
-  const settings = r.game === "chess" ? { time: r.settings.time || "none" } : r.game === "omok" ? { rule: r.settings.rule || "33", turn: r.settings.turn || "none" }
+  const settings = r.game === "chess" ? { time: r.settings.time || "none" } : r.game === "omok" ? { rule: r.settings.rule === "free" ? "free" : "renju", turn: r.settings.turn || "none" }
     : r.game === "yut" ? { pieces: r.settings.pieces || "3", chaos: r.settings.chaos || "chaos", team } : {};
   net.send({ t: "act", a: { type: "start", game: r.game, settings, order } });
 }

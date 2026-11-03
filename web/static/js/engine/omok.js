@@ -1,18 +1,24 @@
-// 오목 규칙 엔진 + 컴퓨터 (omok/omok_game.py 의 Board, ai_move 를 그대로 옮김)
+// 오목 규칙 엔진 + 컴퓨터 (컴퓨터는 omok/omok_game.py 의 ai_move에서 옮김)
+// 렌주룰: 흑은 정확히 5목만 승리하고 3-3 · 4-4 · 장목(6목 이상)을 둘 수 없음. 백은 제한 없이 5목 이상이면 승리.
+// 흑이 5목을 만드는 수는 금수와 겹쳐도 둘 수 있음.
 export const N = 15;
 export const EMPTY = 0, BLACK = 1, WHITE = 2;
 const DIRS = [[0, 1], [1, 0], [1, 1], [1, -1]];
 export const STARS = [[3, 3], [3, 11], [11, 3], [11, 11], [7, 7]];
-export const RULES = { "33": ["쌍삼 금지", "정확히 5목만 승리 · 3-3 금지"], free: ["자유룰", "5목 이상이면 승리"] };
+export const RULES = { renju: ["렌주룰", "흑은 3-3 · 4-4 · 장목 금지 · 백은 제한 없음"], free: ["자유룰", "5목 이상이면 승리"] };
+export const FORBID_NAMES = { three: "3-3", four: "4-4", overline: "장목" };
 export const other = (c) => (c === BLACK ? WHITE : BLACK);
 export const inside = (r, c) => r >= 0 && r < N && c >= 0 && c < N;
 
 export class Board {
-  constructor(rule = "33") {
+  constructor(rule = "renju") {
     this.g = Array.from({ length: N }, () => Array(N).fill(EMPTY));
     this.moves = [];
-    this.rule = rule;
+    this.rule = rule === "free" ? "free" : "renju"; // 예전에 저장한 "33"은 렌주룰로
   }
+
+  /** 정확히 5목만 승리로 치는지 (렌주룰의 흑) */
+  exactFive(color) { return this.rule === "renju" && color === BLACK; }
 
   get turn() { return this.moves.length % 2 === 0 ? BLACK : WHITE; }
 
@@ -26,7 +32,7 @@ export class Board {
   }
 
   fiveAt(r, c, color) {
-    const exact = this.rule === "33";
+    const exact = this.exactFive(color);
     return DIRS.some(([dr, dc]) => {
       const [n] = this.run(r, c, dr, dc, color);
       return n === 5 || (n > 5 && !exact);
@@ -34,7 +40,7 @@ export class Board {
   }
 
   winLine(r, c, color) {
-    const exact = this.rule === "33";
+    const exact = this.exactFive(color);
     for (const [dr, dc] of DIRS) {
       const [n, f, b] = this.run(r, c, dr, dc, color);
       if (n === 5 || (n > 5 && !exact)) {
@@ -46,29 +52,70 @@ export class Board {
     return [];
   }
 
-  openThreeDirs(r, c, color) {
+  /** (r, c)에 두면 생기는 4의 개수. 한 수를 더 두면 정확히 5목이 되는 돌 4개 묶음을 셈 (열린 4는 묶음이 같아 하나, 한 줄에 4가 둘이면 둘) */
+  fourCount(r, c, color) {
     let count = 0;
     for (const [dr, dc] of DIRS) {
-      for (let k = -4; k <= 4; k++) {
-        const qr = r + k * dr, qc = c + k * dc;
-        if (k === 0 || !inside(qr, qc) || this.g[qr][qc] !== EMPTY) continue;
-        const [n, f, b] = this.run(r, c, dr, dc, color, qr * N + qc);
-        if (n !== 4 || !(-b <= k && k <= f)) continue;
-        const ends = [[r + (f + 1) * dr, c + (f + 1) * dc], [r - (b + 1) * dr, c - (b + 1) * dc]];
-        if (ends.every(([er, ec]) => inside(er, ec) && this.g[er][ec] === EMPTY)) {
-          count++;
-          break;
+      const seen = new Set();
+      for (let start = -4; start <= 0; start++) {
+        const stones = [];
+        let gap = null;
+        for (let k = start; k < start + 5; k++) {
+          const rr = r + k * dr, cc = c + k * dc;
+          if (!inside(rr, cc)) { gap = -1; break; }
+          if (k === 0 || this.g[rr][cc] === color) stones.push(k);
+          else if (this.g[rr][cc] === EMPTY && gap === null) gap = rr * N + cc;
+          else { gap = -1; break; }
         }
+        if (stones.length === 4 && gap !== null && gap >= 0 && this.run(r, c, dr, dc, color, gap)[0] === 5) seen.add(stones.join());
       }
+      count += seen.size;
     }
     return count;
   }
 
-  forbidden(r, c, color) {
-    if (this.rule !== "33" || this.g[r][c] !== EMPTY) return false;
-    if (this.fiveAt(r, c, color)) return false;
-    return this.openThreeDirs(r, c, color) >= 2;
+  /** (r, c)에 두면 생기는 진짜 3의 줄 수: 금수가 아닌 한 수를 더 두어 열린 4(양쪽 모두 5목 가능)가 되는 3만 셈 */
+  threeCount(r, c, color, depth) {
+    const empty = (rr, cc) => inside(rr, cc) && this.g[rr][cc] === EMPTY;
+    const notMine = (rr, cc) => !inside(rr, cc) || this.g[rr][cc] !== color;
+    let count = 0;
+    this.g[r][c] = color; // 이 수를 둔 뒤의 판에서 다음 수가 금수인지 봐야 함
+    try {
+      for (const [dr, dc] of DIRS) {
+        for (let k = -4; k <= 4; k++) {
+          const qr = r + k * dr, qc = c + k * dc;
+          if (k === 0 || !empty(qr, qc)) continue;
+          const [n, f, b] = this.run(r, c, dr, dc, color, qr * N + qc);
+          if (n !== 4 || !(-b <= k && k <= f)) continue;
+          const open = empty(r + (f + 1) * dr, c + (f + 1) * dc) && empty(r - (b + 1) * dr, c - (b + 1) * dc)
+            && notMine(r + (f + 2) * dr, c + (f + 2) * dc) && notMine(r - (b + 2) * dr, c - (b + 2) * dc);
+          if (!open || (depth > 0 && this.forbidReason(qr, qc, color, depth - 1))) continue;
+          count++;
+          break;
+        }
+      }
+    } finally {
+      this.g[r][c] = EMPTY;
+    }
+    return count;
   }
+
+  /** 금수 이유: "three" · "four" · "overline", 금수가 아니면 null. depth: 3 판정 안에서 다음 수의 금수를 몇 번까지 따질지 */
+  forbidReason(r, c, color, depth = 2) {
+    if (this.rule !== "renju" || color !== BLACK || this.g[r][c] !== EMPTY) return null;
+    let overline = false;
+    for (const [dr, dc] of DIRS) {
+      const [n] = this.run(r, c, dr, dc, color);
+      if (n === 5) return null; // 5목을 만드는 수는 언제나 둘 수 있음
+      if (n > 5) overline = true;
+    }
+    if (overline) return "overline";
+    if (this.fourCount(r, c, color) >= 2) return "four";
+    if (this.threeCount(r, c, color, depth) >= 2) return "three";
+    return null;
+  }
+
+  forbidden(r, c, color) { return this.forbidReason(r, c, color) !== null; }
 
   legal(r, c) { return inside(r, c) && this.g[r][c] === EMPTY && !this.forbidden(r, c, this.turn); }
 

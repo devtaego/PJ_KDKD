@@ -1,5 +1,5 @@
 // 오목 화면: 자리 0 = 흑, 자리 1 = 백
-import { Board, N, BLACK, WHITE, EMPTY, STARS, RULES, aiMove } from "../engine/omok.js";
+import { Board, N, BLACK, WHITE, EMPTY, STARS, RULES, FORBID_NAMES, aiMove } from "../engine/omok.js";
 import { askAi } from "../engine/ai_client.js";
 import { seatCard } from "../match.js";
 import { el, toast, confirmBox } from "../ui.js";
@@ -12,7 +12,8 @@ const AI_SEARCH_MS = 1200; // 어려움이 수를 찾는 시간
 const AI_THINK_MS = { easy: [600, 1400], normal: [800, 1800], hard: [1400, 2800] }; // 수를 두기까지 걸리는 시간
 
 export function create(m) {
-  const rule = m.settings.rule === "free" ? "free" : "33";
+  const rule = m.settings.rule === "free" ? "free" : "renju";
+  let forbidMarks = { moves: -1, cells: new Set() }; // 금수 자리: 판이 바뀔 때만 다시 계산 (마우스를 움직일 때마다 계산하지 않게)
   const board = new Board(rule);
   const undoUsed = [0, 0];
   let pending = null; // 온라인 무르기 요청 {seat, n}
@@ -71,13 +72,18 @@ export function create(m) {
     }
     cells.push(`<path d="${lines}" stroke="#5B3A1A" stroke-width="0.045" fill="none"/>`);
     for (const [r, c] of STARS) cells.push(`<circle cx="${pad + c}" cy="${pad + r}" r="0.12" fill="#5B3A1A"/>`);
-    const forbid = myTurn() && board.turn === BLACK && rule === "33";
+    const forbid = myTurn() && board.turn === BLACK && rule === "renju";
+    if (forbid && forbidMarks.moves !== board.moves.length) {
+      const cells = new Set();
+      for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) if (board.forbidden(r, c, BLACK)) cells.add(r * N + c);
+      forbidMarks = { moves: board.moves.length, cells };
+    }
     for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
       const v = board.g[r][c];
       const x = pad + c, y = pad + r;
       if (v === BLACK) cells.push(`<circle cx="${x}" cy="${y}" r="0.45" fill="url(#ob)"/>`);
       else if (v === WHITE) cells.push(`<circle cx="${x}" cy="${y}" r="0.45" fill="url(#ow)" stroke="#BDB3A3" stroke-width="0.04"/>`);
-      else if (forbid && board.forbidden(r, c, BLACK)) cells.push(`<path d="M${x - 0.18} ${y - 0.18}L${x + 0.18} ${y + 0.18}M${x + 0.18} ${y - 0.18}L${x - 0.18} ${y + 0.18}" stroke="#E03131" stroke-width="0.08" stroke-linecap="round"/>`);
+      else if (forbid && forbidMarks.cells.has(r * N + c)) cells.push(`<path d="M${x - 0.18} ${y - 0.18}L${x + 0.18} ${y + 0.18}M${x + 0.18} ${y - 0.18}L${x - 0.18} ${y + 0.18}" stroke="#E03131" stroke-width="0.08" stroke-linecap="round"/>`);
     }
     for (const [r, c] of winLine) cells.push(`<circle cx="${pad + c}" cy="${pad + r}" r="0.5" fill="none" stroke="#FFC94D" stroke-width="0.12"/>`);
     if (board.moves.length) {
@@ -122,7 +128,7 @@ export function create(m) {
       return;
     }
     if (!board.legal(p[0], p[1])) {
-      if (board.g[p[0]][p[1]] === EMPTY) toast("쌍삼 금지 자리예요");
+      if (board.g[p[0]][p[1]] === EMPTY) toast(`렌주룰 금수예요 (흑 ${FORBID_NAMES[board.forbidReason(p[0], p[1], BLACK)]})`);
       return;
     }
     ghost = null;
@@ -193,7 +199,7 @@ export function create(m) {
       const color = board.place(a.r, a.c);
       m.sfx("place");
       winLine = board.winLine(a.r, a.c, color);
-      if (winLine.length) end([seatOf(color)], `${COLOR_NAME[color]} 5목 완성!`);
+      if (winLine.length) end([seatOf(color)], `${COLOR_NAME[color]} ${winLine.length > 5 ? "장목" : "5목"} 완성!`);
       else if (board.full()) end([], "판이 꽉 찼어요");
     } else if (a.type === "flag") {
       if (!limit || at - turnAt < limit - 500) { flagSent = false; return; } // 아직 시간이 남았으면 무시 (기기 시계 차이)

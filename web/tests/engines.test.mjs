@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Position, perft, bestMove, sameMove, gameOver, materialInfo } from "../static/js/engine/chess.js";
-import { Board, BLACK, aiMove } from "../static/js/engine/omok.js";
+import { Board, BLACK, WHITE, aiMove } from "../static/js/engine/omok.js";
 import { score, YachtGame, aiPickCategory, aiHolds, CATEGORIES, CAT_EXAMPLES } from "../static/js/engine/yacht.js";
 import { questionFor, QUESTIONS } from "../static/js/party.js";
 import { YutGame, pathFrom, remaining, mulberry, rollRaw, START, HOME, CENTER } from "../static/js/engine/yut.js";
@@ -58,15 +58,15 @@ test("체스: 어려움은 한 수 메이트 · 공짜 퀸을 놓치지 않고, 
 });
 
 test("오목: 정확히 5목은 승리, 장목(6목)은 아님", () => {
-  const b = new Board("33");
+  const b = new Board("renju");
   for (let c = 0; c < 4; c++) b.g[7][c] = BLACK;
   assert.ok(b.fiveAt(7, 4, BLACK));
   b.g[7][5] = BLACK;
   assert.ok(!b.fiveAt(7, 4, BLACK));
 });
 
-test("오목: 쌍삼 금지 / 자유룰", () => {
-  const b = new Board("33");
+test("오목: 렌주룰 3-3 금지 / 자유룰", () => {
+  const b = new Board("renju");
   for (const [r, c] of [[7, 5], [7, 6], [5, 7], [6, 7]]) b.g[r][c] = BLACK;
   assert.ok(b.forbidden(7, 7, BLACK));
   const free = new Board("free");
@@ -459,4 +459,106 @@ test("칭호: 전체 개수에서 DEV · 히든 칭호는 빠지고, 초기화�
   assert.ok(COUNTED_TITLES.includes("kda"));
   for (const id of KEEP_ON_RESET) assert.ok(TITLES[id], id);
   assert.ok(!KEEP_ON_RESET.has("col_all"));
+});
+
+// 렌주룰 시험용 판: 칸 목록에 돌을 놓음
+const renju = (black, white = []) => {
+  const b = new Board("renju");
+  for (const [r, c] of black) b.g[r][c] = BLACK;
+  for (const [r, c] of white) b.g[r][c] = WHITE;
+  return b;
+};
+
+test("렌주룰: 예전 설정 33은 렌주룰로 읽음", () => {
+  assert.equal(new Board("33").rule, "renju");
+  assert.equal(new Board().rule, "renju");
+  assert.equal(new Board("free").rule, "free");
+});
+
+test("렌주룰: 흑 장목은 금수이고 승리가 아님, 백은 장목도 승리", () => {
+  const b = renju([[7, 2], [7, 3], [7, 4], [7, 6], [7, 7]]);
+  assert.equal(b.forbidReason(7, 5, BLACK), "overline");
+  assert.ok(!b.fiveAt(7, 5, BLACK));
+  const w = renju([], [[7, 2], [7, 3], [7, 4], [7, 6], [7, 7]]);
+  assert.equal(w.forbidReason(7, 5, WHITE), null);
+  assert.ok(w.fiveAt(7, 5, WHITE));
+  w.g[7][5] = WHITE;
+  assert.equal(w.winLine(7, 5, WHITE).length, 6);
+});
+
+test("렌주룰: 4-4는 금수, 한 줄에 생기는 4-4도 금수, 열린 4 하나는 괜찮음", () => {
+  const cross = renju([[7, 4], [7, 5], [7, 6], [4, 7], [5, 7], [6, 7]]);
+  assert.equal(cross.fourCount(7, 7, BLACK), 2);
+  assert.equal(cross.forbidReason(7, 7, BLACK), "four");
+  const line = renju([[7, 2], [7, 4], [7, 5], [7, 8]]); // ● · ● ● ★ · ●  (6에 두면 4가 둘)
+  assert.equal(line.fourCount(7, 6, BLACK), 2);
+  assert.equal(line.forbidReason(7, 6, BLACK), "four");
+  const straight = renju([[7, 4], [7, 5], [7, 6]]);
+  assert.equal(straight.fourCount(7, 7, BLACK), 1);
+  assert.equal(straight.forbidReason(7, 7, BLACK), null);
+});
+
+test("렌주룰: 4-3은 둘 수 있음", () => {
+  const b = renju([[7, 4], [7, 5], [7, 6], [5, 7], [6, 7]]);
+  assert.equal(b.fourCount(7, 7, BLACK), 1);
+  assert.equal(b.threeCount(7, 7, BLACK, 2), 1);
+  assert.equal(b.forbidReason(7, 7, BLACK), null);
+});
+
+test("렌주룰: 5목이 되는 수는 금수와 겹쳐도 둘 수 있음", () => {
+  // 가로로 정확히 5목 + 세로 · 대각선으로 3-3도 생기는 자리
+  const b = renju([[7, 3], [7, 4], [7, 5], [7, 6], [5, 7], [6, 7], [5, 5], [6, 6]]);
+  assert.ok(b.fiveAt(7, 7, BLACK));
+  assert.equal(b.forbidReason(7, 7, BLACK), null);
+  // 5목과 장목이 함께 생겨도 5목이 우선
+  const both = renju([[7, 3], [7, 4], [7, 5], [7, 6], [2, 7], [3, 7], [4, 7], [5, 7], [6, 7]]);
+  assert.equal(both.forbidReason(7, 7, BLACK), null);
+});
+
+test("렌주룰: 막힌 3 · 열린 4가 못 되는 3은 3으로 세지 않음", () => {
+  const blocked = renju([[7, 5], [7, 6], [5, 7], [6, 7]], [[7, 4]]); // 가로 3이 백에 막힘
+  assert.equal(blocked.threeCount(7, 7, BLACK, 2), 1);
+  assert.equal(blocked.forbidReason(7, 7, BLACK), null);
+  // 가로: 어느 쪽으로 넓혀도 양 끝 너머에 흑이 있어 열린 4가 못 됨
+  const noRoom = renju([[7, 2], [7, 5], [7, 6], [7, 10], [5, 7], [6, 7]]);
+  assert.equal(noRoom.threeCount(7, 7, BLACK, 2), 1);
+  assert.equal(noRoom.forbidReason(7, 7, BLACK), null);
+  // 판 가장자리에 붙은 3
+  const edge = renju([[0, 1], [0, 2], [1, 3], [2, 3]]);
+  assert.equal(edge.threeCount(0, 3, BLACK, 2), 1);
+  assert.equal(edge.forbidReason(0, 3, BLACK), null);
+});
+
+test("렌주룰: 다음 수가 금수뿐인 3은 진짜 3이 아님", () => {
+  // (7,7)의 가로 3: 왼쪽은 백에 막혀 (7,8)로만 열린 4가 되는데, (7,8)은 세로 · 대각선 3-3 금수라 3으로 세지 않음
+  const b = renju([[7, 5], [7, 6], [5, 7], [6, 7], [5, 8], [6, 8], [6, 9], [5, 10]], [[7, 3]]);
+  assert.equal(b.threeCount(7, 7, BLACK, 0), 2); // 다음 수의 금수를 따지지 않으면 3-3처럼 보임
+  assert.equal(b.threeCount(7, 7, BLACK, 2), 1);
+  assert.equal(b.forbidReason(7, 7, BLACK), null);
+});
+
+test("렌주룰: 백은 3-3 · 4-4도 둘 수 있고, 자유룰은 흑도 제한 없음", () => {
+  const w = renju([], [[7, 5], [7, 6], [5, 7], [6, 7]]);
+  w.moves = [[0, 0]]; // 백 차례
+  assert.equal(w.turn, WHITE);
+  assert.ok(w.legal(7, 7));
+  const free = new Board("free");
+  for (const [r, c] of [[7, 5], [7, 6], [5, 7], [6, 7]]) free.g[r][c] = BLACK;
+  assert.ok(!free.forbidden(7, 7, BLACK));
+});
+
+test("렌주룰: 판 전체 금수 계산이 충분히 빠름", () => {
+  const b = renju([[7, 5], [7, 6], [5, 7], [6, 7], [3, 3], [4, 4], [9, 9], [10, 10], [11, 4], [11, 5]], [[8, 8], [2, 2], [6, 6], [12, 12]]);
+  const t0 = Date.now();
+  for (let k = 0; k < 20; k++) for (let r = 0; r < 15; r++) for (let c = 0; c < 15; c++) b.forbidden(r, c, BLACK);
+  assert.ok((Date.now() - t0) / 20 < 30, `${(Date.now() - t0) / 20}ms`);
+});
+
+test("렌주룰: 컴퓨터(흑)는 금수에 두지 않음", () => {
+  const b = renju([[7, 5], [7, 6], [5, 7], [6, 7]]);
+  b.moves = [[0, 0], [0, 1]];
+  for (const level of ["easy", "normal", "hard"]) for (let k = 0; k < 8; k++) {
+    const [r, c] = aiMove(b, level, { timeMs: 30 });
+    assert.ok(!b.forbidden(r, c, BLACK), `${level} ${r},${c}`);
+  }
 });

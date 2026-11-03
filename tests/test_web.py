@@ -83,7 +83,7 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
     async def test_room_flow(self):
         a = await self.connect("aaaaaaaa1", "태고")
         b = await self.connect("bbbbbbbb2", "민수")
-        await a.send_json({"t": "create", "game": "omok", "settings": {"rule": "33"}})
+        await a.send_json({"t": "create", "game": "omok", "settings": {"rule": "renju"}})
         room = (await self.until(a, "room"))["room"]
         self.assertEqual(len(room["id"]), 4)
 
@@ -564,7 +564,7 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         a, b, code = await self.two_players("omok")
         await asyncio.sleep(0.3)
         for k in range(10):
-            await a.send_json({"t": "settings", "settings": {"rule": "free" if k % 2 else "33", "turn": str(k)}})
+            await a.send_json({"t": "settings", "settings": {"rule": "free" if k % 2 else "renju", "turn": str(k)}})
         await asyncio.sleep(0.5)
         rooms = []
         while True:

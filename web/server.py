@@ -42,6 +42,8 @@ SETTING_KEYS = {"time", "turn", "color", "rule", "private", "pieces", "chaos", "
 TITLE_IDS = {"dev", "kda", "first_win", "chess_s2", "chess_s3", "chess_s5", "chess_s7", "chess_s10", "omok_s2", "omok_s3", "omok_s5", "omok_s7", "omok_s10", "yacht_s2", "yacht_s3", "yacht_s5", "yacht_s7", "yacht_s10", "yut_win", "yut_s2", "yut_s3", "yut_s5", "yut_s7", "yut_s10", "first_game", "spectator", "draw", "teabag", "teabag3", "fast_win", "long_win", "night_win", "comeback", "yut_team", "yut_chaos", "lose_3", "lose_5", "lose_10", "q_about", "q_rules", "q_theme", "q_wrong", "q_nick", "q_sound", "q_flip", "q_logo", "q_tap"}
 # 브라우저가 조건을 세서 신청하는 재미용 칭호 (서버가 확인할 수 없어서 이 목록만 받음. DEV · KDA · 승리 칭호는 신청 불가)
 QUIRK_TITLES = {"q_about", "q_rules", "q_theme", "q_nick", "q_sound", "q_flip", "q_logo", "q_tap"}
+# 전체 해금 코드(DEV 제외)의 해시. 저장소에 두지 않고 서버 환경 변수에만 둠 (없으면 이 기능은 꺼짐)
+ALL_TITLES_CODE = os.environ.get("ALL_TITLES_CODE_HASH", "")
 TITLE_CODES = {
     "106a2537b95173317a7f5fabfbcc4afc80141db5403df11358eeb62cafe21780": "q_about",
     "b84510a19a4864b1c7c6c5d292c25429a778693ebaf5521ef7828c378c37feb6": "q_rules",
@@ -558,6 +560,9 @@ class Hub:
             if not client.allow("redeem", RATE_CHAT):
                 return
             code = "".join(str(msg.get("code") or "").upper().split())[:40]
+            if ALL_TITLES_CODE and hmac.compare_digest(hashlib.sha256(code.encode()).hexdigest(), ALL_TITLES_CODE):
+                await client.send({"t": "title_grant_all", "titles": {t: title_token(client.cid, t) for t in TITLE_IDS - {"dev"}}})
+                return
             title = title_from_code(code)
             await client.send({"t": "title_grant", "title": title, "token": title_token(client.cid, title), "via": "code"} if title else {"t": "title_bad"})
             if not title:

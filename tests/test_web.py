@@ -311,6 +311,26 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(room["members"][0]["title"], "kda")
         await a.close()
 
+    async def test_all_titles_code_unlocks_everything_except_dev(self):
+        real = server.ALL_TITLES_CODE
+        server.ALL_TITLES_CODE = hashlib.sha256(b"TEST-ALL-CODE").hexdigest()
+        self.addCleanup(setattr, server, "ALL_TITLES_CODE", real)
+        a = await self.connect("aaaaaaaa1", "태고")
+        await a.send_json({"t": "redeem", "code": " test-all-code "})  # 대소문자 · 공백 상관없음
+        msg = await self.until(a, "title_grant_all")
+        self.assertEqual(set(msg["titles"]), server.TITLE_IDS - {"dev"})
+        for title, token in msg["titles"].items():
+            self.assertEqual(token, server.title_token(self.secret("aaaaaaaa1"), title))
+        await a.close()
+
+    async def test_all_titles_code_is_off_without_server_setting(self):
+        self.addCleanup(setattr, server, "ALL_TITLES_CODE", server.ALL_TITLES_CODE)
+        server.ALL_TITLES_CODE = ""
+        a = await self.connect("aaaaaaaa1", "태고")
+        await a.send_json({"t": "redeem", "code": "TEST-ALL-CODE"})
+        self.assertEqual((await self.until(a, "title_bad"))["t"], "title_bad")
+        await a.close()
+
     async def test_chat_carries_only_verified_title(self):
         a, b, _ = await self.two_players("omok")
         await a.send_json({"t": "chat", "text": "칭호 없음"})

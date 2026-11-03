@@ -125,6 +125,15 @@ net.on("title_grant", (msg) => {
   if (msg.via === "code") equipTitle(msg.title); // 이겨서 받은 칭호는 직접 골라서 닮 (연패 칭호가 저절로 달리지 않게)
   else onTitlesChanged?.();
 });
+// 전체 해금 코드: 알림을 하나씩 띄우면 너무 길어서 한 번에 알려 줌. 달고 있는 칭호는 그대로 둠
+net.on("title_grant_all", (msg) => {
+  const granted = Object.entries(msg.titles || {}).filter(([id, token]) => TITLES[id] && typeof token === "string");
+  const fresh = granted.filter(([id]) => !titleTokens[id]).length;
+  titleTokens = { ...titleTokens, ...Object.fromEntries(granted) };
+  store.set("titles", titleTokens);
+  toast(fresh ? `칭호 ${fresh}개를 해금했어요!` : "이미 모두 가진 칭호예요", 3000);
+  onTitlesChanged?.();
+});
 net.on("title_bad", () => toast("맞지 않는 코드예요"));
 
 async function redeemCode(code) {

@@ -1942,3 +1942,59 @@ button.ys-char { cursor: pointer; box-shadow: inset 0 0 0 2px var(--gold); anima
 .result.folded .result-fold { position: static; order: 1; flex: none; }
 .result-card h2 { padding: 0 34px; }
 .result.folded .result-card h2 { padding: 0; }
+
+.champion-mark { display: inline-block; margin-left: 4px; padding: 1px 7px; border-radius: 999px; background: var(--gold); color: #1B1533; font-size: 11px; line-height: 1.5; white-space: nowrap; vertical-align: 1px; }
+
+/* 대기실 사람 카드: 방장 버튼이 많아도 이름 칸을 찌그러뜨리지 않고 아랫줄로 내려감 */
+.wait-main .person { flex-wrap: wrap; }
+.wait-main .person .who { flex: 1 1 150px; }
+.host-acts, .person-tags { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; margin-left: auto; }
+.host-acts .btn { white-space: nowrap; }
+.people.vs { align-items: stretch; }
+.people.vs .vs-mark { align-self: center; }
+
+/* 게임 고르기: 일반 모드 / 토너먼트 */
+.games-head { flex-wrap: wrap; }
+.mode-switch { margin-left: auto; }
+.mode-switch .segment { font-size: 14px; }
+.games.tournament-mode .game-card.g-yut { opacity: 0.45; filter: saturate(0.5); }
+.games.tournament-mode .game-card:not(.g-yut) { box-shadow: 0 0 0 2px var(--gold), 0 0 18px rgba(255, 201, 77, 0.25); }
+
+/* 토너먼트 대진표: 왼쪽에서 오른쪽으로 올라감 */
+.bracket-scroll { overflow-x: auto; padding-bottom: 6px; -webkit-overflow-scrolling: touch; }
+.bracket { display: flex; min-width: max-content; }
+.b-round { display: flex; flex-direction: column; width: 186px; }
+.b-round.b-crown { width: 130px; }
+.b-round-name { text-align: center; font-size: 13px; color: var(--muted); padding-bottom: 8px; }
+.b-cells { flex: 1; display: flex; flex-direction: column; }
+.b-wrap { flex: 1; position: relative; display: flex; align-items: center; padding: 6px 16px; min-height: 92px; }
+.b-round:not(:first-child) .b-wrap::before { content: ""; position: absolute; left: 0; top: 50%; width: 16px; border-top: 2px solid var(--edge); }
+.b-round:not(.final):not(.b-crown) .b-wrap::after { content: ""; position: absolute; right: 0; width: 16px; height: 50%; border-right: 2px solid var(--edge); }
+.b-round:not(.final):not(.b-crown) .b-wrap:nth-child(odd)::after { top: 50%; border-top: 2px solid var(--edge); }
+.b-round:not(.final):not(.b-crown) .b-wrap:nth-child(even)::after { bottom: 50%; border-bottom: 2px solid var(--edge); }
+.b-round.final .b-wrap::after { content: ""; position: absolute; right: 0; top: 50%; width: 16px; border-top: 2px solid var(--edge); }
+.b-round .b-wrap.won::after { border-color: var(--gold) !important; }
+.b-match { width: 100%; min-width: 0; background: var(--row); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--edge); overflow: hidden; }
+.b-match.live { box-shadow: inset 0 0 0 2px var(--gold), 0 0 14px rgba(255, 201, 77, 0.3); animation: b-live 1.6s ease-in-out infinite; }
+@keyframes b-live { 50% { box-shadow: inset 0 0 0 2px var(--gold), 0 0 24px rgba(255, 201, 77, 0.55); } }
+@media (prefers-reduced-motion: reduce) { .b-match.live { animation: none; } }
+.b-slot { display: flex; align-items: center; gap: 6px; height: 38px; padding: 0 8px; font-size: 13px; min-width: 0; }
+.b-slot + .b-slot { border-top: 1px solid var(--edge); }
+.b-slot .avatar { flex: none; }
+.b-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.b-slot.win { background: rgba(255, 201, 77, 0.16); color: var(--gold); font-weight: 700; }
+.b-slot.lose { opacity: 0.45; }
+.b-slot.empty { color: var(--muted); justify-content: center; }
+.b-left { flex: none; font-size: 11px; color: var(--muted); }
+.b-champ { width: 100%; min-height: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 8px; border-radius: 12px; background: var(--row); box-shadow: inset 0 0 0 1px var(--edge); text-align: center; font-size: 13px; }
+.b-champ .b-name { flex: none; max-width: 100%; }
+.b-champ.on { box-shadow: inset 0 0 0 2px var(--gold), 0 0 18px rgba(255, 201, 77, 0.35); color: var(--gold); font-weight: 700; }
+.b-trophy { font-size: 28px; opacity: 0.35; }
+.t-now.mine { box-shadow: 0 0 0 2px var(--gold), 0 0 18px rgba(255, 201, 77, 0.3); }
+.t-champion { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.t-champion h2 { margin: 0; color: var(--gold); }
+.t-champion-crown { font-size: 36px; line-height: 1; margin-bottom: -6px; }
+@media (max-width: 640px) {
+  .mode-switch { margin-left: 0; width: 100%; }
+  .b-round { width: 164px; }
+}

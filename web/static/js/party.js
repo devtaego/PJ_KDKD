@@ -61,6 +61,7 @@ export function questionFor(...keys) {
 }
 
 const sample = (arr, n) => arr.slice().sort(() => Math.random() - 0.5).slice(0, n);
-export const pickLines = (kind, n = 4) => sample(kind === "win" ? WIN_LINES : kind === "lose" ? LOSE_LINES : DRAW_LINES, n);
+/** noRematch: 다시 붙을 수 없는 판(토너먼트)이면 한 판 더 하자는 멘트를 뺌 */
+export const pickLines = (kind, n = 4, noRematch = false) => sample((kind === "win" ? WIN_LINES : kind === "lose" ? LOSE_LINES : DRAW_LINES).filter((line) => !noRematch || !line.includes("한 판 더")), n);
 export const replyLine = (kind) => pickLines(kind, 1)[0];
 export const randomOf = (arr) => arr[Math.floor(Math.random() * arr.length)];

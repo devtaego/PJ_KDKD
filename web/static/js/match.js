@@ -30,8 +30,8 @@ export class Match {
    * seats: [{name, avatar, intro, ai, cid}], mySeats: 이 기기가 조작하는 자리 번호들
    * settings: 게임별 설정, level: 컴퓨터 난이도
    */
-  constructor({ game, mode, seats, mySeats, settings, level, module, onExit, onAgain, onWaitingRoom, onManage, isHost = true, replaying = false }) {
-    Object.assign(this, { game, mode, seats, mySeats, settings, level, module, onExit, onAgain, onWaitingRoom, onManage, isHost, replaying });
+  constructor({ game, mode, seats, mySeats, settings, level, module, onExit, onAgain, onWaitingRoom, onManage, onBracket, isHost = true, replaying = false }) {
+    Object.assign(this, { game, mode, seats, mySeats, settings, level, module, onExit, onAgain, onWaitingRoom, onManage, onBracket, isHost, replaying });
     this.online = mode === "online";
     this.lastSeq = 0;
     this.result = null;
@@ -110,6 +110,11 @@ export class Match {
       manage.hidden = !this.isHost;
       manage.onclick = () => this.onManage?.();
       this.root.querySelector('[data-k="rules"]').before(manage);
+      if (this.onBracket) {
+        const bracket = el(`<button class="icon-btn" aria-label="대진표" title="대진표">🏆</button>`);
+        bracket.onclick = () => this.onBracket();
+        manage.before(bracket);
+      }
     }
   }
 
@@ -266,13 +271,12 @@ export class Match {
     this.later(() => this.showResultCard(), delay);
   }
 
-  /** 방 정보(대기 줄 등)가 바뀔 때마다 앱이 불러 줌 */
+  /** 방 정보(자리 · 연승 등)가 바뀔 때마다 앱이 불러 줌 */
   setRoomInfo(room) {
     this.roomInfo = room;
     this.updateSpecBar();
     this.resultView?.setFlow?.(this.flowInfo());
     this.updateResultStreaks();
-    this.tickFlow();
   }
 
   /** 결과 화면 이름 옆 연승 (서버가 판을 집계한 뒤에 바뀜) */
@@ -280,64 +284,43 @@ export class Match {
     this.resultView?.setStreaks?.((key) => this.streaks?.get(this.seats[+key]?.cid) || 0);
   }
 
-  queueAction(pos) {
-    return pos >= 0
-      ? { label: "줄에서 빠지기", onClick: () => net.send({ t: "seat", role: "spectator" }) }
-      : { label: "다음 판 줄 서기", onClick: () => net.send({ t: "seat", role: "player" }) };
-  }
-
-  /** 관전하는 사람에게 게임 화면 위에 보여 주는 줄: 관전 중 · 몇 번째 대기인지 */
+  /** 관전하는 사람에게 게임 화면 위에 보여 주는 줄 */
   updateSpecBar() {
     if (!this.online || this.mySeats.length || !this.root) { this.specBar?.remove(); this.specBar = null; return; }
     if (!this.specBar) {
-      this.specBar = el(`<div class="spec-bar"><span></span><button class="btn small"></button></div>`);
+      this.specBar = el(`<div class="spec-bar"><span>관전 중이에요</span></div>`);
       this.root.querySelector(".topbar").after(this.specBar);
     }
-    const pos = (this.roomInfo?.queue || []).indexOf(net.myId());
-    this.specBar.querySelector("span").textContent = pos >= 0 ? `관전 중 · 다음 판 대기 ${pos + 1}번째` : "관전 중이에요";
-    const btn = this.specBar.querySelector("button"), action = this.queueAction(pos);
-    btn.textContent = action.label;
-    btn.onclick = action.onClick;
   }
 
-  /** 끝난 뒤 내 역할과 다음에 무슨 일이 일어나는지 (온라인만). 자리는 판이 끝날 때 이미 바뀌어 있음 */
+  /** 끝난 뒤 내 역할과 대기실에서 할 일 (온라인만). 진 사람은 판이 끝날 때 이미 관전으로 가 있을 수 있음 */
   flowInfo() {
     if (!this.online || !this.result) return null;
     const info = this.result, room = this.roomInfo || {}, me = net.myId();
-    const queue = room.queue || [], members = room.members || [];
-    const nameOf = (x) => `${x.name} 님`;
-    const seated = members.filter((x) => x.role === "player");
-    const opponent = seated.find((x) => x.cid !== me);
-    const meNow = members.find((x) => x.cid === me);
-    const pos = queue.indexOf(me);
-    const left = room.next_at ? Math.max(0, Math.ceil((room.next_at - net.serverNow()) / 1000)) : 0;
-    const timer = left ? ` · 다음 판까지 ${left}초` : "";
-    const canAgain = room.host === me || meNow?.role === "player"; // 줄 앞사람은 이미 앉아 있어서 열 수 있음
-    const flow = (kind, tag, note, queueBtn) => ({ kind, tag, note: note + timer, canAgain, queue: queueBtn });
+    const meNow = (room.members || []).find((x) => x.cid === me);
+    const seated = meNow?.role === "player";
+    const flow = (kind, tag, note) => ({ kind, tag, note });
+    const tour = room.tournament;
+    if (tour) { // 토너먼트: 다음 라운드 진출 · 탈락 · 우승
+      const seatNow = this.mySeats.filter((i) => !this.seats[i].ai)[0];
+      if (seatNow === undefined) return flow("spectator", "관전자", "대기실에서 대진표를 볼 수 있어요");
+      if (tour.champion === me) return flow("win", "🏆 우승", "토너먼트에서 우승했어요!");
+      if (info.winners.includes(seatNow)) return flow("win", "진출", "다음 라운드로 올라가요. 대기실에서 기다려요");
+      if (info.winners.length) return flow("lose", "탈락", "이번 대회는 여기까지예요. 대기실에서 남은 경기를 관전해요");
+      return flow("draw", "무승부", "같은 상대와 다시 겨뤄요. 선공은 바꿔요");
+    }
+    const next = seated ? "대기실에서 다음 판을 기다려요" : "관전으로 옮겼어요. 대기실에서 빈자리 참가하기를 누르면 다시 들어와요";
     const mine = this.mySeats.filter((i) => !this.seats[i].ai);
     if (mine.length) {
       const seat = mine[0];
       if (info.winners.includes(seat)) {
         const streak = meNow?.streak || 0;
-        return flow("win", streak >= 1 ? `승자 · ${streakText(streak)}` : "승자", opponent ? `자리를 지켜요. 다음 상대는 ${nameOf(opponent)}이에요` : "다음 상대를 기다려요");
+        return flow("win", streak >= 1 ? `승자 · ${streakText(streak)}` : "승자", next);
       }
-      if (info.winners.length) {
-        return pos >= 0
-          ? flow("lose", "패자", `줄 ${pos + 1}번째로 갔어요. 다음 판은 ${seated.map(nameOf).join(" · ")}이에요`, this.queueAction(pos))
-          : flow("lose", "패자", "대기 줄이 없어서 바로 다시 붙어요");
-      }
-      return pos >= 0 ? flow("draw", "무승부", `연속 무승부라 줄 ${pos + 1}번째로 갔어요`, this.queueAction(pos)) : flow("draw", "무승부", "자리를 바꿔 다시 붙어요");
+      return flow(info.winners.length ? "lose" : "draw", info.winners.length ? "패자" : "무승부", next);
     }
-    if (meNow?.role === "player") return flow("queue", "다음 판 출전", opponent ? `${nameOf(opponent)}과 붙어요. 선공은 도전자예요` : "자리에 앉았어요");
-    if (pos >= 0) return flow("queue", `대기 ${pos + 1}번째`, `앞에 ${pos}명이 있어요`, this.queueAction(pos));
-    return flow("spectator", "관전자", "구경 중이에요. 다음 판에 하고 싶으면 줄을 서요", this.queueAction(pos));
-  }
-
-  /** 자동 시작까지 남은 시간이 결과 화면에서 줄어들게 */
-  tickFlow() {
-    clearInterval(this.flowTick);
-    if (!this.roomInfo?.next_at || !this.resultView) return;
-    this.flowTick = setInterval(() => this.resultView?.setFlow?.(this.flowInfo()), 1000);
+    if (seated) return flow("queue", "다음 판 출전", next);
+    return flow("spectator", "관전자", "대기실에서 빈자리 참가하기를 누르면 들어갈 수 있어요");
   }
 
   showResultCard() {
@@ -363,14 +346,14 @@ export class Match {
       question, questionFor: loser !== null ? this.seats[loser].name : "",
       onTaunt: (text) => this.taunt(mine[0], text, myKind),
       onTeabag: canTeabag ? (style) => this.fx({ kind: "teabag", from: winner, to: loser, style }) : null,
-      onAgain: () => this.again(),
+      onAgain: this.online ? null : () => this.again(),
       onWaitingRoom: this.onWaitingRoom ? () => this.onWaitingRoom() : null,
       againLabel: "한 판 더",
+      noRematch: !!this.onBracket, // 토너먼트 방
       onExit: () => this.exit(true),
     });
     this.resultView.setFlow(this.flowInfo());
     this.updateResultStreaks();
-    this.tickFlow();
   }
 
   taunt(seat, text, kind) {
@@ -443,7 +426,6 @@ export class Match {
   destroy() {
     document.removeEventListener("keydown", this.onEscape);
     clearInterval(this.offlineTick);
-    clearInterval(this.flowTick);
     for (const id of this.timers) clearTimeout(id);
     this.timers.clear();
     this.resultView?.close();
@@ -466,6 +448,7 @@ export function seatCard(match, i, { extra = "", sub = null, turn = false, below
   const intro = off ? (left !== null ? `연결 끊김 · ${left}초 안에 안 오면 기권` : "연결이 끊겼어요...") : sub ?? s.intro ?? "";
   const tag = match.controls(i) && match.mode !== "local" ? " (나)" : "";
   const streak = match.streaks?.get(s.cid) || 0;
-  const badge = streak >= 1 ? ` ${streakHtml(streak)}` : "";
+  const champion = match.roomInfo?.members?.find((x) => x.cid === s.cid)?.champion ? ` <span class="champion-mark">👑 챔피언</span>` : "";
+  const badge = `${champion}${streak >= 1 ? ` ${streakHtml(streak)}` : ""}`;
   return `<div class="person ${turn ? "turn" : ""} ${off ? "off" : ""}" data-seat="${i}">${avatarHtml(s.avatar, 40)}<div class="who"><div class="nm"><span class="${titleFx(s.title)}">${esc(s.name + tag)}</span>${titleBadge(s.title)}${badge}</div>${intro ? `<div class="intro">${esc(intro)}</div>` : ""}${below}</div>${extra}</div>`;
 }

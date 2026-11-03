@@ -48,6 +48,8 @@ export const TITLES = {
   teabag3: { emoji: "😈", name: "티배깅 장인", fx: "fx-clay", group: "별난 기록", how: "승리 후 티배깅 3판" },
   comeback: { emoji: "🔥", name: "역전의 명수", fx: "fx-neon", group: "별난 기록", how: "3연패 뒤 승리" },
 
+  t_champ: { emoji: "🏆", name: "토너먼트 제왕", fx: "fx-legend", group: "토너먼트", secret: true, how: "8명 이상 토너먼트 우승" },
+
   q_about: { emoji: "📖", name: "기획서 정독", fx: "fx-stone", group: "숨은 재미", secret: true, how: "게임 기획 의도 열어 보기" },
   q_rules: { emoji: "🧑‍⚖️", name: "규칙 변호사", fx: "fx-moss", group: "숨은 재미", secret: true, how: "네 게임 규칙 모두 보기" },
   q_theme: { emoji: "🎨", name: "인테리어 업자", fx: "fx-clay", group: "숨은 재미", secret: true, how: "기기 테마 전부 써 보기" },

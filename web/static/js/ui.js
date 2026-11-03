@@ -275,14 +275,14 @@ export function showResult(opts) {
   }
   if (opts.myKind) {
     const taunts = el(`<div class="taunts"></div>`);
-    for (const line of pickLines(opts.myKind, 4)) {
+    for (const line of pickLines(opts.myKind, 4, opts.noRematch)) {
       const b = el(`<button class="btn small">${esc(line)}</button>`);
       b.onclick = () => opts.onTaunt?.(line);
       taunts.appendChild(b);
     }
     card.appendChild(taunts);
   }
-  // 버튼은 한 줄로: 티배깅(이긴 사람만) / 한 판 더 / 대기실로 / 나가기. 관전자는 한 판 더 대신 줄 서기
+  // 버튼은 한 줄로: 티배깅(이긴 사람만) / 한 판 더(혼자 하는 판) 또는 대기실로(온라인) / 나가기
   const actions = el(`<div class="row result-actions"></div>`);
   if (opts.onTeabag) {
     const tb = el(`<button class="btn pink">🍑 티배깅</button>`);
@@ -295,10 +295,9 @@ export function showResult(opts) {
     again.onclick = () => opts.onAgain();
     actions.appendChild(again);
   }
-  const queueBtn = el(`<button class="btn" hidden></button>`);
-  actions.appendChild(queueBtn);
+  let toRoom = null;
   if (opts.onWaitingRoom) {
-    const toRoom = el(`<button class="btn ghost">대기실로</button>`);
+    toRoom = el(`<button class="btn primary">대기실로</button>`);
     toRoom.onclick = () => opts.onWaitingRoom();
     actions.appendChild(toRoom);
   }
@@ -309,7 +308,7 @@ export function showResult(opts) {
   }
   card.appendChild(actions);
   document.body.appendChild(root);
-  // 키보드: Enter = 한 판 더, Esc = 결과 접기 (접혀 있으면 Esc · Enter로 펼치기)
+  // 키보드: Enter = 한 판 더 · 대기실로, Esc = 결과 접기 (접혀 있으면 Esc · Enter로 펼치기)
   const onKey = (e) => {
     if (!root.isConnected) { document.removeEventListener("keydown", onKey); return; }
     if (document.querySelector(".modal-back") || e.isComposing || (root.contains(e.target) && e.target.closest?.("input, textarea, button"))) return;
@@ -317,7 +316,8 @@ export function showResult(opts) {
     if (isFolded() && (e.key === "Escape" || e.key === "Enter")) { e.preventDefault(); setFolded(false); }
     else if (e.key === "Escape") { e.preventDefault(); setFolded(true); }
     else if (e.key === "Enter") {
-      if (again && !again.hidden) { e.preventDefault(); again.click(); }
+      const next = again || toRoom;
+      if (next) { e.preventDefault(); next.click(); }
     }
   };
   document.addEventListener("keydown", onKey);
@@ -337,15 +337,12 @@ export function showResult(opts) {
   const api = {
     root,
     cleanup: [],
-    /** 내 역할 안내 바꾸기 (대기 줄이 바뀌면 다시 부름) flow: { kind, tag, note, queue:{label, onClick} } */
+    /** 내 역할 안내 바꾸기 (자리가 바뀌면 다시 부름) flow: { kind, tag, note } */
     setFlow(flow) {
       flowEl.hidden = !flow;
       if (!flow) return;
       flowEl.className = `result-flow k-${flow.kind}`;
       flowEl.innerHTML = `<b>${esc(flow.tag)}</b><span>${esc(flow.note)}</span>`;
-      if (again) again.hidden = !flow.canAgain; // 줄로 간 사람은 다음 판을 열지 않음
-      queueBtn.hidden = !flow.queue;
-      if (flow.queue) { queueBtn.textContent = flow.queue.label; queueBtn.onclick = flow.queue.onClick; }
     },
     /** 이름 옆 연승 표시 바꾸기. streakOf(key): 그 자리의 연승 수 */
     setStreaks(streakOf) {

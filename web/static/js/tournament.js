@@ -6,13 +6,19 @@ export function roundName(t, r) {
   return teams === 2 ? "결승" : `${teams}강`;
 }
 
-/** 지금 치를 경기 { round, index, a, b, label }. 없으면 null */
-export function currentMatch(t) {
-  if (!t?.current) return null;
-  const [round, index] = t.current;
-  const m = t.rounds[round][index];
-  const name = roundName(t, round);
-  return { round, index, a: m.a, b: m.b, label: name === "결승" ? name : `${name} ${index + 1}경기` };
+/** 지금 치를 수 있거나 치르는 중인 경기들 { round, index, a, b, state, marks, watchers, label } */
+export function liveMatches(t) {
+  if (!t) return [];
+  return t.rounds.flatMap((matches, round) => matches.flatMap((m, index) => {
+    if (m.state !== "ready" && m.state !== "playing") return [];
+    const name = roundName(t, round);
+    return [{ ...m, round, index, label: name === "결승" ? name : `${name} ${index + 1}경기` }];
+  }));
+}
+
+/** 이 사람이 지금 치러야 할 경기. 없으면 null */
+export function myMatch(t, me) {
+  return liveMatches(t).find((m) => m.a === me || m.b === me) || null;
 }
 
 function slotHtml(t, m, pid, round) {
@@ -27,7 +33,7 @@ export function bracketHtml(t) {
   const last = t.rounds.length - 1;
   const columns = t.rounds.map((matches, r) => {
     const cells = matches.map((m, i) => {
-      const live = t.current?.[0] === r && t.current?.[1] === i;
+      const live = m.state === "ready" || m.state === "playing";
       return `<div class="b-wrap ${m.winner ? "won" : ""}"><div class="b-match ${live ? "live" : ""}">${slotHtml(t, m, m.a, r)}${slotHtml(t, m, m.b, r)}</div></div>`;
     }).join("");
     return `<div class="b-round ${r === last ? "final" : ""}"><div class="b-round-name">${roundName(t, r)}</div><div class="b-cells">${cells}</div></div>`;

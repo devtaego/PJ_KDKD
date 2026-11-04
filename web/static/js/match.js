@@ -303,10 +303,10 @@ export class Match {
     const tour = room.tournament;
     if (tour) { // 토너먼트: 다음 라운드 진출 · 탈락 · 우승
       const seatNow = this.mySeats.filter((i) => !this.seats[i].ai)[0];
-      if (seatNow === undefined) return flow("spectator", "관전자", "대기실에서 대진표를 볼 수 있어요");
+      if (seatNow === undefined) return flow("spectator", "관전자", "대기실에서 대진표를 보고 다른 경기도 구경할 수 있어요");
       if (tour.champion === me) return flow("win", "🏆 우승", "토너먼트에서 우승했어요!");
-      if (info.winners.includes(seatNow)) return flow("win", "진출", "다음 라운드로 올라가요. 대기실에서 기다려요");
-      if (info.winners.length) return flow("lose", "탈락", "이번 대회는 여기까지예요. 대기실에서 남은 경기를 관전해요");
+      if (info.winners.includes(seatNow)) return flow("win", "진출", "다음 라운드로 올라가요. 대기실에서 다음 경기를 준비해요");
+      if (info.winners.length) return flow("lose", "탈락", "이번 대회는 여기까지예요. 대기실에서 진행 중인 다른 경기를 구경해요");
       return flow("draw", "무승부", "같은 상대와 다시 겨뤄요. 선공은 바꿔요");
     }
     const next = seated ? "대기실에서 다음 판을 기다려요" : "관전으로 옮겼어요. 대기실에서 빈자리 참가하기를 누르면 다시 들어와요";

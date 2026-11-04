@@ -1998,3 +1998,12 @@ button.ys-char { cursor: pointer; box-shadow: inset 0 0 0 2px var(--gold); anima
   .mode-switch { margin-left: 0; width: 100%; }
   .b-round { width: 164px; }
 }
+
+/* 토너먼트: 동시에 진행되는 다른 경기 */
+.t-games { display: grid; gap: 10px; }
+.t-game { display: grid; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--card-hi); }
+.t-game-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.t-game-vs { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.t-game-who { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.t-game-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.t-game-actions:empty { display: none; }

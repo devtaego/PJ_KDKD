@@ -1,6 +1,7 @@
 // 한 판을 진행하는 틀: 컴퓨터 대전 · 한 기기 여럿 · 온라인을 같은 방식으로 다룸
 // 모든 행동(수 두기, 주사위 굴리기, 항복...)은 submit -> apply 순서로 흘러감.
 // 온라인에서는 서버가 순서와 시각을 붙여 모두에게 똑같이 돌려주므로, 모든 기기가 같은 판을 계산함.
+import { liveMatches } from "./tournament.js";
 import * as net from "./net.js";
 import { titleBadge, titleFx } from "./data/titles.js";
 import { countQuirk, streakHtml, streakText, el, ChatPanel, popAt, showResult, addLocalRecord, toast, modal, soundButton } from "./ui.js";
@@ -288,8 +289,23 @@ export class Match {
   updateSpecBar() {
     if (!this.online || this.mySeats.length || !this.root) { this.specBar?.remove(); this.specBar = null; return; }
     if (!this.specBar) {
-      this.specBar = el(`<div class="spec-bar"><span>관전 중이에요</span></div>`);
+      this.specBar = el(`<div class="spec-bar"><span>관전 중이에요</span><span class="spec-switch"></span></div>`);
       this.root.querySelector(".topbar").after(this.specBar);
+    }
+    // 토너먼트: 대기실로 나가지 않고 다른 경기로 바로 옮겨 감
+    const room = this.roomInfo, t = room?.tournament;
+    const others = room?.table ? liveMatches(t).filter((m) => m.state === "playing" && !(m.round === room.table[0] && m.index === room.table[1])) : [];
+    const name = (pid) => t?.people[pid]?.name || "?";
+    const key = others.map((m) => `${m.round}.${m.index}`).join();
+    if (key === this.specSwitchKey) return;
+    this.specSwitchKey = key;
+    const box = this.specBar.querySelector(".spec-switch");
+    box.innerHTML = "";
+    for (const m of others) {
+      const b = el(`<button type="button" class="btn ghost small"></button>`);
+      b.textContent = `${m.label} 보기: ${name(m.a)} vs ${name(m.b)}`;
+      b.onclick = () => net.send({ t: "t_watch", r: m.round, m: m.index });
+      box.appendChild(b);
     }
   }
 
@@ -306,7 +322,7 @@ export class Match {
       if (seatNow === undefined) return flow("spectator", "관전자", "대기실에서 대진표를 보고 다른 경기도 구경할 수 있어요");
       if (tour.champion === me) return flow("win", "🏆 우승", "토너먼트에서 우승했어요!");
       if (info.winners.includes(seatNow)) return flow("win", "진출", "다음 라운드로 올라가요. 대기실에서 다음 경기를 준비해요");
-      if (info.winners.length) return flow("lose", "탈락", "이번 대회는 여기까지예요. 대기실에서 진행 중인 다른 경기를 구경해요");
+      if (info.winners.length) return flow("lose", "탈락", tour.stage === "finished" ? "이번 대회는 여기까지예요. 대기실에서 대진표를 볼 수 있어요" : "이번 대회는 여기까지예요. 대기실에서 진행 중인 다른 경기를 구경해요");
       return flow("draw", "무승부", "같은 상대와 다시 겨뤄요. 선공은 바꿔요");
     }
     const next = seated ? "대기실에서 다음 판을 기다려요" : "관전으로 옮겼어요. 대기실에서 빈자리 참가하기를 누르면 다시 들어와요";

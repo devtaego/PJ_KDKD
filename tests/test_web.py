@@ -666,6 +666,178 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         for ws in (a, b):
             await ws.close()
 
+    def _fast_return(self, wait=30):
+        """끊김 처리 시간을 짧게: 기다림 없이 자리 비움 판정, 내 경기 대기는 wait초"""
+        for name, value in (("GRACE", 0), ("RETURN_CHECK", 0.02), ("TOURNAMENT_RETURN", wait)):
+            self.addCleanup(setattr, server, name, getattr(server, name))
+            setattr(server, name, value)
+
+    async def _win_first_match(self, by_pid, names, first):
+        await self._ready_both(by_pid, first)
+        for pid in (first["a"], first["b"]):
+            await by_pid[pid].send_json({"t": "result", "winners": [names[first["a"]]], "losers": [names[first["b"]]]})
+        return await self._room_when(by_pid[first["a"]], lambda r: r["tournament"]["rounds"] and r["tournament"]["rounds"][0][0]["done"])
+
+    async def test_disconnected_winner_keeps_place_and_can_come_back(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid, names = self._by_pid(socks), self._names_by_pid(self.FOUR)
+        first = room["tournament"]["rounds"][0][0]
+        await self._win_first_match(by_pid, names, first)
+        self._fast_return()
+        await by_pid[first["a"]].close()  # 다음 상대를 기다리다 폰 화면이 꺼짐
+        await asyncio.sleep(0.2)
+        hall = server.hub.rooms[room["id"]]
+        winner = server.hub.by_pid[first["a"]]
+        self.assertNotIn(winner.cid, hall.tournament.left)
+        self.assertEqual(winner.room, room["id"])
+        key = next(k for k, p in self.pids.items() if p == first["a"])
+        ws = await self.client.ws_connect(f"/ws?cid={self.secret(key)}")
+        welcome = await ws.receive_json()
+        self.assertEqual(welcome["pid"], first["a"])  # 같은 사람으로 돌아옴
+        self.assertEqual(welcome["room"]["id"], room["id"])
+        self.assertTrue(hall.tournament.still_in(winner.cid))
+        for pid, sock in by_pid.items():
+            if pid != first["a"]:
+                await sock.close()
+        await ws.close()
+
+    async def test_absent_player_loses_only_after_own_match_waits_too_long(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid = self._by_pid(socks)
+        first, second = room["tournament"]["rounds"][0]
+        self._fast_return(wait=0.2)
+        gone = next(m for m in (first["a"], first["b"]) if m != self.pids["aaaaaaaa1"])
+        stay = first["a"] if gone == first["b"] else first["b"]
+        await by_pid[gone].send_json({"t": "t_ready"})
+        await by_pid[gone].close()
+        room = await self._room_when(by_pid[stay], lambda r: r["tournament"]["rounds"] and r["tournament"]["rounds"][0][0]["done"])
+        self.assertEqual(room["tournament"]["rounds"][0][0]["winner"], stay)
+        for pid, sock in by_pid.items():
+            if pid != gone:
+                await sock.close()
+
+    async def test_absent_player_ready_mark_clears_and_host_moves_on(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid = self._by_pid(socks)
+        host_pid = self.pids["aaaaaaaa1"]
+        match = next(m for m in room["tournament"]["rounds"][0] if host_pid in (m["a"], m["b"]))
+        other = match["a"] if match["b"] == host_pid else match["b"]
+        await by_pid[host_pid].send_json({"t": "t_ready"})
+        await self._room_when(by_pid[other], lambda r: r["tournament"]["rounds"] and host_pid in next(m for m in r["tournament"]["rounds"][0] if m["a"] == match["a"])["marks"])
+        self._fast_return()
+        await by_pid[host_pid].close()
+        room = await self._room_when(by_pid[other], lambda r: r["host"] != host_pid)
+        self.assertEqual(next(m for m in room["tournament"]["rounds"][0] if m["a"] == match["a"])["marks"], [])
+        self.assertTrue(server.hub.rooms[room["id"]].tournament.still_in(server.hub.by_pid[host_pid].cid))  # 방장은 넘겨도 참가자로 남음
+        for pid, sock in by_pid.items():
+            if pid != host_pid:
+                await sock.close()
+
+    async def test_eliminated_player_is_dropped_as_usual(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid, names = self._by_pid(socks), self._names_by_pid(self.FOUR)
+        first = room["tournament"]["rounds"][0][0]
+        await self._win_first_match(by_pid, names, first)
+        self._fast_return()
+        await by_pid[first["b"]].close()
+        for _ in range(50):
+            if first["b"] not in server.hub.by_pid:
+                break
+            await asyncio.sleep(0.02)
+        self.assertNotIn(first["b"], server.hub.by_pid)
+        for pid, sock in by_pid.items():
+            if pid != first["b"]:
+                await sock.close()
+
+    async def test_seated_player_still_loses_seat_after_grace(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid = self._by_pid(socks)
+        first = room["tournament"]["rounds"][0][0]
+        await self._ready_both(by_pid, first)
+        self._fast_return()
+        await by_pid[first["b"]].close()  # 두던 판에서 끊기면 지금처럼 나간 것으로 침
+        while (await self.until(by_pid[first["a"]], "act"))["a"]["type"] != "leave":
+            pass
+        for pid, sock in by_pid.items():
+            if pid != first["b"]:
+                await sock.close()
+
+    def _fast_ready(self, wait):
+        for name, value in (("READY_WAIT", wait), ("RETURN_CHECK", 0.02)):
+            self.addCleanup(setattr, server, name, getattr(server, name))
+            setattr(server, name, value)
+
+    async def test_ready_player_advances_when_opponent_does_not_ready(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid = self._by_pid(socks)
+        first = room["tournament"]["rounds"][0][0]
+        self._fast_ready(0.1)
+        await by_pid[first["a"]].send_json({"t": "t_ready"})
+        room = await self._room_when(by_pid[first["b"]], lambda r: r["tournament"]["rounds"] and r["tournament"]["rounds"][0][0]["done"])
+        self.assertEqual(room["tournament"]["rounds"][0][0]["winner"], first["a"])
+        for ws in socks.values():
+            await ws.close()
+
+    async def test_cancelling_ready_stops_the_walkover_clock(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid = self._by_pid(socks)
+        first = room["tournament"]["rounds"][0][0]
+        self._fast_ready(0.1)
+        await by_pid[first["a"]].send_json({"t": "t_ready"})
+        await by_pid[first["a"]].send_json({"t": "t_ready", "ready": False})
+        await asyncio.sleep(0.3)
+        hall = server.hub.rooms[room["id"]]
+        self.assertFalse(hall.tournament.rounds[0][0]["done"])
+        for ws in socks.values():
+            await ws.close()
+
+    async def test_ready_clock_waits_for_disconnected_opponent(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid = self._by_pid(socks)
+        first = room["tournament"]["rounds"][0][0]
+        self._fast_ready(0.1)
+        await by_pid[first["b"]].close()  # 끊긴 사람은 2분 규칙이 맡음
+        await by_pid[first["a"]].send_json({"t": "t_ready"})
+        await asyncio.sleep(0.3)
+        hall = server.hub.rooms[room["id"]]
+        self.assertFalse(hall.tournament.rounds[0][0]["done"])
+        for pid, ws in by_pid.items():
+            if pid != first["b"]:
+                await ws.close()
+
+    async def test_host_can_give_walkover_on_another_table_while_playing(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid = self._by_pid(socks)
+        host_pid = self.pids["aaaaaaaa1"]
+        rounds = room["tournament"]["rounds"][0]
+        mine = next(m for m in rounds if host_pid in (m["a"], m["b"]))
+        other = next(m for m in rounds if m is not mine)
+        await self._ready_both(by_pid, mine)
+        await by_pid[host_pid].send_json({"t": "t_forfeit", "pid": other["a"]})
+        foe = by_pid[other["b"]]
+        room = await self._room_when(foe, lambda r: r["tournament"]["rounds"] and next(m for m in r["tournament"]["rounds"][0] if m["a"] == other["a"])["done"])
+        self.assertEqual(next(m for m in room["tournament"]["rounds"][0] if m["a"] == other["a"])["winner"], other["a"])
+        for ws in socks.values():
+            await ws.close()
+
+    async def test_watcher_can_switch_tables_directly(self):
+        room, socks = await self._tournament_of({**self.FOUR, "eeeeeeee5": "보라", "ffffffff6": "나무", "gggggggg7": "구름", "hhhhhhhh8": "바다"})
+        by_pid = self._by_pid(socks)
+        rounds = room["tournament"]["rounds"][0]
+        await self._ready_both(by_pid, rounds[0])
+        await self._ready_both(by_pid, rounds[1])
+        watcher = by_pid[rounds[2]["a"]]
+        await watcher.send_json({"t": "t_watch", "r": 0, "m": 0})
+        await self.until(watcher, "log")
+        await watcher.send_json({"t": "t_watch", "r": 0, "m": 1})
+        await self.until(watcher, "log")
+        hall = server.hub.rooms[room["id"]]
+        cid = server.hub.by_pid[rounds[2]["a"]].cid
+        self.assertIsNone(hall.tables[(0, 0)].role_of(cid))  # 앞 탁자에서는 빠지고
+        self.assertEqual(hall.tables[(0, 1)].role_of(cid), "spectator")  # 새 탁자로 옮겨 감
+        for ws in socks.values():
+            await ws.close()
+
     async def hub_leave(self, pid):
         await server.hub.leave(server.hub.by_pid[pid])
 

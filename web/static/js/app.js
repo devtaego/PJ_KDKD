@@ -6,7 +6,7 @@ import { el, toast, modal, confirmBox, segment, option, store, ChatPanel, person
 import { TITLES, COUNTED_TITLES, KEEP_ON_RESET, titleBadge, titleFx, isReservedName } from "./data/titles.js";
 import { play } from "./sound.js";
 import { Match, showRules } from "./match.js";
-import { bracketHtml, liveMatches, myMatch, nextFoeText, showLiveMatch, stillIn } from "./tournament.js";
+import { bracketHtml, bracketName, liveMatches, myMatch, nextFoeText, showLiveMatch, stillIn } from "./tournament.js";
 import { GAME_NAMES, GAME_DESC } from "./rules.js";
 import { THEMES, applyTheme, currentTheme } from "./theme.js";
 import { TitleScene } from "./scene.js";
@@ -1578,7 +1578,7 @@ function drawTournament(main, r, { ticket, tag, isHost, me }) {
       : out ? "탈락했어요. 진행 중인 경기를 구경하며 응원해요" : `${nextFoeText(t, me) || "다음 상대가 정해지면 알려 줄게요"}. 그동안 다른 경기를 구경해요`;
     const forfeits = (m) => (isHost ? [m.a, m.b].map((pid) => `<button class="btn ghost small" data-give="${esc(pid)}">${esc(t.people[pid]?.name || "?")} 부전승</button>`).join("") : "");
     const gameRow = (m) => {
-      const who = (pid) => `<span class="t-game-who">${avatarHtml(t.people[pid]?.avatar, 28)}<span class="b-name">${esc(t.people[pid]?.name || "?")}</span></span>`;
+      const who = (pid) => `<span class="t-game-who">${avatarHtml(t.people[pid]?.avatar, 28)}${bracketName(t, pid)}</span>`;
       const state = m.state === "playing" ? `<span class="pill live">대전 중${m.watchers ? ` · 구경 ${m.watchers}명` : ""}</span>` : `<span class="pill wait">준비 ${m.marks.length}/2</span>`;
       const watch = m.state === "playing" ? `<button class="btn primary small" data-watch="${m.round},${m.index}">구경하기</button>` : "";
       return `<div class="t-game"><div class="t-game-head"><span class="muted">${esc(m.label)}</span>${state}</div><div class="t-game-vs">${who(m.a)}<span class="vs-mark">VS</span>${who(m.b)}</div><div class="t-game-actions">${forfeits(m)}${watch}</div></div>`;

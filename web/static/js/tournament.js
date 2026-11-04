@@ -1,5 +1,6 @@
 // 토너먼트 대진표 그리기. 대진과 진행은 서버가 정하고, 여기서는 받은 그대로 보여 줌
 import { avatarHtml, esc } from "./art.js";
+import { titleFx } from "./data/titles.js";
 
 export function roundName(t, r) {
   const teams = 2 ** (t.rounds.length - r);
@@ -47,11 +48,18 @@ export function myMatch(t, me) {
   return liveMatches(t).find((m) => m.a === me || m.b === me) || null;
 }
 
+/** 대회에 아직 남아 있는 사람의 이름 (칭호 효과는 남아 있는 동안만 보임) */
+export function bracketName(t, pid) {
+  const who = t.people[pid] || { name: "?" };
+  const out = who.left || t.rounds.flat().some((m) => m.done && m.winner !== pid && (m.a === pid || m.b === pid));
+  return `<span class="b-name"><span class="${out ? "" : titleFx(who.title)}">${esc(who.name)}</span></span>`;
+}
+
 function slotHtml(t, m, pid, round) {
   if (!pid) return `<div class="b-slot empty">${round === 0 ? "부전승" : m.done ? "-" : "미정"}</div>`;
   const who = t.people[pid] || { name: "?", avatar: "cat" };
   const state = m.done && m.winner === pid ? "win" : m.done ? "lose" : "";
-  return `<div class="b-slot ${state}">${avatarHtml(who.avatar, 26)}<span class="b-name">${esc(who.name)}</span>${who.left ? `<span class="b-left">나감</span>` : ""}</div>`;
+  return `<div class="b-slot ${state}">${avatarHtml(who.avatar, 26)}${bracketName(t, pid)}${who.left ? `<span class="b-left">나감</span>` : ""}</div>`;
 }
 
 /** 왼쪽에서 오른쪽으로 올라가는 대진표. 칸이 많으면 옆으로 밀어서 봄 */
@@ -66,7 +74,7 @@ export function bracketHtml(t) {
   }).join("");
   const champ = t.champion ? t.people[t.champion] : null;
   const crown = `<div class="b-round b-crown"><div class="b-round-name">우승</div><div class="b-cells"><div class="b-wrap"><div class="b-champ ${champ ? "on" : ""}">
-    ${champ ? `${avatarHtml(champ.avatar, 44)}<span class="b-name">${esc(champ.name)}</span>` : `<span class="b-trophy">🏆</span>`}</div></div></div></div>`;
+    ${champ ? `${avatarHtml(champ.avatar, 44)}${bracketName(t, t.champion)}` : `<span class="b-trophy">🏆</span>`}</div></div></div></div>`;
   return `<div class="bracket-scroll"><div class="bracket">${columns}${crown}</div></div>`;
 }
 

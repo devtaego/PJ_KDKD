@@ -109,6 +109,9 @@ MAX_ACT = 600  # 게임 수 하나의 최대 크기 (보통 100바이트 안팎)
 TOURNAMENT_GAMES = {"chess", "omok", "yacht"}  # 1:1로 치를 수 있는 게임만 토너먼트를 엶
 TOURNAMENT_MAX = 16  # 토너먼트 참가 인원 상한
 TOURNAMENT_TITLE_MIN = 8  # 우승 칭호(t_champ)를 주는 최소 참가 인원
+TOURNAMENT_RETURN = 120  # 연결이 끊긴 참가자를 내 경기가 열린 뒤 기다려 주는 시간(초). 넘으면 부전승
+RETURN_CHECK = 2  # 끊긴 참가자가 돌아왔는지 다시 볼 간격(초)
+READY_WAIT = 60  # 한 사람이 준비한 뒤 상대를 기다리는 시간(초). 넘으면 준비한 사람이 부전승
 MAX_MEMBERS = 30  # 한 방의 사람 수 상한 (플레이어 + 관전 + 대기 줄)
 MAX_LOG_BYTES = 512 * 1024  # 한 판의 기록이 차지하는 메모리 상한
 MIN_GAME_SECONDS = 3  # 이보다 짧은 판은 기록 · 칭호에 넣지 않음
@@ -250,6 +253,7 @@ class Client:
         self.profile = None  # {name, avatar, intro} avatar는 동물 이름 또는 "photo:<pid>:<해시>"
         self.photo = None  # 사진 data URL (따로 한 번만 보냄)
         self.room = None
+        self.table = None  # 토너먼트에서 지금 앉아 있거나 구경하는 경기 탁자 (Room)
         self.gone_at = None  # 연결이 끊긴 시각 (다시 들어오면 None)
         self.last_active = time.time()
         self.sent = {"all": [], "chat": [], "redeem": []}  # 최근 보낸 메시지 시각 (도배 막기)
@@ -362,18 +366,23 @@ def win_titles(room, streak, lost_before, now=None):
 
 
 class Tournament:
-    """한 방에서 한 경기씩 치르는 싱글 엘리미네이션. 사람은 cid로 적음.
-    rounds[r][m] = {"a", "b", "winner", "done"}: a · b가 없으면 빈칸(부전승)."""
+    """경기마다 탁자를 따로 두고 동시에 치르는 싱글 엘리미네이션. 사람은 cid로 적음.
+    rounds[r][m] = {"a", "b", "winner", "done"}: a · b가 없으면 빈칸(부전승). 경기 하나는 (r, m)으로 부름."""
 
     def __init__(self, entrants=(), people=None):
         self.stage = "signup"  # signup / running / finished
         self.entrants = list(entrants)
         self.people = dict(people or {})  # cid -> 대진표에 보여 줄 모습 (나간 사람도 남음)
         self.rounds = []
-        self.current = None  # 지금 치를 경기 (r, m)
         self.champion = None
         self.left = set()  # 대회 중에 나간 사람
-        self.announced = None  # 채팅에 마지막으로 알린 경기
+        self.playing = set()  # 탁자에서 치르는 중인 경기
+        self.ready_marks = {}  # 경기 -> 준비를 누른 사람들
+        self.last_seats = {}  # 경기 -> 비겼을 때의 자리 순서 (재경기는 선공을 바꿈)
+        self.announced = set()  # 채팅에 이미 알린 경기
+        self.opened_at = {}  # 경기 -> 치를 수 있게 된 시각 (재경기면 다시 잼)
+        self.ready_since = {}  # 경기 -> 첫 사람이 준비를 누른 시각
+        self.finish_announced = False
         self.size = 0  # 대회를 시작할 때의 참가 인원
 
     def begin(self):
@@ -400,39 +409,63 @@ class Tournament:
     def settle(self, r, m, winner):
         match = self.rounds[r][m]
         match["winner"], match["done"] = winner, True
+        self.ready_marks.pop((r, m), None)
+        self.ready_since.pop((r, m), None)
+        self.last_seats.pop((r, m), None)
         if r + 1 < len(self.rounds):
             self.rounds[r + 1][m // 2]["a" if m % 2 == 0 else "b"] = winner
 
     def advance(self):
-        """상대가 없는 경기를 부전승으로 넘기고 다음 경기를 고름. 다 끝났으면 우승자를 정함."""
-        self.current = None
+        """상대가 없는 경기를 부전승으로 넘김 (탁자에서 치르는 경기는 결과를 기다림). 다 끝났으면 우승자를 정함."""
         for r, matches in enumerate(self.rounds):
             for m, match in enumerate(matches):
-                if match["done"] or not self.ready(r, m):
+                if match["done"] or (r, m) in self.playing or not self.ready(r, m):
                     continue
                 live = [c for c in (match["a"], match["b"]) if c and c not in self.left]
                 if len(live) < 2:
                     self.settle(r, m, live[0] if live else None)
-                elif self.current is None:
-                    self.current = (r, m)
-        if self.rounds[-1][0]["done"]:
+        if self.rounds and self.rounds[-1][0]["done"]:
             self.stage = "finished"
             self.champion = self.rounds[-1][0]["winner"]
 
-    def match(self):
-        return self.rounds[self.current[0]][self.current[1]] if self.current else None
+    def open_matches(self):
+        """두 사람이 정해졌고 아직 시작하지 않은 경기들"""
+        return [(r, m) for r, matches in enumerate(self.rounds) for m, match in enumerate(matches)
+                if not match["done"] and (r, m) not in self.playing and self.ready(r, m)]
 
-    def record(self, winner):
-        """지금 경기의 승자를 적음. 경기에 없던 사람이면 무시."""
-        match = self.match()
-        if match is None or winner not in (match["a"], match["b"]):
+    def match_of(self, cid):
+        """이 사람이 지금 치르거나 치러야 할 경기. 없으면 None"""
+        for key in self.open_matches() + sorted(self.playing):
+            match = self.rounds[key[0]][key[1]]
+            if cid in (match["a"], match["b"]):
+                return key
+        return None
+
+    def still_in(self, cid):
+        """아직 지지 않은 참가자인지"""
+        return cid in self.entrants and cid not in self.left and not any(
+            m["done"] and m["winner"] != cid and cid in (m["a"], m["b"]) for ms in self.rounds for m in ms)
+
+    def record(self, key, winner):
+        """경기의 승자를 적음. 경기에 없던 사람이면 무시."""
+        r, m = key
+        match = self.rounds[r][m]
+        if match["done"] or winner not in (match["a"], match["b"]):
             return False
-        self.settle(*self.current, winner)
+        self.settle(r, m, winner)
         self.advance()
         return True
 
-    def round_label(self):
-        r, m = self.current
+    def state_of(self, r, m):
+        match = self.rounds[r][m]
+        if match["done"]:
+            return "done"
+        if (r, m) in self.playing:
+            return "playing"
+        return "ready" if self.ready(r, m) else "wait"
+
+    def round_label(self, key):
+        r, m = key
         teams = 2 ** (len(self.rounds) - r)
         return "결승" if teams == 2 else f"{teams}강 {m + 1}경기"
 
@@ -466,6 +499,9 @@ class Room:
         self.last_winners = []  # 지난 판 이긴 사람 (cid)
         self.banned = set()  # 방장이 내보낸 사람 (cid)
         self.tournament = None  # 토너먼트 방이면 Tournament
+        self.tables = {}  # 토너먼트 방: (r, m) -> 그 경기를 치르는 탁자 (Room)
+        self.parent = None  # 경기 탁자면 토너먼트 방
+        self.key = None  # 경기 탁자면 (r, m)
 
     @property
     def private(self):
@@ -538,7 +574,8 @@ class Hub:
                             "yut_skin": room.yut_skins.get(cid, "") if room.game == "yut" else "", **c.profile})
         return {"id": room.id, "name": room.name, "game": room.game, "settings": room.settings,
                 "team_skins": room.team_skins, "host": self.pid(room.host), "status": room.status, "members": members, "max": GAMES[room.game],
-                "grace": GRACE, "tournament": self.tournament_view(room)}
+                "grace": GRACE, "tournament": self.tournament_view(room.parent or room),
+                "table": list(room.key) if room.key else None}
 
     def tournament_person(self, client):
         p = client.profile
@@ -555,8 +592,11 @@ class Hub:
             t.people[cid]["left"] = cid in t.left
         pid = lambda cid: t.people[cid]["cid"] if cid in t.people else None  # noqa: E731
         return {"stage": t.stage, "entrants": [pid(c) for c in t.entrants],
-                "rounds": [[{"a": pid(m["a"]), "b": pid(m["b"]), "winner": pid(m["winner"]), "done": m["done"]} for m in ms] for ms in t.rounds],
-                "current": list(t.current) if t.current else None, "champion": pid(t.champion), "max": TOURNAMENT_MAX, "title_min": TOURNAMENT_TITLE_MIN,
+                "rounds": [[{"a": pid(m["a"]), "b": pid(m["b"]), "winner": pid(m["winner"]), "done": m["done"], "state": t.state_of(r, i),
+                             "marks": [pid(c) for c in t.ready_marks.get((r, i), ())],
+                             "watchers": sum(1 for _, role in room.tables[(r, i)].members if role == "spectator") if (r, i) in room.tables else 0}
+                            for i, m in enumerate(ms)] for r, ms in enumerate(t.rounds)],
+                "champion": pid(t.champion), "max": TOURNAMENT_MAX, "title_min": TOURNAMENT_TITLE_MIN, "return_secs": TOURNAMENT_RETURN, "ready_secs": READY_WAIT,
                 "people": {v["cid"]: v for v in t.people.values()}}
 
     def room_summary(self, room):
@@ -567,21 +607,30 @@ class Hub:
                 "host": host.profile["name"] if host and host.profile else "?",
                 "players": len(room.tournament.entrants) if room.tournament else len(room.players()),
                 "max": TOURNAMENT_MAX if room.tournament else GAMES[room.game], "tournament": bool(room.tournament),
+                "stage": room.tournament.stage if room.tournament else None,
                 "spectators": sum(1 for _, r in room.members if r == "spectator"),
                 "king": {"name": king_client.profile["name"], "streak": king[1]}
                 if king[1] >= 1 and king_client and king_client.profile else None}
 
     async def send_room(self, room, now=False):
-        """방 정보를 방 전체에 보냄. 짧은 시간에 여러 번 바뀌면 마지막 상태만 묶어서 보냄 (now: 바로 보내야 할 때)."""
+        """방 정보를 방 전체에 보냄. 짧은 시간에 여러 번 바뀌면 마지막 상태만 묶어서 보냄 (now: 바로 보내야 할 때).
+        토너먼트는 탁자에 있는 사람에게 그 탁자의 모습을, 나머지에게 대회 방의 모습을 보냄."""
+        room = room.parent or room
         wait = room.sent_at + ROOM_SEND_INTERVAL - time.time()
         if wait > 0 and not now:
             if room.send_later is None:
                 room.send_later = asyncio.ensure_future(self._send_room_later(room, wait))
             return
         room.sent_at = time.time()
-        view = self.room_view(room)
-        await asyncio.gather(*(self.clients[cid].send({"t": "room", "room": view})
-                               for cid, _ in room.members if cid in self.clients))
+        views = {None: self.room_view(room)}
+        for key, table in room.tables.items():
+            views[key] = self.room_view(table)
+        sends = []
+        for cid, _ in room.members:
+            client = self.clients.get(cid)
+            if client is not None:
+                sends.append(client.send({"t": "room", "room": views[client.table.key if client.table else None]}))
+        await asyncio.gather(*sends)
         await self.send_rooms()
 
     async def _send_room_later(self, room, wait):
@@ -624,6 +673,12 @@ class Hub:
 
     async def to_room(self, room, obj):
         await asyncio.gather(*(self.clients[cid].send(obj) for cid, _ in room.members if cid in self.clients))
+
+    async def to_here(self, room, obj):
+        """같은 자리에 있는 사람에게만: 탁자는 그 탁자 사람들, 방은 탁자에 가 있지 않은 사람들 (채팅 · 효과)"""
+        here = room if room.parent else None
+        await asyncio.gather(*(self.clients[cid].send(obj) for cid, _ in room.members
+                               if cid in self.clients and self.clients[cid].table is here))
 
     # ------------------------------------------------------------ 방
     def new_code(self):
@@ -676,33 +731,116 @@ class Hub:
             t.people.pop(cid, None)
 
     async def tournament_sync(self, room):
-        """대진을 앞으로 진행하고, 지금 경기의 두 사람만 자리에 앉힘 (나머지는 관전)"""
+        """대진을 앞으로 진행하고, 새로 치를 수 있게 된 경기와 우승자를 알림"""
         t = room.tournament
-        if t.stage == "signup" or room.status == "playing":
+        if t.stage == "signup":
             return
         t.advance()
-        match = t.match()
-        seated = {match["a"], match["b"]} if match else set()
-        for m in room.members:
-            m[1] = "player" if m[0] in seated else "spectator"
         name = lambda cid: t.people[cid]["name"]  # noqa: E731
-        if match and t.current != t.announced:
-            t.announced = t.current
-            await self.to_room(room, {"t": "notice", "kind": "text", "text": f"{t.round_label()}: {name(match['a'])} vs {name(match['b'])}"})
-        elif t.stage == "finished" and t.announced != "done":
-            t.announced = "done"
+        for key in t.open_matches():
+            if key not in t.announced:
+                t.announced.add(key)
+                t.opened_at[key] = time.time()
+                match = t.rounds[key[0]][key[1]]
+                await self.to_room(room, {"t": "notice", "kind": "text", "text": f"{t.round_label(key)}: {name(match['a'])} vs {name(match['b'])}"})
+        if t.stage == "finished" and not t.finish_announced:
+            t.finish_announced = True
             if t.champion and t.size >= TOURNAMENT_TITLE_MIN:
                 await self.grant_titles(t.champion, ["t_champ"])
             await self.to_room(room, {"t": "notice", "kind": "text", "text": f"🏆 {name(t.champion)} 님 우승!" if t.champion else "토너먼트가 끝났어요"})
 
     def tournament_order(self, room):
-        """토너먼트 자리 순서: 처음 만나면 무작위, 비겨서 다시 하면 선공을 바꿈"""
+        """탁자의 자리 순서: 처음 만나면 무작위, 비겨서 다시 하면 선공을 바꿈"""
         players = room.players()
         if set(players) == set(room.last_seats):
             players = list(reversed(room.last_seats))
         else:
             random.SystemRandom().shuffle(players)
         return [self.clients[c].pid for c in players if c in self.clients]
+
+    async def table_open(self, room, key):
+        """두 사람을 새 탁자에 앉히고 경기를 시작함 (구경 중이었으면 그 탁자에서 나옴)"""
+        t = room.tournament
+        match = t.rounds[key[0]][key[1]]
+        seats = [match["a"], match["b"]]
+        for cid in seats:
+            if self.clients[cid].table:
+                await self.table_exit(self.clients[cid])
+        table = Room(room.id, room.game, room.settings, room.host)
+        table.name = room.name
+        table.parent, table.key = room, key
+        table.members = [[cid, "player"] for cid in seats]
+        table.streak, table.lose_streak = room.streak, room.lose_streak  # 연승은 대회 내내 이어짐
+        table.last_seats = t.last_seats.get(key, [])
+        room.tables[key] = table
+        t.playing.add(key)
+        t.ready_marks.pop(key, None)
+        t.ready_since.pop(key, None)
+        for cid in seats:
+            self.clients[cid].table = table
+        await self.act(table, seats[0], {"type": "start", "settings": self.table_settings(room)})
+
+    @staticmethod
+    def table_settings(room):
+        """방 설정 중 경기 시작에 쓰는 값만 (app.js startRoomGame과 같음)"""
+        s = room.settings
+        if room.game == "chess":
+            return {"time": s.get("time") or "none"}
+        if room.game == "omok":
+            return {"rule": "free" if s.get("rule") == "free" else "renju", "turn": s.get("turn") or "none"}
+        return {}
+
+    async def ready_watch(self, room, t, key, since):
+        """한 사람만 준비한 채 READY_WAIT초가 지나면 그 사람을 부전승으로 올림.
+        상대가 끊겼으면 돌아올 때까지는 TOURNAMENT_RETURN이 맡고, 돌아오면 시간을 다시 잼."""
+        deadline = since + READY_WAIT
+        while True:
+            await asyncio.sleep(min(max(deadline - time.time(), 0.01), RETURN_CHECK))
+            if self.rooms.get(room.id) is not room or room.tournament is not t or t.ready_since.get(key) != since:
+                return  # 경기가 끝났거나 시작했거나, 준비를 취소하고 다시 누름
+            marks = t.ready_marks.get(key) or set()
+            if not marks:
+                return
+            match = t.rounds[key[0]][key[1]]
+            missing = match["b"] if match["a"] in marks else match["a"]
+            other = self.clients.get(missing)
+            if other is not None and other.gone_at is not None:
+                deadline = time.time() + READY_WAIT
+                continue
+            if time.time() >= deadline and len(marks) == 1:
+                winner = next(iter(marks))
+                t.record(key, winner)
+                await self.to_room(room, {"t": "notice", "kind": "text", "text": f"{t.round_label(key)}: 상대가 준비하지 않아 {t.people[winner]['name']} 님이 올라가요"})
+                await self.tournament_sync(room)
+                await self.send_room(room, now=True)
+                return
+
+    async def table_close(self, table, winner=None, reset=False):
+        """탁자를 치우고 승자를 대진표에 적음. winner가 없으면 비긴 것이거나 두 사람 다 나간 것.
+        reset: 판을 끝내지 못한 채 치우는 경우라 화면을 대기실로 돌려보냄."""
+        room = table.parent
+        t = room.tournament
+        t.playing.discard(table.key)
+        room.tables.pop(table.key, None)
+        if reset:
+            await self.to_room(table, {"t": "reset"})
+        for cid, _ in table.members:
+            client = self.clients.get(cid)
+            if client is not None and client.table is table:
+                client.table = None
+        if winner:
+            t.record(table.key, winner)
+        await self.tournament_sync(room)
+
+    async def table_exit(self, client):
+        """탁자에서 나옴. 앉아 있던 두 사람이 모두 사라지면 탁자를 치움."""
+        table = client.table
+        client.table = None
+        if table.role_of(client.cid) == "player" and table.status == "playing":
+            await self.act(table, client.cid, {"type": "leave"})
+        table.members = [m for m in table.members if m[0] != client.cid]
+        if table.key in table.parent.tables and not table.players():
+            await self.table_close(table, reset=True)
 
     def name_taken(self, room, client):
         """이 방에 같은 닉네임을 쓰는 다른 사람이 있는지 (결과 · 연승이 이름으로 묶여서 겹치면 안 됨)"""
@@ -736,7 +874,8 @@ class Hub:
         await self.send_room(room, now=True)
         if room.log:
             await client.send({"t": "log", "acts": room.log})
-        await self.to_room(room, {"t": "notice", "kind": "join", "name": client.profile["name"], "role": role})
+        entered = room.tournament and client.cid in room.tournament.entrants  # 토너먼트 참가자는 자리가 아니라 명단으로 구분
+        await self.to_room(room, {"t": "notice", "kind": "join", "name": client.profile["name"], "role": "player" if entered else role})
 
     async def leave(self, client, silent=False):
         room = self.rooms.get(client.room)
@@ -744,6 +883,10 @@ class Hub:
         if room is None:
             return
         role = room.role_of(client.cid)
+        if room.tournament and room.tournament.stage != "signup" and client.cid in room.tournament.people:
+            room.tournament.left.add(client.cid)  # 탁자를 치울 때 부전승을 바로 가릴 수 있게 먼저 적음
+        if client.table:
+            await self.table_exit(client)
         room.members = [m for m in room.members if m[0] != client.cid]
         room.streak.pop(client.cid, None)
         room.yut_skins.pop(client.cid, None)
@@ -754,13 +897,15 @@ class Hub:
         if room.host == client.cid:
             online = [cid for cid, _ in room.members if self.clients[cid].gone_at is None]
             room.host = (online or [room.members[0][0]])[0]
+            for table in room.tables.values():
+                table.host = room.host
         if room.status == "playing" and role == "player":
             await self.act(room, client.cid, {"type": "leave"})
         if room.tournament:
             if room.tournament.stage == "signup":
                 self.tournament_withdraw(room, client.cid)
-            elif client.cid in room.tournament.people:
-                room.tournament.left.add(client.cid)
+            for key, marks in room.tournament.ready_marks.items():
+                marks.discard(client.cid)
             await self.tournament_sync(room)
         if not silent:
             await self.to_room(room, {"t": "notice", "kind": "leave", "name": client.profile["name"]})
@@ -794,7 +939,7 @@ class Hub:
             room.started_at = time.time()
             a["game"] = room.game  # 방과 다른 게임으로 시작하거나 엉뚱한 설정을 보내지 못하게
             a["settings"] = clean_settings(a.get("settings"))
-            order = (self.tournament_order(room) if room.tournament else self.next_order(room)) or a.pop("order", None)  # 둘째 판부터는 도전자가 선공
+            order = (self.tournament_order(room) if room.parent else self.next_order(room)) or a.pop("order", None)  # 둘째 판부터는 도전자가 선공
             a.pop("order", None)
             room.seat_cids, a["seats"] = self.seats_for_start(room, order)
             room.seat_names = [self.clients[c].profile["name"] for c in room.seat_cids]
@@ -927,13 +1072,13 @@ class Hub:
             text = clean_text(msg.get("text"), MAX_TEXT)
             sticker = clean_text(msg.get("sticker"), 10)
             if (text or sticker) and client.allow_chat(text, sticker):
-                await self.to_room(room, {"t": "chat", "from": client.pid, "name": client.profile["name"],
+                await self.to_here(client.table or room, {"t": "chat", "from": client.pid, "name": client.profile["name"],
                                           "title": client.profile.get("title", ""),  # 표가 확인된 칭호만 들어 있음
                                           "text": text, "sticker": sticker, "at": now_ms()})
         elif t == "fx":  # 도발 멘트 · 티배깅 · 컵 흔들기처럼 기록할 필요 없는 효과
             fx = clean_fx(msg.get("fx"))
             if fx:
-                await self.to_room(room, {"t": "fx", "from": client.pid, "fx": fx})
+                await self.to_here(client.table or room, {"t": "fx", "from": client.pid, "fx": fx})
                 if fx["kind"] == "teabag" and client.cid in room.teabag_ready:
                     room.teabag_ready.discard(client.cid)
                     client.teabag_wins += 1
@@ -976,13 +1121,15 @@ class Hub:
             if target is None or target is client or target.room != room.id or target.gone_at is not None:
                 return
             room.host = target.cid
+            for table in room.tables.values():
+                table.host = room.host
             await self.to_room(room, {"t": "notice", "kind": "host", "name": target.profile["name"]})
             await self.send_room(room)
         elif t == "seat":  # 빈자리 참가하기 <-> 관전으로 바꾸기 (게임 중에는 못 바꿈)
             role = room.role_of(client.cid)
             if room.status == "playing":
                 return
-            if room.tournament:  # 토너먼트는 자리 대신 참가 명단 (시작하면 바꿀 수 없음)
+            if room.tournament:  # 토너먼트는 자리 대신 참가 명단. 시작 전에는 참가 <-> 관전을 오갈 수 있고, 시작하면 바꿀 수 없음
                 if msg.get("role") == "spectator":
                     self.tournament_withdraw(room, client.cid)
                 else:
@@ -1010,21 +1157,51 @@ class Hub:
             tour = room.tournament
             if tour.stage == "signup" and len(tour.entrants) >= 2:
                 tour.begin()
-                room.status = "waiting"
+                await self.to_room(room, {"t": "notice", "kind": "text", "text": f"토너먼트 시작! {len(tour.entrants)}명이 겨뤄요. 준비를 누르면 경기가 시작돼요"})
                 await self.tournament_sync(room)
-                await self.to_room(room, {"t": "notice", "kind": "text", "text": f"토너먼트 시작! {len(tour.entrants)}명이 겨뤄요"})
+                await self.send_room(room, now=True)
+        elif t == "t_ready" and room.tournament:  # 내 경기 준비. 두 사람이 다 누르면 탁자가 열림
+            tour = room.tournament
+            key = tour.match_of(client.cid)
+            if key is None or key in tour.playing or client.gone_at is not None:
+                return
+            marks = tour.ready_marks.setdefault(key, set())
+            if msg.get("ready") is False:
+                marks.discard(client.cid)
+            else:
+                if not marks:  # 첫 사람이 누른 때부터 상대를 기다림
+                    tour.ready_since[key] = time.time()
+                    asyncio.ensure_future(self.ready_watch(room, tour, key, tour.ready_since[key]))
+                marks.add(client.cid)
+            match = tour.rounds[key[0]][key[1]]
+            if {match["a"], match["b"]} <= marks:
+                await self.table_open(room, key)
+            await self.send_room(room, now=True)
+        elif t == "t_watch" and room.tournament:  # 진행 중인 다른 경기 구경하기
+            table = room.tables.get((msg.get("r"), msg.get("m"))) if isinstance(msg.get("r"), int) and isinstance(msg.get("m"), int) else None
+            if table is None or table is client.table or (client.table and client.table.role_of(client.cid) == "player"):
+                return
+            if client.table:
+                await self.table_exit(client)
+            table.members.append([client.cid, "spectator"])
+            client.table = table
+            await self.send_room(room, now=True)
+            await client.send({"t": "log", "acts": table.log})
+        elif t == "t_unwatch" and room.tournament:  # 구경을 그만두고 대진표로
+            if client.table and client.table.role_of(client.cid) == "spectator":
+                await self.table_exit(client)
                 await self.send_room(room, now=True)
         elif t == "t_forfeit" and room.tournament and client.cid == room.host:  # 방장이 부전승 처리 (자리를 비운 사람이 있을 때)
             tour = room.tournament
             target = self.by_pid.get(str(msg.get("pid")))
-            if target is not None and tour.record(target.cid):
-                playing = room.status == "playing"
-                room.status = "done"
-                await self.tournament_sync(room)
-                if playing:
-                    await self.to_waiting(room)
+            key = tour.match_of(target.cid) if target is not None else None
+            if key is not None:
+                if key in room.tables:
+                    await self.table_close(room.tables[key], target.cid, reset=True)
                 else:
-                    await self.send_room(room, now=True)
+                    tour.record(key, target.cid)
+                    await self.tournament_sync(room)
+                await self.send_room(room, now=True)
         elif t == "t_reset" and room.tournament and client.cid == room.host and room.status != "playing":  # 같은 사람들로 새 대회
             old = room.tournament
             if old.stage == "finished":
@@ -1040,8 +1217,9 @@ class Hub:
             if not isinstance(a, dict) or len(json.dumps(a)) > MAX_ACT:
                 return
             who = client.cid
+            room = client.table or room  # 토너먼트의 수는 그 경기 탁자로
             if a.get("type") == "start":  # 방장은 져서 관전 중이어도 다음 판을 시작할 수 있음
-                if client.cid != room.host or room.status == "playing" or len(room.players()) < 2:
+                if client.cid != room.host or room.status == "playing" or len(room.players()) < 2 or room.tournament:
                     return  # 혼자서는 판을 시작할 수 없음 (혼자 이겼다고 기록을 쌓지 못하게)
             elif room.role_of(client.cid) != "player":
                 return
@@ -1054,7 +1232,8 @@ class Hub:
                     return
                 who = target.cid
             await self.act(room, who, a)
-        elif t == "result" and client.cid in room.seat_cids and room.status == "playing":
+        elif t == "result" and client.cid in (client.table or room).seat_cids and (client.table or room).status == "playing":
+            room = client.table or room
             players = list(dict.fromkeys(room.seat_names))  # 클라이언트가 보낸 이름 목록은 믿지 않음
             winners = [n for n in dict.fromkeys(clean_text(n, 12) for n in msg.get("winners", [])[:6]) if n in players]
             losers = [n for n in dict.fromkeys(clean_text(n, 12) for n in msg.get("losers", [])[:6])
@@ -1097,14 +1276,18 @@ class Hub:
             await self.store.add(room.game, [{"id": pid, "name": name} for pid, name in zip(room.seat_ids, room.seat_names)],
                                  [pid for pid, name in zip(room.seat_ids, room.seat_names) if name in winners])
             # 판이 끝나는 즉시 자리를 바꿈. 너무 짧은 판은 기록에도 자리에도 넣지 않음
-            if winners and not room.tournament:
+            if winners and not room.parent:
                 self.rotate_seats(room, loser_cids)
-        if room.tournament:  # 토너먼트는 짧은 판도 승패를 적음. 비기면 같은 두 사람이 다시 함
-            if len(room.last_winners) == 1:
-                room.tournament.record(room.last_winners[0])
-            else:
+        if room.parent:  # 토너먼트는 짧은 판도 승패를 적음. 비기면 같은 두 사람이 다시 함
+            hall = room.parent
+            hall.teabag_ready |= room.teabag_ready  # 결과 화면의 티배깅은 탁자를 치운 뒤에 옴
+            single = len(room.last_winners) == 1
+            if not single:
+                hall.tournament.last_seats[room.key] = list(room.seat_cids)
+                hall.tournament.opened_at[room.key] = time.time()
                 await self.to_room(room, {"t": "notice", "kind": "text", "text": "비겼어요. 같은 두 사람이 다시 겨뤄요"})
-            await self.tournament_sync(room)
+            await self.table_close(room, room.last_winners[0] if single else None)
+            room = hall
         await self.send_room(room, now=True)
 
     async def grant_titles(self, cid, titles):
@@ -1116,12 +1299,49 @@ class Hub:
             if title in TITLE_IDS:
                 await client.send({"t": "title_grant", "title": title, "token": title_token(cid, title), "via": "earned"})
 
+    def return_wait(self, client):
+        """연결이 끊긴 이 사람을 앞으로 몇 초 더 기다릴지. 0이면 내보냄.
+        토너먼트에서 아직 지지 않았고 경기 중이 아니면, 내 경기가 열린 뒤 TOURNAMENT_RETURN초까지 자리를 지켜 줌."""
+        room = self.rooms.get(client.room)
+        t = room.tournament if room else None
+        if t is None or t.stage != "running" or not t.still_in(client.cid):
+            return 0
+        if client.table and client.table.role_of(client.cid) == "player":
+            return 0  # 두던 판은 평소처럼 자리를 비운 것으로 침
+        key = t.match_of(client.cid)
+        if key is None:
+            return RETURN_CHECK  # 다음 상대가 정해지기를 기다리는 중
+        return TOURNAMENT_RETURN - (time.time() - max(t.opened_at.get(key, 0), client.gone_at))
+
+    async def step_aside(self, client):
+        """오래 끊긴 참가자의 준비 표시를 지우고, 방장이었으면 넘김 (대회가 방장을 기다리며 멈추지 않게)"""
+        room = self.rooms.get(client.room)
+        if room is None:
+            return
+        for marks in room.tournament.ready_marks.values():
+            marks.discard(client.cid)
+        online = [cid for cid, _ in room.members if self.clients[cid].gone_at is None]
+        if room.host == client.cid and online:
+            room.host = online[0]
+            for table in room.tables.values():
+                table.host = room.host
+            await self.to_room(room, {"t": "notice", "kind": "host", "name": self.clients[room.host].profile["name"]})
+        await self.send_room(room)
+
     async def drop_later(self, client):
         await asyncio.sleep(GRACE)
-        if client.gone_at is not None and time.time() - client.gone_at >= GRACE - 0.5:
-            await self.leave(client)
-            self.clients.pop(client.cid, None)
-            self.by_pid.pop(client.pid, None)
+        waited = False
+        while client.gone_at is not None and time.time() - client.gone_at >= GRACE - 0.5:
+            wait = self.return_wait(client)
+            if wait <= 0:
+                await self.leave(client)
+                self.clients.pop(client.cid, None)
+                self.by_pid.pop(client.pid, None)
+                return
+            if not waited:
+                waited = True
+                await self.step_aside(client)
+            await asyncio.sleep(min(wait, RETURN_CHECK))
 
     async def reap_idle(self, interval=60):
         """오래 아무것도 안 한 연결을 끊음. 열어 둔 탭 때문에 무료 서버가 잠들지 못해
@@ -1209,7 +1429,7 @@ async def ws_handler(request):
     client.ip = ip
     client.gone_at = None
     client.last_active = time.time()
-    room = hub.rooms.get(client.room)
+    room = client.table or hub.rooms.get(client.room)
     await client.send({"t": "welcome", "cid": cid, "pid": client.pid, "s": now_ms(),
                        "room": hub.room_view(room) if room else None, "rooms": hub.public_rooms()})
     if room:  # 재접속: 사진 · 지금까지의 수를 다시 보내서 판을 이어 줌
@@ -1229,10 +1449,10 @@ async def ws_handler(request):
     finally:
         if client.ws is ws:
             client.gone_at = time.time()
+            asyncio.ensure_future(hub.drop_later(client))  # 아래 보내기가 실패해도 정리는 꼭 하도록 먼저 걸어 둠
             room = hub.rooms.get(client.room)
             if room:
                 await hub.send_room(room)
-            asyncio.ensure_future(hub.drop_later(client))
     return ws
 
 

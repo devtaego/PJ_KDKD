@@ -438,13 +438,27 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         byes = [m for m in t.rounds[0] if m["done"]]
         self.assertEqual(len(byes), 3)  # 5명이면 8칸 중 3칸이 부전승
         played = 0
-        while t.current:
-            match = t.match()
+        while t.open_matches():
+            key = t.open_matches()[0]
+            match = t.rounds[key[0]][key[1]]
             self.assertTrue(match["a"] and match["b"])
-            t.record(match["a"])
+            t.record(key, match["a"])
             played += 1
         self.assertEqual(played, 4)  # n명이면 n-1 경기
         self.assertEqual((t.stage, t.champion), ("finished", t.rounds[-1][0]["winner"]))
+
+    def test_tournament_opens_first_round_matches_together(self):
+        t = server.Tournament(list("abcdefgh"))
+        t.begin()
+        self.assertEqual(t.open_matches(), [(0, 0), (0, 1), (0, 2), (0, 3)])  # 8강은 네 경기가 한꺼번에
+        t.playing.add((0, 0))
+        self.assertEqual(t.open_matches(), [(0, 1), (0, 2), (0, 3)])
+        first = t.rounds[0][1]
+        t.record((0, 1), first["a"])
+        self.assertEqual(t.state_of(1, 0), "wait")  # 4강은 앞 두 경기가 다 끝나야 열림
+        t.playing.discard((0, 0))
+        t.record((0, 0), t.rounds[0][0]["b"])
+        self.assertEqual(t.state_of(1, 0), "ready")
 
     def test_tournament_walkover_when_someone_leaves(self):
         t = server.Tournament(list("abcd"))
@@ -453,10 +467,10 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         t.left.add(second["a"])  # 다음 경기 사람이 나가면 상대가 올라감
         t.advance()
         self.assertEqual((second["done"], second["winner"]), (True, second["b"]))
-        self.assertEqual(t.current, (0, 0))
-        self.assertFalse(t.record("nobody"))  # 경기에 없는 사람은 무시
-        t.record(first["a"])
-        self.assertEqual(t.current, (1, 0))
+        self.assertEqual(t.open_matches(), [(0, 0)])
+        self.assertFalse(t.record((0, 0), "nobody"))  # 경기에 없는 사람은 무시
+        t.record((0, 0), first["a"])
+        self.assertEqual(t.open_matches(), [(1, 0)])
 
     async def _tournament_room(self):
         a = await self.connect("aaaaaaaa1", "태고")
@@ -480,6 +494,32 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("토너먼트", (await self.until(a, "error"))["msg"])
         await a.close()
 
+    async def _tournament_of(self, names):
+        """names(짧은 이름 -> 닉네임) 모두가 참가한 대회를 시작함. 첫 사람이 방장. (방, 짧은 이름 -> 소켓)"""
+        keys = list(names)
+        a, room = await self._tournament_room()
+        socks = {keys[0]: a}
+        for key in keys[1:]:
+            socks[key] = await self.connect(key, names[key])
+            await socks[key].send_json({"t": "join", "room": room["id"]})
+            await self.until(socks[key], "room")
+        await a.send_json({"t": "t_start"})
+        room = await self._room_when(a, lambda r: r["tournament"]["stage"] == "running")
+        return room, socks
+
+    FOUR = {"aaaaaaaa1": "태고", "bbbbbbbb2": "민수", "cccccccc3": "지수", "dddddddd4": "하늘"}
+
+    async def _ready_both(self, by_pid, match):
+        for pid in (match["a"], match["b"]):
+            await by_pid[pid].send_json({"t": "t_ready"})
+        return [await self._start_seats(by_pid[pid]) for pid in (match["a"], match["b"])]
+
+    def _by_pid(self, socks):
+        return {self.pids[k]: ws for k, ws in socks.items()}
+
+    def _names_by_pid(self, names):
+        return {self.pids[k]: n for k, n in names.items()}
+
     async def test_tournament_runs_to_champion(self):
         a, room = await self._tournament_room()
         code = room["id"]
@@ -491,52 +531,368 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
             await self.until(ws, "room")
         await b.send_json({"t": "t_start"})  # 방장만 시작
         await self.quiet(b)
-        await a.send_json({"t": "act", "a": {"type": "start", "game": "chess"}})  # 대회 시작 전에는 경기 못 함
+        await a.send_json({"t": "act", "a": {"type": "start", "game": "chess"}})  # 방장이 직접 판을 열 수는 없음
         await a.send_json({"t": "t_start"})
         room = await self._room_when(a, lambda r: r["tournament"]["stage"] == "running")
+        await a.send_json({"t": "act", "a": {"type": "start", "game": "chess"}})
         names = {self.pids[k]: n for k, n in (("aaaaaaaa1", "태고"), ("bbbbbbbb2", "민수"), ("cccccccc3", "지수"))}
         socks = {self.pids["aaaaaaaa1"]: a, self.pids["bbbbbbbb2"]: b, self.pids["cccccccc3"]: c}
         for _ in range(2):  # 3명이면 두 경기
             t = room["tournament"]
-            match = t["rounds"][t["current"][0]][t["current"][1]]
-            seated = {m["cid"] for m in room["members"] if m["role"] == "player"}
-            self.assertEqual(seated, {match["a"], match["b"]})  # 지금 경기의 두 사람만 앉음
-            await a.send_json({"t": "act", "a": {"type": "start", "game": "chess"}})
-            await self._start_seats(a)
+            match = next(m for ms in t["rounds"] for m in ms if m["state"] == "ready")
+            await self._ready_both(socks, match)
             winner, loser = names[match["a"]], names[match["b"]]
             for pid in (match["a"], match["b"]):
                 await socks[pid].send_json({"t": "result", "winners": [winner], "losers": [loser]})
-            before = str(t["current"])
-            room = await self._room_when(a, lambda r: r["status"] == "done" and str(r["tournament"]["current"]) != before)
+            room = await self._room_when(socks[match["a"]], lambda r: not r["table"] and next(m for ms in r["tournament"]["rounds"] for m in ms if m["a"] == match["a"] and m["b"] == match["b"])["done"])
         t = room["tournament"]
-        self.assertEqual((t["stage"], t["current"]), ("finished", None))
+        self.assertEqual(t["stage"], "finished")
         self.assertEqual(t["people"][t["champion"]]["name"], winner)
-        self.assertEqual([m["role"] for m in room["members"]], ["spectator"] * 3)
+        for ws in (a, b, c):
+            await ws.close()
+
+    async def test_matches_run_at_the_same_time_and_finished_player_can_watch(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid, names = self._by_pid(socks), self._names_by_pid(self.FOUR)
+        first, second = room["tournament"]["rounds"][0]
+        self.assertEqual((first["state"], second["state"]), ("ready", "ready"))  # 두 경기를 한꺼번에 시작할 수 있음
+        await self._ready_both(by_pid, first)
+        await self._ready_both(by_pid, second)
+        # 첫 경기가 끝나도 둘째 경기는 그대로 진행
+        for pid in (first["a"], first["b"]):
+            await by_pid[pid].send_json({"t": "result", "winners": [names[first["a"]]], "losers": [names[first["b"]]]})
+        loser = by_pid[first["b"]]
+        room = await self._room_when(loser, lambda r: r["tournament"]["rounds"] and r["tournament"]["rounds"][0][0]["done"])
+        self.assertIsNone(room["table"])
+        self.assertEqual(room["tournament"]["rounds"][0][1]["state"], "playing")
+        # 끝난 사람이 둘째 경기를 구경: 지금까지의 수를 받음
+        await by_pid[second["a"]].send_json({"t": "act", "a": {"type": "move", "n": 1}})
+        await loser.send_json({"t": "t_watch", "r": 0, "m": 1})
+        log = await self.until(loser, "log")
+        self.assertEqual([e["a"]["type"] for e in log["acts"]], ["start", "move"])
+        await by_pid[second["a"]].send_json({"t": "act", "a": {"type": "move", "n": 2}})
+        self.assertEqual((await self.until(loser, "act"))["a"]["n"], 2)
+        room = await self._room_when(by_pid[second["b"]], lambda r: r["tournament"]["rounds"] and r["tournament"]["rounds"][0][1]["watchers"] == 1)
+        self.assertEqual(room["table"], [0, 1])
+        self.assertIn(first["b"], [m["cid"] for m in room["members"]])
+        # 구경꾼은 수를 둘 수 없고, 탁자 채팅은 그 탁자에만 감
+        await loser.send_json({"t": "act", "a": {"type": "move", "n": 3}})
+        await loser.send_json({"t": "chat", "text": "화이팅"})
+        self.assertEqual((await self.until(by_pid[second["a"]], "chat"))["text"], "화이팅")
+        await by_pid[first["a"]].send_json({"t": "ping", "c": 7})
+        while True:
+            msg = await asyncio.wait_for(by_pid[first["a"]].receive_json(), 2)
+            self.assertNotEqual(msg["t"], "chat")
+            if msg["t"] == "pong":
+                break
+        await loser.send_json({"t": "t_unwatch"})
+        room = await self._room_when(loser, lambda r: not r["table"])
+        self.assertEqual(room["tournament"]["rounds"][0][1]["watchers"], 0)
+        for ws in socks.values():
+            await ws.close()
+
+    async def test_watcher_returns_to_hall_when_watched_match_ends(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid, names = self._by_pid(socks), self._names_by_pid(self.FOUR)
+        first, second = room["tournament"]["rounds"][0]
+        await self._ready_both(by_pid, first)
+        watcher = by_pid[second["a"]]
+        await watcher.send_json({"t": "t_watch", "r": 0, "m": 0})
+        await self.until(watcher, "log")
+        for pid in (first["a"], first["b"]):
+            await by_pid[pid].send_json({"t": "result", "winners": [names[first["a"]]], "losers": [names[first["b"]]]})
+        room = await self._room_when(watcher, lambda r: r["tournament"]["rounds"] and r["tournament"]["rounds"][0][0]["done"])
+        self.assertIsNone(room["table"])
+        for ws in socks.values():
+            await ws.close()
+
+    async def test_ready_pulls_watching_player_into_own_match(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid = self._by_pid(socks)
+        first, second = room["tournament"]["rounds"][0]
+        await self._ready_both(by_pid, first)
+        watcher = by_pid[second["a"]]
+        await watcher.send_json({"t": "t_ready"})
+        await watcher.send_json({"t": "t_watch", "r": 0, "m": 0})
+        await self.until(watcher, "log")
+        await by_pid[second["b"]].send_json({"t": "t_ready"})
+        await self._start_seats(watcher)
+        room = await self._room_when(watcher, lambda r: r["table"] == [0, 1])
+        self.assertEqual({m["cid"]: m["role"] for m in room["members"]}, {second["a"]: "player", second["b"]: "player"})
+        for ws in socks.values():
+            await ws.close()
+
+    async def test_leaving_mid_match_gives_walkover_and_lone_table_closes(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid, names = self._by_pid(socks), self._names_by_pid(self.FOUR)
+        first, second = room["tournament"]["rounds"][0]
+        await self._ready_both(by_pid, first)
+        await by_pid[first["b"]].close()  # 끊긴 채로 있으면 자리는 지켜 줌
+        await by_pid[first["a"]].send_json({"t": "leave"})
+        # 남은 한 사람이 끊긴 뒤 나가면 둘 다 나간 경기: 빈 칸이 다음 경기 상대의 부전승이 됨
+        await self.hub_leave(first["b"])
+        room = await self._room_when(by_pid[second["a"]], lambda r: r["tournament"]["rounds"] and r["tournament"]["rounds"][0][0]["done"])
+        self.assertIsNone(room["tournament"]["rounds"][0][0]["winner"])
+        for pid, ws in by_pid.items():
+            if pid not in (first["a"], first["b"]):
+                await ws.close()
+
+    async def test_opponent_leaving_lets_remaining_player_advance(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid, names = self._by_pid(socks), self._names_by_pid(self.FOUR)
+        first = room["tournament"]["rounds"][0][0]
+        await self._ready_both(by_pid, first)
+        stay, gone = by_pid[first["a"]], by_pid[first["b"]]
+        await gone.send_json({"t": "leave"})
+        while (await self.until(stay, "act"))["a"]["type"] != "leave":
+            pass
+        await stay.send_json({"t": "result", "winners": [names[first["a"]]], "losers": [names[first["b"]]]})
+        room = await self._room_when(stay, lambda r: r["tournament"]["rounds"] and r["tournament"]["rounds"][0][0]["done"])
+        self.assertEqual(room["tournament"]["rounds"][0][0]["winner"], first["a"])
+        self.assertTrue(room["tournament"]["people"][first["b"]]["left"])
+        for pid, ws in by_pid.items():
+            if pid != first["b"]:
+                await ws.close()
+
+    async def test_join_notice_shows_entrant_as_participant(self):
+        a, room = await self._tournament_room()
+        b = await self.connect("bbbbbbbb2", "민수")
+        await b.send_json({"t": "join", "room": room["id"]})
+        while True:
+            msg = await self.until(a, "notice")
+            if msg["kind"] == "join" and msg["name"] == "민수":
+                break
+        self.assertEqual(msg["role"], "player")
+        for ws in (a, b):
+            await ws.close()
+
+    def _fast_return(self, wait=30):
+        """끊김 처리 시간을 짧게: 기다림 없이 자리 비움 판정, 내 경기 대기는 wait초"""
+        for name, value in (("GRACE", 0), ("RETURN_CHECK", 0.02), ("TOURNAMENT_RETURN", wait)):
+            self.addCleanup(setattr, server, name, getattr(server, name))
+            setattr(server, name, value)
+
+    async def _win_first_match(self, by_pid, names, first):
+        await self._ready_both(by_pid, first)
+        for pid in (first["a"], first["b"]):
+            await by_pid[pid].send_json({"t": "result", "winners": [names[first["a"]]], "losers": [names[first["b"]]]})
+        return await self._room_when(by_pid[first["a"]], lambda r: r["tournament"]["rounds"] and r["tournament"]["rounds"][0][0]["done"])
+
+    async def test_disconnected_winner_keeps_place_and_can_come_back(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid, names = self._by_pid(socks), self._names_by_pid(self.FOUR)
+        first = room["tournament"]["rounds"][0][0]
+        await self._win_first_match(by_pid, names, first)
+        self._fast_return()
+        await by_pid[first["a"]].close()  # 다음 상대를 기다리다 폰 화면이 꺼짐
+        await asyncio.sleep(0.2)
+        hall = server.hub.rooms[room["id"]]
+        winner = server.hub.by_pid[first["a"]]
+        self.assertNotIn(winner.cid, hall.tournament.left)
+        self.assertEqual(winner.room, room["id"])
+        key = next(k for k, p in self.pids.items() if p == first["a"])
+        ws = await self.client.ws_connect(f"/ws?cid={self.secret(key)}")
+        welcome = await ws.receive_json()
+        self.assertEqual(welcome["pid"], first["a"])  # 같은 사람으로 돌아옴
+        self.assertEqual(welcome["room"]["id"], room["id"])
+        self.assertTrue(hall.tournament.still_in(winner.cid))
+        for pid, sock in by_pid.items():
+            if pid != first["a"]:
+                await sock.close()
+        await ws.close()
+
+    async def test_absent_player_loses_only_after_own_match_waits_too_long(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid = self._by_pid(socks)
+        first, second = room["tournament"]["rounds"][0]
+        self._fast_return(wait=0.2)
+        gone = next(m for m in (first["a"], first["b"]) if m != self.pids["aaaaaaaa1"])
+        stay = first["a"] if gone == first["b"] else first["b"]
+        await by_pid[gone].send_json({"t": "t_ready"})
+        await by_pid[gone].close()
+        room = await self._room_when(by_pid[stay], lambda r: r["tournament"]["rounds"] and r["tournament"]["rounds"][0][0]["done"])
+        self.assertEqual(room["tournament"]["rounds"][0][0]["winner"], stay)
+        for pid, sock in by_pid.items():
+            if pid != gone:
+                await sock.close()
+
+    async def test_absent_player_ready_mark_clears_and_host_moves_on(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid = self._by_pid(socks)
+        host_pid = self.pids["aaaaaaaa1"]
+        match = next(m for m in room["tournament"]["rounds"][0] if host_pid in (m["a"], m["b"]))
+        other = match["a"] if match["b"] == host_pid else match["b"]
+        await by_pid[host_pid].send_json({"t": "t_ready"})
+        await self._room_when(by_pid[other], lambda r: r["tournament"]["rounds"] and host_pid in next(m for m in r["tournament"]["rounds"][0] if m["a"] == match["a"])["marks"])
+        self._fast_return()
+        await by_pid[host_pid].close()
+        room = await self._room_when(by_pid[other], lambda r: r["host"] != host_pid)
+        self.assertEqual(next(m for m in room["tournament"]["rounds"][0] if m["a"] == match["a"])["marks"], [])
+        self.assertTrue(server.hub.rooms[room["id"]].tournament.still_in(server.hub.by_pid[host_pid].cid))  # 방장은 넘겨도 참가자로 남음
+        for pid, sock in by_pid.items():
+            if pid != host_pid:
+                await sock.close()
+
+    async def test_eliminated_player_is_dropped_as_usual(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid, names = self._by_pid(socks), self._names_by_pid(self.FOUR)
+        first = room["tournament"]["rounds"][0][0]
+        await self._win_first_match(by_pid, names, first)
+        self._fast_return()
+        await by_pid[first["b"]].close()
+        for _ in range(50):
+            if first["b"] not in server.hub.by_pid:
+                break
+            await asyncio.sleep(0.02)
+        self.assertNotIn(first["b"], server.hub.by_pid)
+        for pid, sock in by_pid.items():
+            if pid != first["b"]:
+                await sock.close()
+
+    async def test_seated_player_still_loses_seat_after_grace(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid = self._by_pid(socks)
+        first = room["tournament"]["rounds"][0][0]
+        await self._ready_both(by_pid, first)
+        self._fast_return()
+        await by_pid[first["b"]].close()  # 두던 판에서 끊기면 지금처럼 나간 것으로 침
+        while (await self.until(by_pid[first["a"]], "act"))["a"]["type"] != "leave":
+            pass
+        for pid, sock in by_pid.items():
+            if pid != first["b"]:
+                await sock.close()
+
+    def _fast_ready(self, wait):
+        for name, value in (("READY_WAIT", wait), ("RETURN_CHECK", 0.02)):
+            self.addCleanup(setattr, server, name, getattr(server, name))
+            setattr(server, name, value)
+
+    async def test_ready_player_advances_when_opponent_does_not_ready(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid = self._by_pid(socks)
+        first = room["tournament"]["rounds"][0][0]
+        self._fast_ready(0.1)
+        await by_pid[first["a"]].send_json({"t": "t_ready"})
+        room = await self._room_when(by_pid[first["b"]], lambda r: r["tournament"]["rounds"] and r["tournament"]["rounds"][0][0]["done"])
+        self.assertEqual(room["tournament"]["rounds"][0][0]["winner"], first["a"])
+        for ws in socks.values():
+            await ws.close()
+
+    async def test_cancelling_ready_stops_the_walkover_clock(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid = self._by_pid(socks)
+        first = room["tournament"]["rounds"][0][0]
+        self._fast_ready(0.1)
+        await by_pid[first["a"]].send_json({"t": "t_ready"})
+        await by_pid[first["a"]].send_json({"t": "t_ready", "ready": False})
+        await asyncio.sleep(0.3)
+        hall = server.hub.rooms[room["id"]]
+        self.assertFalse(hall.tournament.rounds[0][0]["done"])
+        for ws in socks.values():
+            await ws.close()
+
+    async def test_ready_clock_waits_for_disconnected_opponent(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid = self._by_pid(socks)
+        first = room["tournament"]["rounds"][0][0]
+        self._fast_ready(0.1)
+        await by_pid[first["b"]].close()  # 끊긴 사람은 2분 규칙이 맡음
+        await by_pid[first["a"]].send_json({"t": "t_ready"})
+        await asyncio.sleep(0.3)
+        hall = server.hub.rooms[room["id"]]
+        self.assertFalse(hall.tournament.rounds[0][0]["done"])
+        for pid, ws in by_pid.items():
+            if pid != first["b"]:
+                await ws.close()
+
+    async def test_host_can_give_walkover_on_another_table_while_playing(self):
+        room, socks = await self._tournament_of(self.FOUR)
+        by_pid = self._by_pid(socks)
+        host_pid = self.pids["aaaaaaaa1"]
+        rounds = room["tournament"]["rounds"][0]
+        mine = next(m for m in rounds if host_pid in (m["a"], m["b"]))
+        other = next(m for m in rounds if m is not mine)
+        await self._ready_both(by_pid, mine)
+        await by_pid[host_pid].send_json({"t": "t_forfeit", "pid": other["a"]})
+        foe = by_pid[other["b"]]
+        room = await self._room_when(foe, lambda r: r["tournament"]["rounds"] and next(m for m in r["tournament"]["rounds"][0] if m["a"] == other["a"])["done"])
+        self.assertEqual(next(m for m in room["tournament"]["rounds"][0] if m["a"] == other["a"])["winner"], other["a"])
+        for ws in socks.values():
+            await ws.close()
+
+    async def test_watcher_can_switch_tables_directly(self):
+        room, socks = await self._tournament_of({**self.FOUR, "eeeeeeee5": "보라", "ffffffff6": "나무", "gggggggg7": "구름", "hhhhhhhh8": "바다"})
+        by_pid = self._by_pid(socks)
+        rounds = room["tournament"]["rounds"][0]
+        await self._ready_both(by_pid, rounds[0])
+        await self._ready_both(by_pid, rounds[1])
+        watcher = by_pid[rounds[2]["a"]]
+        await watcher.send_json({"t": "t_watch", "r": 0, "m": 0})
+        await self.until(watcher, "log")
+        await watcher.send_json({"t": "t_watch", "r": 0, "m": 1})
+        await self.until(watcher, "log")
+        hall = server.hub.rooms[room["id"]]
+        cid = server.hub.by_pid[rounds[2]["a"]].cid
+        self.assertIsNone(hall.tables[(0, 0)].role_of(cid))  # 앞 탁자에서는 빠지고
+        self.assertEqual(hall.tables[(0, 1)].role_of(cid), "spectator")  # 새 탁자로 옮겨 감
+        for ws in socks.values():
+            await ws.close()
+
+    async def hub_leave(self, pid):
+        await server.hub.leave(server.hub.by_pid[pid])
+
+    async def test_late_comer_can_only_spectate_after_start(self):
+        room, socks = await self._tournament_of({k: self.FOUR[k] for k in ("aaaaaaaa1", "bbbbbbbb2")})
+        late = await self.connect("cccccccc3", "지수")
+        await late.send_json({"t": "rooms"})
+        rooms = (await self.until(late, "rooms"))["rooms"]
+        self.assertEqual(rooms[0]["stage"], "running")
+        await late.send_json({"t": "join", "room": room["id"]})
+        view = (await self.until(late, "room"))["room"]
+        self.assertNotIn(self.pids["cccccccc3"], view["tournament"]["entrants"])
+        self.assertEqual({m["cid"]: m["role"] for m in view["members"]}[self.pids["cccccccc3"]], "spectator")
+        await late.send_json({"t": "seat", "role": "player"})  # 시작한 뒤에는 참가를 눌러도 안 됨
+        await late.send_json({"t": "t_ready"})
+        await self.quiet(late)
+        self.assertNotIn(server.hub.by_pid[self.pids["cccccccc3"]].cid, server.hub.rooms[room["id"]].tournament.entrants)
+        for ws in (*socks.values(), late):
+            await ws.close()
+
+    async def test_can_switch_between_entry_and_spectating_before_start(self):
+        a, room = await self._tournament_room()
+        b = await self.connect("bbbbbbbb2", "민수")
+        c = await self.connect("cccccccc3", "지수")
+        await b.send_json({"t": "join", "room": room["id"]})
+        view = (await self.until(b, "room"))["room"]
+        self.assertIn(self.pids["bbbbbbbb2"], view["tournament"]["entrants"])  # 그냥 들어오면 참가
+        await c.send_json({"t": "join", "room": room["id"], "as": "spectator"})
+        view = (await self.until(c, "room"))["room"]
+        self.assertNotIn(self.pids["cccccccc3"], view["tournament"]["entrants"])  # 관전으로 들어올 수도 있음
+        await b.send_json({"t": "seat", "role": "spectator"})
+        view = await self._room_when(a, lambda r: self.pids["bbbbbbbb2"] not in r["tournament"]["entrants"])
+        await c.send_json({"t": "seat", "role": "player"})
+        view = await self._room_when(a, lambda r: self.pids["cccccccc3"] in r["tournament"]["entrants"])
+        await b.send_json({"t": "seat", "role": "player"})
+        view = await self._room_when(a, lambda r: self.pids["bbbbbbbb2"] in r["tournament"]["entrants"])
+        self.assertEqual(len(view["tournament"]["entrants"]), 3)
         for ws in (a, b, c):
             await ws.close()
 
     async def test_eliminated_player_can_only_spectate(self):
-        a, room = await self._tournament_room()
-        b = await self.connect("bbbbbbbb2", "민수")
-        c = await self.connect("cccccccc3", "지수")
-        d = await self.connect("dddddddd4", "하늘")
-        socks = {"aaaaaaaa1": a, "bbbbbbbb2": b, "cccccccc3": c, "dddddddd4": d}
-        for ws in (b, c, d):
-            await ws.send_json({"t": "join", "room": room["id"]})
-            await self.until(ws, "room")
-        await a.send_json({"t": "t_start"})
-        room = await self._room_when(a, lambda r: r["tournament"]["stage"] == "running")
-        t = room["tournament"]
-        match = t["rounds"][0][t["current"][1]]
-        by_pid = {self.pids[k]: ws for k, ws in socks.items()}
+        room, socks = await self._tournament_of(self.FOUR)
+        a = socks["aaaaaaaa1"]
+        by_pid = self._by_pid(socks)
+        match = room["tournament"]["rounds"][0][0]
         await a.send_json({"t": "t_forfeit", "pid": match["a"]})  # b쪽이 탈락
-        room = await self._room_when(a, lambda r: r["tournament"]["rounds"][0][0]["done"])
         loser = by_pid[match["b"]]
-        await loser.send_json({"t": "seat", "role": "player"})  # 탈락한 사람은 자리에 앉을 수 없음
+        room = await self._room_when(loser, lambda r: r["tournament"]["rounds"] and r["tournament"]["rounds"][0][0]["done"])
+        await loser.send_json({"t": "seat", "role": "player"})  # 탈락한 사람은 다시 들어갈 수 없음
         await loser.send_json({"t": "seat", "role": "spectator"})
+        await loser.send_json({"t": "t_ready"})
         room = await self._room_when(loser, lambda r: r["tournament"]["stage"] == "running" and r["tournament"]["rounds"][0][0]["done"])
         self.assertEqual({m["cid"]: m["role"] for m in room["members"]}[match["b"]], "spectator")
         self.assertIn(match["b"], room["tournament"]["entrants"])  # 명단과 대진표에는 남음
+        self.assertEqual(room["tournament"]["rounds"][0][1]["marks"], [])
         for ws in socks.values():
             await ws.close()
 
@@ -577,15 +933,20 @@ class WebServerTest(unittest.IsolatedAsyncioTestCase):
         await self.until(b, "room")
         await a.send_json({"t": "t_start"})
         await self._room_when(a, lambda r: r["tournament"]["stage"] == "running")
-        await a.send_json({"t": "act", "a": {"type": "start", "game": "chess"}})
+        for ws in (a, b):
+            await ws.send_json({"t": "t_ready"})
         first = await self._start_seats(b)
-        room = await self.finish(a, b, [])
+        for ws in (a, b):
+            await ws.send_json({"t": "result", "winners": [], "losers": []})
+        room = await self._room_when(a, lambda r: r["tournament"]["rounds"][0][0]["state"] == "ready")
         self.assertEqual(room["tournament"]["stage"], "running")  # 비기면 그대로
-        await a.send_json({"t": "act", "a": {"type": "start", "game": "chess"}})
+        for ws in (a, b):
+            await ws.send_json({"t": "t_ready"})
         self.assertEqual(await self._start_seats(b), first[::-1])  # 재경기는 선공을 바꿈
         await b.send_json({"t": "t_forfeit", "pid": self.pids["bbbbbbbb2"]})  # 방장만 할 수 있음
         await self.quiet(b)
         await a.send_json({"t": "t_forfeit", "pid": self.pids["bbbbbbbb2"]})  # 게임 중이어도 부전승으로 끝낼 수 있음
+        await self.until(b, "reset")  # 끝나지 않은 판의 화면은 대기실로
         room = await self._room_when(a, lambda r: r["tournament"]["stage"] == "finished")
         self.assertEqual(room["tournament"]["champion"], self.pids["bbbbbbbb2"])
         await a.send_json({"t": "t_reset"})

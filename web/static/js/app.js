@@ -6,7 +6,7 @@ import { el, toast, modal, confirmBox, segment, option, store, ChatPanel, person
 import { TITLES, COUNTED_TITLES, KEEP_ON_RESET, titleBadge, titleFx, isReservedName } from "./data/titles.js";
 import { play } from "./sound.js";
 import { Match, showRules } from "./match.js";
-import { bracketHtml, currentMatch, showLiveMatch } from "./tournament.js";
+import { bracketHtml, liveMatches, myMatch, nextFoeText, showLiveMatch, stillIn } from "./tournament.js";
 import { GAME_NAMES, GAME_DESC } from "./rules.js";
 import { THEMES, applyTheme, currentTheme } from "./theme.js";
 import { TitleScene } from "./scene.js";
@@ -32,7 +32,7 @@ const app = document.getElementById("app");
 let profile = { name: "", avatar: "cat", intro: "", ...store.get("profile", {}) };
 let current = null; // 지금 화면 { root, back?, destroy? }
 let match = null;
-const online = { room: null, status: "closed", chat: null, lobby: null, wait: null, manage: null };
+const online = { room: null, status: "closed", chat: null, lobby: null, wait: null, manage: null, talk: { id: null, lines: [] } };
 let pendingCode = new URLSearchParams(location.search).get("room");
 
 // ---------------------------------------------------------------- 배경: 타이틀과 같은 픽셀 장면을 모든 화면 뒤에 은은하게
@@ -693,7 +693,8 @@ function localYutLobbyScreen(o) {
 
 function chooseTournament(game) {
   const saved = store.get(`opts.${game}`, {});
-  const o = { time: saved.time || "none", rule: saved.rule === "free" ? "free" : "renju", turn: saved.turn || "none", private: "" };
+  // 시간제한이 없으면 한 경기 때문에 다음 라운드가 계속 밀리므로 기본으로 시간을 둠 (바꿀 수 있음)
+  const o = { time: "10", rule: saved.rule === "free" ? "free" : "renju", turn: "s30", private: "" };
   const body = el(`<div></div>`);
   if (game === "chess") body.appendChild(option("시간", segment(Object.entries(chess.TIME_MODES).map(([k, v]) => [k, v[0]]), o.time, (v) => { o.time = v; })));
   if (game === "omok") {
@@ -701,7 +702,7 @@ function chooseTournament(game) {
     body.appendChild(option("한 수 시간", segment(Object.entries(omok.TURN_LIMITS).map(([k, v]) => [k, v[0]]), o.turn, (v) => { o.turn = v; })));
   }
   body.appendChild(option("방 공개", segment([["", "열린 방 목록에 보이기"], ["1", "비공개 (코드로만)"]], o.private, (v) => { o.private = v; })));
-  body.appendChild(el(`<p class="muted" style="margin-top:0">코드나 링크로 들어온 사람이 참가자가 돼요. 시작하면 대진을 무작위로 정하고, 한 경기씩 다 함께 지켜봐요. (2~16명)</p>`));
+  body.appendChild(el(`<p class="muted" style="margin-top:0">코드나 링크로 들어온 사람이 참가자가 돼요. 시작하면 대진을 무작위로 정하고 경기를 동시에 진행해요. 먼저 끝난 사람은 다른 경기를 구경할 수 있어요. (2~16명)</p>`));
   const row = el(`<div class="row modal-actions"></div>`);
   const go = el(`<button class="btn primary big">토너먼트 열기</button>`);
   let close = () => {};
@@ -867,6 +868,7 @@ net.on("status", (s) => {
 net.on("welcome", (msg) => {
   if (msg.room) {
     online.room = msg.room;
+    if (msg.room.status === "waiting" && match?.online) { match.destroy(); match = null; } // 끊긴 사이에 판이 끝났으면 대기실로
     if (msg.room.status === "waiting" || !match?.online) waitingScreen(); // 판이 진행 중이면 곧 오는 log로 이어짐
   } else if (online.room || match?.online) {
     online.room = null;
@@ -935,10 +937,11 @@ net.on("room", (msg) => {
 
 /** 토너먼트에서 내 경기 차례가 되면 알려 줌 */
 function announceMyMatch(prev, room) {
-  const now = currentMatch(room.tournament);
   const me = net.myId();
-  if (!now || (now.a !== me && now.b !== me) || String(prev?.tournament?.current) === String(room.tournament.current)) return;
-  toast(`${now.label}, 내 경기 차례예요!`, 3000);
+  const now = myMatch(room.tournament, me);
+  const before = myMatch(prev?.tournament, me);
+  if (!now || now.state !== "ready" || (before && before.round === now.round && before.index === now.index)) return;
+  toast(`${now.label}, 내 경기 차례예요! 준비를 눌러 주세요`, 3000);
   play("join");
 }
 
@@ -966,7 +969,17 @@ net.on("act", (entry) => {
   } else match?.online && match.receive(entry);
 });
 
+/** 토너먼트 대기실로 돌아왔을 때 다시 보여 줄 채팅 · 알림 (최근 것만) */
+function remember(line) {
+  const id = online.room?.id;
+  if (online.talk.id !== id) online.talk = { id, lines: [] };
+  online.talk.lines.push(line);
+  if (online.talk.lines.length > 120) online.talk.lines.shift();
+}
+
 net.on("chat", (msg) => {
+  const member = online.room?.members.find((x) => x.cid === msg.from);
+  remember({ name: member?.role === "spectator" ? `${msg.name} (관전)` : msg.name, msg });
   if (match?.online) match.onChat(msg);
   else if (online.chat) {
     const member = online.room?.members.find((x) => x.cid === msg.from);
@@ -984,6 +997,7 @@ net.on("notice", (msg) => {
       : msg.kind === "host" ? `${msg.name} 님이 새 방장이 됐어요`
       : msg.kind === "text" ? msg.text : `${msg.name} 님이 나갔어요`;
   if (msg.kind === "join") play("join");
+  remember({ text });
   (match?.online ? match.chat : online.chat)?.system(text);
 });
 
@@ -1104,13 +1118,14 @@ function manageRoomModal() {
       const sub = `${seated.has(x.cid) ? "플레이어" : "관전"}${x.online ? "" : " · 연결 끊김"}`;
       return personHtml({ ...x, name: seated.has(x.cid) ? x.name : `${x.name} (관전)` }, { sub, cls: x.online ? "" : "off", extra: x.cid === r.host ? `<span class="pill">방장</span>` : hostButtons(x) });
     }).join("");
-    const now = currentMatch(r.tournament);
-    if (now) { // 상대가 자리를 비워 경기가 멈췄을 때
+    for (const now of liveMatches(r.tournament)) { // 자리를 비운 사람이 있어 경기가 멈췄을 때 (내 경기 중에도 처리할 수 있음)
+      const line = el(`<div class="t-forfeit-row"><span class="muted">${esc(now.label)}</span></div>`);
       for (const pid of [now.a, now.b]) {
-        const give = el(`<button class="btn ghost small" style="margin:8px 8px 0 0">${esc(r.tournament.people[pid]?.name || "?")} 부전승</button>`);
+        const give = el(`<button class="btn ghost small">${esc(r.tournament.people[pid]?.name || "?")} 부전승</button>`);
         give.onclick = () => forfeitTo(pid);
-        body.appendChild(give);
+        line.appendChild(give);
       }
+      body.appendChild(line);
     }
     bindHostButtons(body);
   };
@@ -1130,7 +1145,14 @@ function startOnline(entry, replaying = false) {
   match = new Match({
     game: a.game, mode: "online", seats, mySeats: me >= 0 ? [me] : [], settings: { ...(a.settings || {}), seed: a.seed, startedAt: entry.at }, level: "normal",
     module: MODULES[a.game], isHost: online.room?.host === net.myId(), replaying, onManage: manageRoomModal, onBracket: online.room?.tournament ? bracketModal : null,
-    onExit: () => leaveRoom(),
+    onExit: async () => {
+      const t = online.room?.tournament;
+      if (me >= 0 && stillIn(t, net.myId()) && !await confirmBox("대회에서 나가기", "나가면 대회로 돌아올 수 없고, 다음 경기는 상대의 부전승이 돼요. 나갈까요?", "나가기", "남기")) return;
+      if (!t || me >= 0) { leaveRoom(); return; }
+      net.send({ t: "t_unwatch" }); // 토너먼트 구경꾼은 대진표로 돌아감
+      if (match?.online) { match.destroy(); match = null; }
+      waitingScreen();
+    },
     onWaitingRoom: () => { // 나만 먼저 대기실로. 다른 사람 화면은 그대로이고, 누가 다음 판을 열면 함께 이어짐
       if (match?.online) { match.destroy(); match = null; }
       waitingScreen();
@@ -1186,7 +1208,11 @@ function lobbyScreen(filter = "all") {
       const playing = r.status !== "waiting";
       const king = r.king ? ` · ${esc(r.king.name)} ${streakHtml(r.king.streak)}` : "";
       const full = r.players >= r.max;
-      const item = el(`<button class="room-item g-${r.game}"><span class="gicon">${GAME_ICONS[r.game]}</span><span class="grow"><div>${esc(r.name)} <span class="muted" style="font-size:14px">${esc(r.id)}</span></div><div class="muted" style="font-size:14px">${r.tournament ? "🏆 " : ""}${GAME_NAMES[r.game]}${r.tournament ? " 토너먼트" : ""} · 방장 ${esc(r.host)} · ${r.players}/${r.max}명${king}</div></span><span class="pill ${playing ? "live" : "wait"}">${playing ? "대전 중 · 줄 서기" : full ? "꽉 참 · 줄 서기" : "참가 가능"}</span></button>`);
+      const closed = r.tournament && r.stage !== "signup"; // 시작한 토너먼트는 새 참가자를 받지 않음
+      const pill = closed ? (r.stage === "finished" ? "대회 끝 · 관전" : "진행 중 · 관전만")
+        : r.tournament ? (full ? "꽉 참 · 관전" : "참가 가능")
+          : playing ? "대전 중 · 줄 서기" : full ? "꽉 참 · 줄 서기" : "참가 가능";
+      const item = el(`<button class="room-item g-${r.game}"><span class="gicon">${GAME_ICONS[r.game]}</span><span class="grow"><div>${esc(r.name)} <span class="muted" style="font-size:14px">${esc(r.id)}</span></div><div class="muted" style="font-size:14px">${r.tournament ? "🏆 " : ""}${GAME_NAMES[r.game]}${r.tournament ? " 토너먼트" : ""} · 방장 ${esc(r.host)} · ${r.players}/${r.max}명${king}</div></span><span class="pill ${playing || closed ? "live" : "wait"}">${pill}</span></button>`);
       item.onclick = () => net.send({ t: "join", room: r.id }); // 꽉 찼거나 대전 중이면 관전
       list.appendChild(item);
     }
@@ -1227,7 +1253,8 @@ function waitingScreen() {
   };
   const spotlight = setInterval(() => { spotAt++; shine(); }, 2600);
   root.querySelector(".icon-btn").onclick = async () => {
-    if (await confirmBox("방 나가기", "이 방에서 나갈까요?", "나가기", "남기")) leaveRoom();
+    const leaving = stillIn(online.room?.tournament, net.myId()) ? "나가면 대회로 돌아올 수 없고, 다음 경기는 상대의 부전승이 돼요. 나갈까요?" : "이 방에서 나갈까요?";
+    if (await confirmBox("방 나가기", leaving, "나가기", "남기")) leaveRoom();
   };
   root.querySelector('[data-k="rules"]').onclick = () => showRules(online.room.game);
   function update() {
@@ -1477,6 +1504,12 @@ function waitingScreen() {
   shine();
   show({ root, back: () => root.querySelector(".icon-btn").click(), destroy: () => { clearInterval(spotlight); online.wait = null; online.chat = null; } });
   chat.system(`방 코드 ${room.id} — 친구에게 링크를 보내 보세요!`);
+  if (room.tournament && online.talk.id === room.id) {
+    for (const line of online.talk.lines) {
+      if (line.text) chat.system(line.text);
+      else chat.add(line.name, line.msg);
+    }
+  }
 }
 
 /** 교실 화면(빔프로젝터)에 크게 띄워 폰으로 찍어 들어오게 하는 QR */
@@ -1499,7 +1532,6 @@ function drawTournament(main, r, { ticket, tag, isHost, me }) {
   const roster = (list) => list.map((x) => personHtml(x, { extra: tag(x), cls: x.online ? "" : "off" })).join("");
   const outside = r.members.filter((x) => !t.entrants.includes(x.cid));
   const peopleCard = (title, list) => (list.length ? `<div class="card"><div class="sec-title">${title} <span class="muted">${list.length}명</span></div><div class="people">${roster(list)}</div></div>` : "");
-  const now = currentMatch(t);
   const bracketCard = `<div class="card t-bracket"><div class="sec-title">대진표 <span class="muted">${t.entrants.length}명 · 비기면 재경기, 나가면 부전승</span></div>${bracketHtml(t)}</div>`;
   if (t.stage === "signup") {
     const entrants = t.entrants.map((pid) => r.members.find((m) => m.cid === pid)).filter(Boolean);
@@ -1507,11 +1539,13 @@ function drawTournament(main, r, { ticket, tag, isHost, me }) {
       <div class="card"><div class="sec-title">참가자 <span class="muted">${t.entrants.length} / ${t.max}명</span></div>
         <div class="people">${roster(entrants) || `<div class="empty">아직 참가자가 없어요</div>`}</div></div>
       ${peopleCard("관전", outside)}
-      <div class="card"><div class="sec-title">시작 준비</div><p class="muted" style="margin:0">방장이 시작하면 대진을 무작위로 정해요. 한 경기씩 치르고 모두 대진표로 지켜봐요. ${t.title_min}명 이상이면 우승자에게 희귀 칭호를 줘요.</p>
+      <div class="card"><div class="sec-title">시작 준비</div><p class="muted" style="margin:0">방장이 시작하면 대진을 무작위로 정하고, 그 뒤로는 새로 참가할 수 없어요. 경기는 동시에 진행되고, 내 경기가 끝나면 다른 경기를 구경할 수 있어요. ${t.title_min}명 이상이면 우승자에게 희귀 칭호를 줘요.</p>
+        <p class="muted t-my-role" style="margin:8px 0 0"></p>
         <div class="row start-row" style="justify-content:flex-end;margin-top:10px"></div></div>`;
     const row = main.querySelector(".start-row");
     const entered = t.entrants.includes(me);
-    const toggle = el(`<button class="btn ${entered ? "ghost" : "primary"}">${entered ? "참가 취소" : "참가 신청"}</button>`);
+    main.querySelector(".t-my-role").textContent = entered ? "지금 참가자예요. 시작 전까지 관전으로 바꿀 수 있어요" : "지금 관전 중이에요. 시작 전까지 참가로 바꿀 수 있어요";
+    const toggle = el(`<button class="btn ${entered ? "ghost" : "primary"}">${entered ? "관전으로 바꾸기" : "참가하기"}</button>`);
     toggle.disabled = !entered && t.entrants.length >= t.max;
     toggle.onclick = () => net.send({ t: "seat", role: entered ? "spectator" : "player" });
     row.appendChild(toggle);
@@ -1536,26 +1570,44 @@ function drawTournament(main, r, { ticket, tag, isHost, me }) {
       main.querySelector(".start-row").appendChild(again);
     }
   } else {
-    const mineNow = now && (now.a === me || now.b === me);
+    const live = liveMatches(t);
+    const mine = live.find((m) => m.a === me || m.b === me);
+    const others = live.filter((m) => m !== mine);
     const out = t.rounds.flat().some((m) => m.done && m.winner !== me && (m.a === me || m.b === me));
+    const note = !t.entrants.includes(me) ? "이미 시작한 토너먼트라 관전만 할 수 있어요. 진행 중인 경기를 구경해 보세요"
+      : out ? "탈락했어요. 진행 중인 경기를 구경하며 응원해요" : `${nextFoeText(t, me) || "다음 상대가 정해지면 알려 줄게요"}. 그동안 다른 경기를 구경해요`;
+    const forfeits = (m) => (isHost ? [m.a, m.b].map((pid) => `<button class="btn ghost small" data-give="${esc(pid)}">${esc(t.people[pid]?.name || "?")} 부전승</button>`).join("") : "");
+    const gameRow = (m) => {
+      const who = (pid) => `<span class="t-game-who">${avatarHtml(t.people[pid]?.avatar, 28)}<span class="b-name">${esc(t.people[pid]?.name || "?")}</span></span>`;
+      const state = m.state === "playing" ? `<span class="pill live">대전 중${m.watchers ? ` · 구경 ${m.watchers}명` : ""}</span>` : `<span class="pill wait">준비 ${m.marks.length}/2</span>`;
+      const watch = m.state === "playing" ? `<button class="btn primary small" data-watch="${m.round},${m.index}">구경하기</button>` : "";
+      return `<div class="t-game"><div class="t-game-head"><span class="muted">${esc(m.label)}</span>${state}</div><div class="t-game-vs">${who(m.a)}<span class="vs-mark">VS</span>${who(m.b)}</div><div class="t-game-actions">${forfeits(m)}${watch}</div></div>`;
+    };
     main.innerHTML = `${ticket}
-      <div class="card t-now ${mineNow ? "mine" : ""}"><div class="sec-title">${mineNow ? "내 경기예요!" : "지금 경기"} <span class="muted">${esc(now?.label || "")}</span></div>
-        ${now ? `<div class="people vs">${person(now.a)}<div class="vs-mark">VS</div>${person(now.b)}</div>` : ""}
-        ${out ? `<p class="muted" style="margin:10px 0 0">탈락했어요. 남은 경기를 관전하며 응원해요</p>` : ""}
-        <div class="row start-row" style="justify-content:flex-end;margin-top:10px"></div></div>
+      ${mine ? `<div class="card t-now mine"><div class="sec-title">내 경기예요! <span class="muted">${esc(mine.label)}</span></div>
+        <div class="people vs">${person(mine.a)}<div class="vs-mark">VS</div>${person(mine.b)}</div>
+        <div class="row start-row" style="justify-content:flex-end;margin-top:10px"></div></div>`
+    : `<div class="card t-now"><p class="muted" style="margin:0">${note}</p></div>`}
+      ${others.length ? `<div class="card"><div class="sec-title">다른 경기 <span class="muted">${others.length}경기</span></div><div class="t-games">${others.map(gameRow).join("")}</div></div>` : ""}
       ${bracketCard}${peopleCard("방 사람들", r.members)}`;
-    const row = main.querySelector(".start-row");
-    if (isHost && now) {
-      for (const pid of [now.a, now.b]) {
-        const give = el(`<button class="btn ghost small">${esc(t.people[pid]?.name || "?")} 부전승</button>`);
-        give.onclick = () => forfeitTo(pid);
-        row.appendChild(give);
+    if (mine) {
+      const row = main.querySelector(".start-row");
+      const foe = mine.a === me ? mine.b : mine.a;
+      const ready = mine.marks.includes(me);
+      const foeGone = r.members.find((x) => x.cid === foe)?.online === false;
+      row.insertAdjacentHTML("beforeend", forfeits(mine));
+      if (mine.state === "ready") {
+        row.appendChild(el(`<div class="muted">${foeGone ? `상대 연결이 끊겼어요. ${Math.round(t.return_secs / 60)}분 안에 돌아오지 않으면 부전승이에요` : mine.marks.includes(foe) ? `상대가 준비했어요! ${t.ready_secs}초 안에 준비하지 않으면 상대가 올라가요` : ready ? `상대를 기다리는 중... ${t.ready_secs}초 안에 준비하지 않으면 내가 올라가요` : "둘 다 준비하면 시작해요"}</div>`));
+        const go = el(`<button class="btn ${ready ? "ghost" : "primary big"}">${ready ? "준비 취소" : "준비 완료"}</button>`);
+        go.onclick = () => net.send({ t: "t_ready", ready: !ready });
+        row.appendChild(go);
       }
-      const go = el(`<button class="btn primary big">경기 시작</button>`);
-      go.disabled = r.status === "playing" || !r.members.filter((x) => x.role === "player").every((x) => x.online);
-      go.onclick = () => startRoomGame(r);
-      row.appendChild(go);
-    } else row.appendChild(el(`<div class="muted">방장이 경기를 시작하기를 기다리는 중...</div>`));
+    }
+    main.querySelectorAll("[data-give]").forEach((b) => { b.onclick = () => forfeitTo(b.dataset.give); });
+    main.querySelectorAll("[data-watch]").forEach((b) => {
+      const [round, index] = b.dataset.watch.split(",").map(Number);
+      b.onclick = () => net.send({ t: "t_watch", r: round, m: index });
+    });
   }
   if (scroll === undefined) showLiveMatch(main);
   else main.querySelector(".bracket-scroll").scrollLeft = scroll;

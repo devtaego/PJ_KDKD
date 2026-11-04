@@ -6,13 +6,45 @@ export function roundName(t, r) {
   return teams === 2 ? "결승" : `${teams}강`;
 }
 
-/** 지금 치를 경기 { round, index, a, b, label }. 없으면 null */
-export function currentMatch(t) {
-  if (!t?.current) return null;
-  const [round, index] = t.current;
-  const m = t.rounds[round][index];
+function matchLabel(t, round, index) {
   const name = roundName(t, round);
-  return { round, index, a: m.a, b: m.b, label: name === "결승" ? name : `${name} ${index + 1}경기` };
+  return name === "결승" ? name : `${name} ${index + 1}경기`;
+}
+
+/** 지금 치를 수 있거나 치르는 중인 경기들 { round, index, a, b, state, marks, watchers, label } */
+export function liveMatches(t) {
+  if (!t) return [];
+  return t.rounds.flatMap((matches, round) => matches.flatMap((m, index) => {
+    if (m.state !== "ready" && m.state !== "playing") return [];
+    return [{ ...m, round, index, label: matchLabel(t, round, index) }];
+  }));
+}
+
+/** 아직 지지 않은 참가자인지 */
+export function stillIn(t, me) {
+  return !!t && t.stage === "running" && t.entrants.includes(me) && !t.people[me]?.left
+    && !t.rounds.flat().some((m) => m.done && m.winner !== me && (m.a === me || m.b === me));
+}
+
+/** 다음 상대가 아직 정해지지 않았을 때 어느 경기의 승자를 기다리는지. 없으면 "" */
+export function nextFoeText(t, me) {
+  for (let round = 1; round < t.rounds.length; round++) {
+    for (let index = 0; index < t.rounds[round].length; index++) {
+      const m = t.rounds[round][index];
+      if (m.done || (m.a !== me && m.b !== me) || (m.a && m.b)) continue;
+      const feed = m.a === me ? index * 2 + 1 : index * 2;
+      const prev = t.rounds[round - 1][feed];
+      const name = (pid) => t.people[pid]?.name || "?";
+      const who = prev.a && prev.b ? ` (${name(prev.a)} vs ${name(prev.b)})` : "";
+      return `다음 상대는 ${matchLabel(t, round - 1, feed)}${who} 승자예요. ${matchLabel(t, round, index)}에서 만나요`;
+    }
+  }
+  return "";
+}
+
+/** 이 사람이 지금 치러야 할 경기. 없으면 null */
+export function myMatch(t, me) {
+  return liveMatches(t).find((m) => m.a === me || m.b === me) || null;
 }
 
 function slotHtml(t, m, pid, round) {
@@ -27,7 +59,7 @@ export function bracketHtml(t) {
   const last = t.rounds.length - 1;
   const columns = t.rounds.map((matches, r) => {
     const cells = matches.map((m, i) => {
-      const live = t.current?.[0] === r && t.current?.[1] === i;
+      const live = m.state === "ready" || m.state === "playing";
       return `<div class="b-wrap ${m.winner ? "won" : ""}"><div class="b-match ${live ? "live" : ""}">${slotHtml(t, m, m.a, r)}${slotHtml(t, m, m.b, r)}</div></div>`;
     }).join("");
     return `<div class="b-round ${r === last ? "final" : ""}"><div class="b-round-name">${roundName(t, r)}</div><div class="b-cells">${cells}</div></div>`;
